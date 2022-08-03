@@ -8,7 +8,7 @@ You caught me, I'm a fraud and these are anticipatory questions.
 
 If you don't know what that is, you don't need this.
 
-## What's a JavaCard?
+## What's a Javacard?
 
 If you don't know what that is, you DEFINITELY don't need this.
 
@@ -84,3 +84,45 @@ done here. At least it means off-the-shelf rainbow tables probably won't work.
 ## I hear bcrypt or Argon2id is better than PBKDF2
 
 Good luck implementing those on a 16-bit microprocessor. I welcome you to try.
+
+## What does this implementation store for resident keys?
+
+It will store:
+- the credential ID (an AES256 encrypted blob of the RP ID SHA-256
+  hash and the credential private key)
+- up to 32 characters of the RP ID, again AES256 encrypted
+- a 64-character-long user ID, again AES256 encrypted
+- the length of the RP ID, unencrypted
+- the length of the user ID, unencrypted
+- a boolean set to true on the first credential from a given RP ID, used
+  to save state when enumerating and counting on-device RPs
+- how many distinct RPs have valid keys on the device, unencrypted
+- how many total RPs are on the device, unencrypted
+
+This is the minimum to make the credentials management API work. It would
+be possible to encrypt the length fields too, they just aren't and I didn't
+see it as important.
+
+The default is to have fifty slots for resident keys, which is double what a
+Yubikey supports. You can turn this up, with a performance and flash cost, or
+turn it down with a performance and flash benefit.
+
+## Why is the code quality so low?
+
+You're welcome to contribute to improving it. I wrote this for a purpose and
+it seems to work for that purpose.
+
+Please remember that this code is written for processors that don't have an
+`int` type - only `short`. Most function calls are a runtime overhead, and
+each object allocation comes out of your at-most-2kB of RAM available. You
+can't practically use dynamic memory allocation at all, it's just there to tease
+you.
+
+The code I wrote may look ugly, and it's certainly not perfect, but it is
+reasonably efficient in execution on in-order processors with very limited
+stacks.
+
+## Why is the smartcard giving me OPERATION_DENIED when I try to create a resident key?
+
+You haven't set a PIN. You can turn off this feature in the code, or you can
+set a PIN. If I were you, I would use a PIN with resident keys.
