@@ -760,6 +760,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
             }
         }
+        loadWrappingKeyIfNoPIN();
 
         final short scratchRPIDHashOffset = scratchAlloc(RP_HASH_LEN);
         short digested = sha256.doFinal(bufferMem, rpIdIdx, rpIdLen, scratch, scratchRPIDHashOffset);
@@ -963,6 +964,18 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         ecKeyPair.getPrivate().clearKey();
 
         doSendResponse(apdu, outputLen);
+    }
+
+    /**
+     * If, and only if, no PIN is set, directly initialize symmetric crypto
+     * from our flash-stored wrapping key (which should be unencrypted)
+     */
+    private void loadWrappingKeyIfNoPIN() {
+        if (!pinSet) {
+            wrappingKey.setKey(wrappingKeySpace, (short) 0);
+
+            initSymmetricCrypto();
+        }
     }
 
     /**
@@ -1433,39 +1446,19 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         byte[] matchingPubKeyBuffer = bufferMem;
         short matchingPubKeyCredDataLen = 0;
         short rkMatch = -1;
+        short allowListIdx = -1;
 
         short paramsRead = 2;
         if (bufferMem[readIdx] == 0x03) { // allowList
             readIdx++;
+            if (readIdx >= lc) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
+            }
+
+            // We need to defer this until after we do PIN processing
+            allowListIdx = readIdx;
             paramsRead++;
-            if (readIdx >= lc) {
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
-            }
-
-            if (((byte)(bufferMem[readIdx] & 0xF0)) != (byte)0x80) {
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
-            }
-            short numPubKeysToCheck = (short) (bufferMem[readIdx++] & 0x0F);
-            if (readIdx >= lc) {
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
-            }
-
-            for (short i = 0; i < numPubKeysToCheck; i++) {
-                tempShorts[IDX_TEMP_BUF_IDX_STORAGE] = 0;
-                short beforeReadIdx = readIdx;
-                readIdx = consumeMapAndGetID(apdu, readIdx, lc);
-                short pubKeyIdx = tempShorts[IDX_TEMP_BUF_IDX_STORAGE];
-                short pubKeyLen = tempShorts[IDX_TEMP_BUF_IDX_LEN];
-
-                if (startOfMatchingPubKeyCredData == (short) -1) {
-                    boolean matches = checkCredential(bufferMem, pubKeyIdx, pubKeyLen, scratch, scratchRPIDHashIdx,
-                            privateScratch, (short) 0);
-                    if (matches) {
-                        startOfMatchingPubKeyCredData = beforeReadIdx;
-                        matchingPubKeyCredDataLen = (short) (readIdx - startOfMatchingPubKeyCredData);
-                    }
-                }
-            }
+            readIdx = consumeAnyEntity(apdu, readIdx, lc);
         }
 
         short hmacSecretBytes = 0;
@@ -1538,6 +1531,36 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         // Report PIN-validation failures before we report lack of matching creds
         if (pinSet && (!tempBools[IDX_RESET_PIN_PROVIDED] || !pinAuthSuccess)) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
+        }
+
+        loadWrappingKeyIfNoPIN();
+
+        if (allowListIdx != -1) {
+            short blockReadIdx = allowListIdx;
+            if (((byte)(bufferMem[blockReadIdx] & 0xF0)) != (byte)0x80) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+            }
+            short numPubKeysToCheck = (short) (bufferMem[blockReadIdx++] & 0x0F);
+            if (blockReadIdx >= lc) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
+            }
+
+            for (short i = 0; i < numPubKeysToCheck; i++) {
+                tempShorts[IDX_TEMP_BUF_IDX_STORAGE] = 0;
+                short beforeReadIdx = blockReadIdx;
+                blockReadIdx = consumeMapAndGetID(apdu, blockReadIdx, lc);
+                short pubKeyIdx = tempShorts[IDX_TEMP_BUF_IDX_STORAGE];
+                short pubKeyLen = tempShorts[IDX_TEMP_BUF_IDX_LEN];
+
+                if (startOfMatchingPubKeyCredData == (short) -1) {
+                    boolean matches = checkCredential(bufferMem, pubKeyIdx, pubKeyLen, scratch, scratchRPIDHashIdx,
+                            privateScratch, (short) 0);
+                    if (matches) {
+                        startOfMatchingPubKeyCredData = beforeReadIdx;
+                        matchingPubKeyCredDataLen = (short) (blockReadIdx - startOfMatchingPubKeyCredData);
+                    }
+                }
+            }
         }
 
         if (startOfMatchingPubKeyCredData == -1) {
@@ -3364,7 +3387,9 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         JCSystem.beginTransaction();
         boolean ok = false;
         try {
-            wrappingKey.getKey(wrappingKeySpace, (short) 0);
+            if (pinSet) {
+                wrappingKey.getKey(wrappingKeySpace, (short) 0);
+            }
 
             pinSet = true;
             tempBools[IDX_RESET_PIN_PROVIDED] = false;
@@ -3611,7 +3636,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         wrappingKeyValidation = new byte[64];
         hmacWrapperBytes = new byte[32];
         wrappingIV = new byte[16];
-        wrappingKey = getPersistentAESKey(); // Our most important treasure, from which all other crypto is born...
+        wrappingKey = getTransientAESKey(); // Our most important treasure, from which all other crypto is born...
         // Resident key data, of course, must all be in flash. Losing that on reset would be Bad
         residentKeyData = new byte[NUM_RESIDENT_KEY_SLOTS * CREDENTIAL_ID_LEN];
         residentKeyValidity = new boolean[NUM_RESIDENT_KEY_SLOTS];

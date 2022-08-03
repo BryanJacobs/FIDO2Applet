@@ -1,3 +1,5 @@
+package us.q3q.fido2;
+
 import com.licel.jcardsim.smartcardio.CardSimulator;
 import com.licel.jcardsim.utils.AIDUtil;
 
@@ -17,7 +19,10 @@ import java.util.ArrayList;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
-public class MyTestHarness {
+/**
+ * Example (only example) unit tests with jcardsim
+ */
+public class UnitTesting {
 
     CardSimulator simulator;
     AID appletAID = AIDUtil.create("F000000001");
