@@ -1,0 +1,49 @@
+buildscript {
+    repositories {
+        mavenCentral()
+        maven { url "https://javacard.pro/maven" }
+        maven { url "https://deadcode.me/mvn" }
+    }
+    dependencies {
+        classpath("com.klinec:gradle-javacard:1.8.0")
+    }
+}
+
+plugins {
+    id("java")
+    id("com.klinec.gradle.javacard") version "1.8.0"
+}
+
+group = "us.q3q"
+version = "1.0-SNAPSHOT"
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    testImplementation(files("./jcardsim-3.0.5-SNAPSHOT.jar"))
+
+    testImplementation("org.junit.jupiter:junit-jupiter-api:5.8.1")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.8.1")
+}
+
+test {
+    useJUnitPlatform()
+}
+
+javacard {
+    config {
+        jckit System.getenv("JC_HOME")
+        cap {
+            packageName 'us.q3q.fido2'
+            version '0.1'
+            aid 'A0:00:00:06:47'
+            output 'FIDO2.cap'
+            applet {
+                className 'us.q3q.fido2.FIDO2Applet'
+                aid 'A0:00:00:06:47:2F:00:01'
+            }
+        }
+    }
+}
