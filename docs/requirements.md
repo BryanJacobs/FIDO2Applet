@@ -14,7 +14,7 @@ hash yourself - good enough for me.
 So it's not possible to make this app work in a meaningful way on
 Javacard 3.0.1 or earlier.
 
-So let's discuss the full requirements:
+So let's discuss the full requirements on the authenticator side:
 
 - Javacard Classic 3.0.4
 - Approximately 2kB of total RAM, of which around 300 bytes will be reserved
@@ -27,3 +27,13 @@ So let's discuss the full requirements:
 
 An example of a card I've tested working is the NXP J3H145, but many
 others should work fine too.
+
+# Platform-side requirements
+
+On the computer side of things, you'll likely want `libfido2` compiled
+with support for PC/SC, which is currently experimental, or `libnfc`.
+
+Without either of those two things options you will Have A Bad Day.
+
+If you have them, you should see the card start showing up in the output
+of `fido2-token -L`.

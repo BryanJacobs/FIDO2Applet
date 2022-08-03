@@ -142,3 +142,12 @@ a "timeout" on a Javacard 3.0.4 device. Javacard 3.1 introduces an
 But the implementation currently always assumes user presence.
 
 This Could Be Better.
+
+### I gave my smartcard to somebody but I didn't "lock" the card
+
+They could probably install an applet that would make the scenario
+identical to one where they possessed the card AND the hardware
+was faulty.
+
+So, lock your smartcard ("set a transit key"), `gpp --lock <key>` or 
+however you communicate with it.
