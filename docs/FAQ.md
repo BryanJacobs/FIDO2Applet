@@ -126,3 +126,8 @@ stacks.
 
 You haven't set a PIN. You can turn off this feature in the code, or you can
 set a PIN. If I were you, I would use a PIN with resident keys.
+
+## I'm getting some strange CBOR error when I try to use this
+
+Run the app in JCardSim with VSmartCard and hook up your Java debugger.
+See what's going on. Raise a pull request to fix it.

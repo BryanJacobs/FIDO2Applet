@@ -992,6 +992,17 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         return rpIdLen;
     }
 
+    /**
+     * Handspun implementation of HMAC-SHA256, to work around lack of hardware support
+     *
+     * @param keyBuff Buffer containing 32-byte-long private key
+     * @param keyOff Offset of private key in key buffer
+     * @param content Buffer containing arbitrary-length content to be HMACed
+     * @param contentOff Offset of content in buffer
+     * @param contentLen Length of content
+     * @param outputBuff Buffer into which output should be written - must have 32 bytes available
+     * @param outputOff Write index into output buffer
+     */
     private void hmacSha256(byte[] keyBuff, short keyOff,
                              byte[] content, short contentOff, short contentLen,
                              byte[] outputBuff, short outputOff) {
@@ -1023,6 +1034,16 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         scratchRelease(scratchAmt);
     }
 
+    /**
+     * Uses the currently-set pinToken to hash some data and compare against a verification value
+     *
+     * @param apdu Request/response object
+     * @param content Buffer containing content to HMAC using the pinToken
+     * @param contentIdx Index of content in given buffer
+     * @param contentLen Length of content
+     * @param checkAgainst Buffer containing "correct" hash we're looking for
+     * @param checkIdx Index of correct hash in corresponding buffer
+     */
     private void checkPinTokenProtocolOne(APDU apdu, byte[] content, short contentIdx, short contentLen,
                                           byte[] checkAgainst, short checkIdx) {
         short scratchAmt = (short) 32;
@@ -1049,11 +1070,19 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         scratchRelease(scratchAmt);
     }
 
+    /**
+     * Consumes an incoming pinAuth block and checks it matches our set pinToken.
+     *
+     * @param apdu Request/response object
+     * @param readIdx Read index into bufferMem pointing to a 16-byte array (pinAuth)
+     * @param clientDataHashIdx Index in bufferMem of the hash of the clientData object, as given by the platform
+     *
+     * @return New read index into bufferMem after consuming the pinAuth options block
+     */
     private short verifyPinAuth(APDU apdu, short readIdx, short clientDataHashIdx) {
-        if (bufferMem[readIdx] != 0x50) { // byte array, 16 bytes long
+        if (bufferMem[readIdx++] != 0x50) { // byte array, 16 bytes long
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
         }
-        readIdx++;
 
         checkPinTokenProtocolOne(apdu, bufferMem, clientDataHashIdx, CLIENT_DATA_HASH_LEN,
                 bufferMem, readIdx);
@@ -1063,6 +1092,17 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         return readIdx;
     }
 
+    /**
+     * Consumes a CBOR block of public key data, and checks if it represents a supported algorithm.
+     * After call, tempShorts[IDX_RESET_FOUND_KEY_MATCH] will be true if the key is compatible. It should be set
+     * to false prior to call
+     *
+     * @param apdu Request/response object
+     * @param readIdx Read index into bufferMem
+     * @param lc Length of incoming request, as sent by the platform
+     *
+     * @return New read index into bufferMem after consuming public key block
+     */
     private short checkIfPubKeyBlockSupported(APDU apdu, short readIdx, short lc) {
         if (bufferMem[readIdx++] != (byte) 0xA2) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
@@ -1114,29 +1154,40 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         return readIdx;
     }
 
-    private short writeADBasic(short adLen, short outputLen, byte flags, byte[] rpIdBuffer, short rpIdOffset) {
+    /**
+     * Write the portions of an authData block that are used for both makeCredential and getAssertion
+     *
+     * @param adLen Length of the overall AD block
+     * @param writeIdx Write index into bufferMem
+     * @param flags CTAP2 "flags" byte value
+     * @param rpIdBuffer Buffer containing a hash of the RP ID
+     * @param rpIdOffset Offset of the RP ID hash in the given buffer
+     *
+     * @return New write index into bufferMem after serializing AD block
+     */
+    private short writeADBasic(short adLen, short writeIdx, byte flags, byte[] rpIdBuffer, short rpIdOffset) {
         short adAddlBytes;
 
         if (adLen < 24) {
-            bufferMem[outputLen++] = (byte)(0x50 + adLen);
+            bufferMem[writeIdx++] = (byte)(0x50 + adLen);
             adAddlBytes = 1;
         } else if (adLen < 256) {
-            bufferMem[outputLen++] = 0x58; // byte string, with one-byte length
-            bufferMem[outputLen++] = (byte) adLen;
+            bufferMem[writeIdx++] = 0x58; // byte string, with one-byte length
+            bufferMem[writeIdx++] = (byte) adLen;
             adAddlBytes = 2;
         } else {
-            bufferMem[outputLen++] = 0x59; // byte string, with two-byte length
-            outputLen = Util.setShort(bufferMem, outputLen, adLen);
+            bufferMem[writeIdx++] = 0x59; // byte string, with two-byte length
+            writeIdx = Util.setShort(bufferMem, writeIdx, adLen);
             adAddlBytes = 3;
         }
 
         // RPID hash
-        outputLen = Util.arrayCopyNonAtomic(rpIdBuffer, rpIdOffset, bufferMem, outputLen, RP_HASH_LEN);
+        writeIdx = Util.arrayCopyNonAtomic(rpIdBuffer, rpIdOffset, bufferMem, writeIdx, RP_HASH_LEN);
 
-        bufferMem[outputLen++] = flags; // flags
+        bufferMem[writeIdx++] = flags; // flags
 
         // counter
-        outputLen = encodeCounter(bufferMem, outputLen);
+        writeIdx = encodeCounter(bufferMem, writeIdx);
         incrementCounter();
 
         return adAddlBytes;
@@ -2424,6 +2475,13 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         }
     }
 
+    /**
+     * Deletes a resident key by its credential ID blob, and updates bookkeeping state to match
+     *
+     * @param apdu Request/response object
+     * @param readOffset Read index into bufferMem
+     * @param lc Length of incoming request, as sent by the platform
+     */
     private void handleDeleteCred(APDU apdu, short readOffset, short lc) {
         tempShorts[IDX_CRED_ITERATION_POINTER] = 0;
         tempShorts[IDX_RP_ITERATION_POINTER] = 0;
@@ -2518,10 +2576,11 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * Enumerates creds
      *
-     * @param apdu
-     * @param bufferIdx
-     * @param startCredIdx
-     * @param lc
+     * @param apdu Request/response object
+     * @param bufferIdx Read index into bufferMem
+     * @param startCredIdx Offset of the first credential to consider, in the resident key slots.
+     *                     If zero, we're starting a new iteration
+     * @param lc Length of the incoming request, as sent by the platform
      */
     private void handleEnumerateCreds(APDU apdu, short bufferIdx, short startCredIdx, short lc) {
         tempShorts[IDX_CRED_ITERATION_POINTER] = 0;

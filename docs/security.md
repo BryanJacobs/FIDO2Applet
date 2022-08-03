@@ -57,6 +57,15 @@ device is entirely compromised. Despite the name, there is no
 requirement that PINs be numeric. You can use any sequence of
 characters up to 64 bytes long.
 
+Your PIN is presented to the authenticator at least once per power-up,
+and it's done encrypted over an ECDH channel. The authenticator returns a
+32-byte "pinToken", also encrypted. From then on proof of possession of the
+PIN is via challenge-response using 16 bytes of the hash of whatever content
+with pinToken as the key.
+
+In other words, it's pretty secure. The PIN token is rerandomized each time a
+guess is unsuccessful and each authenticator reset.
+
 ### hmac-secret keys
 
 The hmac-secret extension keys are made by performing an HMAC-SHA256
