@@ -55,3 +55,7 @@ that it always applies level three internally.
 U2F doesn't support PINs, and requires an attestation certificate.
 
 [the security model](security.md) requires PINs.
+
+## Isn't PBKDF2 on a smartcard a fig leaf?
+
+Probably, yes, but it makes me feel better.
