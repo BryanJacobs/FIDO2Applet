@@ -15,12 +15,18 @@ If you don't know what that is, you DEFINITELY don't need this.
 ## Don't you need a CBOR parser to write a CTAP2 authenticator?
 
 Apparently not. Instead of implementing a real CBOR parser I just
-poured more sweat into the implemnentation, and added a topping of
+poured more sweat into the implementation, and added a topping of
 non-standards-compliance.
 
 As a result of not having a proper CBOR parser, the app will often
 return undesirable error codes on invalid input, but it should
 handle most valid input acceptably.
+
+It does this by linearly scanning a byte-buffer with the CBOR object in it,
+and moving a read index forward the desired amount. Unknown objects get skipped.
+Any object declaring a length greater than two bytes long causes an error,
+because it's not possible to have >65535 of something in a 1,024-byte-long
+buffer, and the CTAP2 standard requires that CBOR be "canonical".
 
 ## Why did you write this, when someone else said they were almost done writing a better version?
 
@@ -50,12 +56,31 @@ CTAP2.1 standard says it's okay to return level three if two was requested,
 but that breaks OpenSSH, so... credProtect is incorrectly implemented in
 that it always applies level three internally.
 
+Finally, the CTAP API requires user presence detection, but there's really no
+way to do that on Javacard 3.0.4. We can't even use the "presence timeout"
+that is described in the spec for NFC devices. So you're always treated as
+being present, which is to some extent offset by the fact that anything real
+requires you type your PIN (if one is set)...
+
+So set a PIN, and unplug your card when you're not using it.
+
 ## Why don't you implement U2F/CTAP1?
 
 U2F doesn't support PINs, and requires an attestation certificate.
 
-[the security model](security.md) requires PINs.
+[The security model](security.md) requires PINs.
+
+It would be possible to implement U2F commands in non-standards-compliant ways,
+but implementing them the normal way would require turning off the `alwaysUv`
+key feature for U2F-accessible credentials.
 
 ## Isn't PBKDF2 on a smartcard a fig leaf?
 
 Probably, yes, but it makes me feel better.
+
+You can raise the iteration count, but really there's only so much that can be
+done here. At least it means off-the-shelf rainbow tables probably won't work.
+
+## I hear bcrypt or Argon2id is better than PBKDF2
+
+Good luck implementing those on a 16-bit microprocessor. I welcome you to try.

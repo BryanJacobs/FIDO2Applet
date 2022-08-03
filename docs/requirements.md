@@ -31,9 +31,12 @@ others should work fine too.
 # Platform-side requirements
 
 On the computer side of things, you'll likely want `libfido2` compiled
-with support for PC/SC, which is currently experimental, or `libnfc`.
+with support for PC/SC, which is currently experimental, or `libnfc`. On
+Arch this is not the default - out of the box `libfido2` only works with
+USB HID tokens, which this is **not**.
 
-Without either of those two things options you will Have A Bad Day.
+Without one of those two options you will Have A Bad Day.
 
 If you have them, you should see the card start showing up in the output
-of `fido2-token -L`.
+of `fido2-token -L`. You can see what gets sent to and from the card by
+setting `FIDO_DEBUG=1` before running your command.
