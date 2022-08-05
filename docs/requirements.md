@@ -14,7 +14,13 @@ hash yourself - good enough for me.
 So it's not possible to make this app work in a meaningful way on
 Javacard 3.0.1 or earlier.
 
-So let's discuss the full requirements on the authenticator side:
+You might think you could implement ECDH yourself in software. I don't think
+you're right. ECDH agreement is just one, simple, elliptic-curve multiplication
+operation. But these processors don't even have 32-bit integers, much less the
+128-bit ones we'd be using. It would just be too slow to be reasonable. It's
+not feasible, sorry.
+
+Moving on, let's discuss the full requirements on the authenticator side:
 
 - Javacard Classic 3.0.4
 - Approximately 2kB of total RAM, of which around 300 bytes will be reserved
@@ -32,8 +38,9 @@ others should work fine too.
 
 On the computer side of things, you'll likely want `libfido2` compiled
 with support for PC/SC, which is currently experimental, or `libnfc`. On
-Arch this is not the default - out of the box `libfido2` only works with
-USB HID tokens, which this is **not**.
+Arch Linux this is not the default - out of the box `libfido2` only works with
+USB HID tokens, which this is **not**. I have uploaded an AUR package with
+the appropriate support at https://aur.archlinux.org/packages/libfido2-full .
 
 Without one of those two options you will Have A Bad Day.
 

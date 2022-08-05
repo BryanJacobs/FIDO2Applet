@@ -57,14 +57,17 @@ device is entirely compromised. Despite the name, there is no
 requirement that PINs be numeric. You can use any sequence of
 characters up to 64 bytes long.
 
-Your PIN is presented to the authenticator at least once per power-up,
-and it's done encrypted over an ECDH channel. The authenticator returns a
-32-byte "pinToken", also encrypted. From then on proof of possession of the
-PIN is via challenge-response using 16 bytes of the hash of whatever content
-with pinToken as the key.
+Your PIN is used for challenge-response to the authenticator at least once
+per power-up, and it's done encrypted over an ECDH channel. The
+authenticator returns a  32-byte "pinToken", also encrypted. From then on
+proof of possession of the PIN is via challenge-response using 16 bytes of
+the hash of whatever content with pinToken as the key.
 
 In other words, it's pretty secure. The PIN token is rerandomized each time a
-guess is unsuccessful and each authenticator reset.
+guess is unsuccessful and each authenticator reset. You can't intercept
+someone's PIN except when it's being initially set, and even then it's sent
+encrypted with ECDH. The least secure part of it is when the **initial** PIN
+is being set - so do that first!
 
 ### hmac-secret keys
 
@@ -83,7 +86,7 @@ The attacker is you. Do better next time.
 
 ### An attacker can intercept traffic to and from my authenticator
 
-Yeah, that's how NFC works.
+Yeah, that's how NFC works when your attacker has a nice antenna.
 
 The important parts of the traffic are encrypted and authenticated
 with ECDH. The attacker cannot reasonably "see" your PIN. They can
@@ -118,13 +121,14 @@ which service you'd registered with, and your username.
 
 ### An attacker has physical access to my smartcard, but I set a PIN
 
-If the smartcard itself is physically secure, this is the same as
+If the smartcard itself is physically secure against having its
+flash memory read or computation corrupted, this is the same as
 the "malware" case above. **If not**, then we are in an interesting
 situation.
 
 The attacker needs to decrypt the on-device wrapping key. Without
-doing that, they can see incidentals like:
-- how many different resident keys you've stored on the device
+doing that, they can read incidentals like:
+- how many different resident keys are currently stored on the device
 - how long each key's RP ID is, if less than 32 characters
 - how long each key's user ID is
 - how many different RPs in total have resident keys on the device

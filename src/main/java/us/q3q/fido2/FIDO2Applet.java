@@ -21,9 +21,9 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private static final short BUFFER_MEM_SIZE = 1024;
     /**
-     * Amount of "scratch" memory for working with requests and responses.
+     * Amount of "scratch" working memory
      */
-    private static final short SCRATCH_SIZE = 274;
+    private static final short SCRATCH_SIZE = 280;
     /**
      * Number of resident key slots - how many credentials can this authenticator store?
      */
@@ -33,7 +33,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private static final short MAX_USER_ID_LENGTH = 64;
     /**
-     * How long an RP identifier is allowed to be for a resident key.
+     * How long an RP identifier is allowed to be for a resident key. Values longer than this are truncated
      */
     private static final short MAX_RESIDENT_RP_ID_LENGTH = 32;
     /**
@@ -104,6 +104,10 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     private final byte[] hmacWrapperBytes;
 
     /**
+     * Set of short variables held in memory for generally avoiding flash use
+     */
+    private final short[] tempShorts;
+    /**
      * Used for storing found indices in searches
      */
     private static final short IDX_TEMP_BUF_IDX_STORAGE = 0;
@@ -135,16 +139,18 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * Number of times a PIN has been attempted since last reset
      */
     private static final short IDX_PIN_TRIES_SINCE_RESET = 7;
+    /**
+     * Index of next credential to consider when iterating through RPs with credManagement commands
+     */
     private static final short IDX_RP_ITERATION_POINTER = 8;
+    /**
+     * Index of next credential to consider when iterating through creds with credManagement commands
+     */
     private static final short IDX_CRED_ITERATION_POINTER = 9;
     /**
      * Total number of in-memory short variables
      */
     private static final short NUM_TEMP_SHORTS = 10;
-    /**
-     * Set of short variables held in memory for generally avoiding flash use
-     */
-    private final short[] tempShorts;
 
     // Fields for negotiating auth with the platform
     /**
@@ -222,28 +228,31 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private final AESKey pinWrapKey;
     /**
-     * space that is exactly one AES key long, for loading into AESKey objects
-     */
-    private final byte[] wrappingKeySpace;
-    /**
-     * first half random data, second half correct encryption of that:
-     * used for checking if a potential wrapping key is the correct one
-     */
-    private final byte[] wrappingKeyValidation;
-    /**
      * used for signing the authData we send to the platform, to prove it came from us
      */
     private final Signature attester;
 
     // Fields for wrapping and unwrapping platform-held blobs
     /**
-     * Authenticator-specific master key - NOT TRANSIENT. Resetting this invalidates all issued credentials.
+     * The most important crypto object in the whole application. Stored in non-volatile memory; resetting this
+     * renders all issued credentials unusable. Generated on install, regenerated on CTAP-reset-command.
+     *
+     * If a PIN is set, these bytes are stored encrypted using a key derived from the PIN.
+     */
+    private final byte[] wrappingKeySpace;
+    /**
+     * Authenticator-specific master key, decrypted (if necessary) and loaded into transient storage for use
      */
     private final AESKey wrappingKey;
     /**
-     * can be anything - IV for authenticator private wrapping
+     * random IV for authenticator private wrapping
      */
     private static byte[] wrappingIV;
+    /**
+     * first half random data, second half the HMAC of that using the wrapping key:
+     * used for checking if a potential wrapping key is the correct one
+     */
+    private final byte[] wrappingKeyValidation;
     /**
      * encrypt data using authenticator master key
      */
@@ -505,6 +514,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * Increment the four-byte-long credential usage counter by one
      */
     private void incrementCounter() {
+        JCSystem.beginTransaction();
         if (counter[3] == (byte) 0xFF) {
             if (counter[2] == (byte) 0xFF) {
                 if (counter[1] == (byte) 0xFF) {
@@ -522,6 +532,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             counter[3] = 0;
         }
         counter[3] = (byte)(((short)counter[3]) + 1);
+        JCSystem.commitTransaction();
     }
 
     /**
@@ -2456,6 +2467,10 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             short scratchAmt = (short)(1 + subCommandParamsLen);
             short scratchOff = scratchAlloc(scratchAmt);
             scratch[scratchOff] = bufferMem[subcommandIdx];
+            if (subCommandParamsLen > 80) {
+                // 64 bytes for a credential ID for deleteCred plus some CBOR overhead
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
+            }
             if (subCommandParamsLen > 0) {
                 Util.arrayCopyNonAtomic(bufferMem, subCommandParamsIdx,
                         scratch, (short)(scratchOff + 1), subCommandParamsLen);

@@ -131,3 +131,9 @@ set a PIN. If I were you, I would use a PIN with resident keys.
 
 Run the app in JCardSim with VSmartCard and hook up your Java debugger.
 See what's going on. Raise a pull request to fix it.
+
+## Can you make this work on Javacard 2.2.1?
+
+Ahahahahahahahaahha
+
+Javacard versions before 3.0.4 don't support SHA-2 hashing. Not gonna happen.
