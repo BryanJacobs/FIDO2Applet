@@ -1642,7 +1642,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         // HMAC will clobber privateScratch, so it needs to be below the private key setup above
         short hmacScratchOffset = scratchAlloc((short) 64);
         if (hmacSecretDataIdx > -1) {
-            hmacSecretBytes = computeHMACSecret(apdu, hmacSecretDataIdx, lc, scratch, hmacScratchOffset);
+            hmacSecretBytes = computeHMACSecret(apdu, ecPrivateKey, hmacSecretDataIdx, lc, scratch, hmacScratchOffset);
         }
 
         // RESPONSE BELOW HERE
@@ -1971,6 +1971,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * Note that this function overwrites privateScratch!
      *
      * @param apdu Request/response object
+     * @param privateKey Private key from which to get HMAC secret material
      * @param readIdx Index into bufferMem pointing to the start of the hmac-secret extension input CBOR
      *                map. Must contain the platform key agreement key...
      * @param lc Length of incoming request, as sent by the platform
@@ -1979,7 +1980,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      *
      * @return New read index into bufferMem after consuming HMAC-secret options
      */
-    private short computeHMACSecret(APDU apdu, short readIdx, short lc, byte[] outBuffer, short outOffset) {
+    private short computeHMACSecret(APDU apdu, ECPrivateKey privateKey, short readIdx, short lc,
+                                    byte[] outBuffer, short outOffset) {
         if (bufferMem[readIdx++] != (byte) 0xA3) { // map, three entries
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
         }
@@ -2050,6 +2052,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         // We will derive the HMAC secret key from the credential private key and an on-device key
         // ... by doing an HMAC-SHA256 of the credential private key using the HMAC-specific on-device key
+        privateKey.getS(privateScratch, (short) 0);
+
         deriveHMACSecretFromPrivateKey(privateScratch, (short) 0,
                 privateScratch, (short) 0);
         // ... and then use that as our HMAC secret! It's in privateScratch bytes 0-31.
