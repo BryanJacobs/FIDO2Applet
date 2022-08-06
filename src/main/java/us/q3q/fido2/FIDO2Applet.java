@@ -525,24 +525,33 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private void incrementCounter() {
         JCSystem.beginTransaction();
-        if (counter[3] == (byte) 0xFF) {
-            if (counter[2] == (byte) 0xFF) {
-                if (counter[1] == (byte) 0xFF) {
-                    if (counter[0] == (byte) 0xFF) {
-                        // Completely full. No more sigs.
-                        throwException(ISO7816.SW_FILE_FULL);
+        boolean ok = false;
+        try {
+            if (counter[3] == (byte) 0xFF) {
+                if (counter[2] == (byte) 0xFF) {
+                    if (counter[1] == (byte) 0xFF) {
+                        if (counter[0] == (byte) 0xFF) {
+                            // Completely full. No more sigs.
+                            throwException(ISO7816.SW_FILE_FULL);
+                        }
+                        counter[0] = (byte)(((short)counter[0]) + 1);
+                        counter[1] = 0;
                     }
-                    counter[0] = (byte)(((short)counter[0]) + 1);
-                    counter[1] = 0;
+                    counter[1] = (byte)(((short)counter[1]) + 1);
+                    counter[2] = 0;
                 }
-                counter[1] = (byte)(((short)counter[1]) + 1);
-                counter[2] = 0;
+                counter[2] = (byte)(((short)counter[2]) + 1);
+                counter[3] = 0;
             }
-            counter[2] = (byte)(((short)counter[2]) + 1);
-            counter[3] = 0;
+            counter[3] = (byte)(((short)counter[3]) + 1);
+            ok = true;
+        } finally {
+            if (ok) {
+                JCSystem.commitTransaction();
+            } else {
+                JCSystem.abortTransaction();
+            }
         }
-        counter[3] = (byte)(((short)counter[3]) + 1);
-        JCSystem.commitTransaction();
     }
 
     /**
@@ -908,26 +917,35 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             }
 
             JCSystem.beginTransaction();
-            Util.arrayCopy(privateScratch, (short) 0,
-                    residentKeyData, (short) (targetRKSlot * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN);
-            residentKeyUserIdLengths[targetRKSlot] = (byte) userIdLen;
-            symmetricWrapper.doFinal(scratch, scratchUserIdOffset, MAX_USER_ID_LENGTH,
-                    residentKeyUserIds, (short) (targetRKSlot * MAX_USER_ID_LENGTH));
-            residentKeyRPIdLengths[targetRKSlot] = (byte) rpIdLen;
-            symmetricWrapper.doFinal(scratch, scratchRpIdOffset, MAX_RESIDENT_RP_ID_LENGTH,
-                    residentKeyRPIds, (short) (targetRKSlot * MAX_RESIDENT_RP_ID_LENGTH));
-            symmetricWrapper.doFinal(scratch, (short)(scratchPublicKeyOffset + 1), (short)(KEY_POINT_LENGTH * 2),
-                    residentKeyPublicKeys, (short) (targetRKSlot * KEY_POINT_LENGTH * 2));
-            residentKeyValidity[targetRKSlot] = true;
-            if (!foundMatchingRK) {
-                // We're filling an empty slot
-                numResidentCredentials++;
+            boolean ok = false;
+            try {
+                Util.arrayCopy(privateScratch, (short) 0,
+                        residentKeyData, (short) (targetRKSlot * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN);
+                residentKeyUserIdLengths[targetRKSlot] = (byte) userIdLen;
+                symmetricWrapper.doFinal(scratch, scratchUserIdOffset, MAX_USER_ID_LENGTH,
+                        residentKeyUserIds, (short) (targetRKSlot * MAX_USER_ID_LENGTH));
+                residentKeyRPIdLengths[targetRKSlot] = (byte) rpIdLen;
+                symmetricWrapper.doFinal(scratch, scratchRpIdOffset, MAX_RESIDENT_RP_ID_LENGTH,
+                        residentKeyRPIds, (short) (targetRKSlot * MAX_RESIDENT_RP_ID_LENGTH));
+                symmetricWrapper.doFinal(scratch, (short)(scratchPublicKeyOffset + 1), (short)(KEY_POINT_LENGTH * 2),
+                        residentKeyPublicKeys, (short) (targetRKSlot * KEY_POINT_LENGTH * 2));
+                residentKeyValidity[targetRKSlot] = true;
+                if (!foundMatchingRK) {
+                    // We're filling an empty slot
+                    numResidentCredentials++;
+                }
+                residentKeyUniqueRP[targetRKSlot] = !foundRPMatchInRKs;
+                if (!foundRPMatchInRKs) {
+                    numResidentRPs++;
+                }
+                ok = true;
+            } finally {
+                if (ok) {
+                    JCSystem.commitTransaction();
+                } else {
+                    JCSystem.abortTransaction();
+                }
             }
-            residentKeyUniqueRP[targetRKSlot] = !foundRPMatchInRKs;
-            if (!foundRPMatchInRKs) {
-                numResidentRPs++;
-            }
-            JCSystem.commitTransaction();
 
             scratchRelease(rkSpecificScratchAlloc);
         }
@@ -2738,21 +2756,38 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                     }
 
                     JCSystem.beginTransaction();
-                    if (rpHavingSameRP == -1) {
-                        // We couldn't find anybody else that shared our RP, which means deleting us
-                        // also lowered the total RP count by one
-                        numResidentRPs--;
-                    } else {
-                        residentKeyUniqueRP[rpHavingSameRP] = true;
+                    boolean ok = false;
+                    try {
+                        if (rpHavingSameRP == -1) {
+                            // We couldn't find anybody else that shared our RP, which means deleting us
+                            // also lowered the total RP count by one
+                            numResidentRPs--;
+                        } else {
+                            residentKeyUniqueRP[rpHavingSameRP] = true;
+                        }
+                        residentKeyValidity[i] = false;
+                        numResidentCredentials--;
+                        ok = true;
+                    } finally {
+                        if (ok) {
+                            JCSystem.commitTransaction();
+                        } else {
+                            JCSystem.abortTransaction();
+                        }
                     }
-                    residentKeyValidity[i] = false;
-                    numResidentCredentials--;
-                    JCSystem.commitTransaction();
                 } else {
                     JCSystem.beginTransaction();
-                    residentKeyValidity[i] = false;
-                    numResidentCredentials--;
-                    JCSystem.commitTransaction();
+                    boolean ok = false;
+                    try {
+                        residentKeyValidity[i] = false;
+                        numResidentCredentials--;
+                    } finally {
+                        if (ok) {
+                            JCSystem.commitTransaction();
+                        } else {
+                            JCSystem.abortTransaction();
+                        }
+                    }
                 }
 
                 bufferMem[0] = FIDOConstants.CTAP2_OK;
@@ -3024,7 +3059,6 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private void authenticatorReset(APDU apdu) {
         JCSystem.beginTransaction();
-
         boolean ok = false;
         try {
             random.generateData(hmacWrapperBytes, (short) 0, (short) hmacWrapperBytes.length);
@@ -3079,7 +3113,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         random.generateData(wrappingKeyValidation, (short) 0, (short) 32);
 
         // Put the HMAC-SHA256 of the first half of wrappingKeyValidation into the second half
-        // We'll use this validate we have the correct wrapping key
+        // We'll use this to validate we have the correct wrapping key
         hmacSha256(wrappingKeySpace, (short) 0,
                 wrappingKeyValidation, (short) 0, (short) 32,
                 wrappingKeyValidation, (short) 32);
