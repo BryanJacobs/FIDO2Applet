@@ -158,7 +158,8 @@ a "timeout" on a Javacard 3.0.4 device. Javacard 3.1 introduces an
 
 But the implementation currently always assumes user presence.
 
-This Could Be Better.
+This Could Be Better. In the meanwhile, perhaps use an NFC device and
+physically remove it when not in use.
 
 ### I gave my smartcard to somebody but I didn't "lock" the card
 

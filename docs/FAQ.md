@@ -137,3 +137,13 @@ See what's going on. Raise a pull request to fix it.
 Ahahahahahahahaahha
 
 Javacard versions before 3.0.4 don't support SHA-2 hashing. Not gonna happen.
+
+## Why doesn't this work on my Android phone?
+
+You're probably using an app that, like most, uses Google
+Play Services' implementation of FIDO standards. That
+implementation doesn't appear to support PINs or, indeed,
+FIDO2 at all.
+
+There's nothing technically wrong with Android compatibility
+but the Google Play Services implementation isn't great.

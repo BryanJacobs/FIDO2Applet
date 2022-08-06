@@ -982,8 +982,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         outputLen += sigLength;
 
         // EC key pair COULD be stored in flash (if device doesn't support transient EC privKeys), so might as
-        // we clear it out here since we don't need it any more. We'll get its private key back from the credential
-        // ID to use it later...
+        // well clear it out here since we don't need it any more. We'll get its private key back from the credential
+        // ID to use later...
         ecKeyPair.getPrivate().clearKey();
 
         doSendResponse(apdu, outputLen);
@@ -1309,9 +1309,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * Builds a credential ID into privateScratch
      *
      * @param apdu Request/response object
-     * @param privKeyBuffer Buffer containing private key
-     * @param privateKeyOffset Index of private key start in input buffer
-     * @param privKeyLen Length of private key
+     * @param privKey Private key to pack into credentialID
      * @param rpIdHashBuffer Buffer containing hash of RP ID
      * @param rpIdHashOffset Index of RP ID hash in corresponding buffer
      */
@@ -1325,7 +1323,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         // credential ID
         // Encrypt: PrivKey || rpIdHash
-        // 32 + 32 = 64 bytes max
+        // 32 + 32 = 64 bytes
         short encryptedBytes = symmetricWrapper.update(scratch, scratchOff, sLen,
                 privateScratch, (short) 0);
         encryptedBytes += symmetricWrapper.doFinal(rpIdHashBuffer, rpIdHashOffset, RP_HASH_LEN,
@@ -1391,12 +1389,16 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     }
 
     /**
-     * Handles a CTAP2 getAssertion API call
+     * Handles a CTAP2 getAssertion or getNextAssertion API call.
+     * Note that this method is called a second time for getNextAssertion, so it *needs to preserve bufferMem*.
+     * To do that, responses are written to the APDU buffer first, with overflow going to scratch space for use
+     * chaining larger replies back to the platform.
      *
      * @param apdu The request/response object
      * @param lc The declared request length
      * @param readIdx The current read offset into buffer memory
-     * @param firstCredIdx The first credential to consider, in either the allowList or the resident keys
+     * @param firstCredIdx The first credential to consider, in either the allowList or the resident key storage
+     *                     (whichever is appropriate based on the presence of an allowList)
      */
     private void getAssertion(APDU apdu, short lc, short readIdx, short firstCredIdx) {
         if (lc == 0) {
