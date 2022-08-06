@@ -16,6 +16,21 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private static final boolean ALLOW_RESIDENT_KEY_CREATION_WITHOUT_PIN = false;
     /**
+     * If true, the authenticator will refuse to reset itself until the following three steps happen in order:
+     *
+     * 1. a reset command is sent
+     * 2. the authenticator is entirely powered off
+     * 3. another reset command is sent
+     *
+     * This is to guard against accidental or malware-driven authenticator resets. It doesn't comply with the FIDO
+     * standards. The first reset will respond with OPERATION_DENIED, and if any credential-manipulation commands
+     * are received between steps one and three, the process must be started over for the reset to be effective.
+     *
+     * Note that you still don't need the PIN in order to reset the authenticator: that would defeat the purpose of
+     * the full reset...
+     */
+    private static final boolean PROTECT_AGAINST_MALICIOUS_RESETS = false;
+    /**
      * Size of buffer used for receiving incoming data and sending responses.
      * To be standards-compliant, must be at least 1024 bytes, but can be larger.
      */
@@ -29,13 +44,14 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private static final short NUM_RESIDENT_KEY_SLOTS = 50;
     /**
-     * How long an RP's user identifier is allowed to be - affects storage used by resident keys
-     */
-    private static final short MAX_USER_ID_LENGTH = 64;
-    /**
-     * How long an RP identifier is allowed to be for a resident key. Values longer than this are truncated
+     * How long an RP identifier is allowed to be for a resident key. Values longer than this are truncated.
+     * The CTAP2.1 standard says the minimum value for this is 32.
      */
     private static final short MAX_RESIDENT_RP_ID_LENGTH = 32;
+    /**
+     * How long an RP's user identifier is allowed to be - affects storage used by resident keys.
+     */
+    private static final short MAX_USER_ID_LENGTH = 64;
     /**
      * Number of iterations of PBKDF2 to run on user PINs to get a crypto key.
      * Higher means it's slower to get a PIN token, but also harder to brute force the device open with physical
@@ -44,22 +60,26 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private static final short PIN_KDF_ITERATIONS = 5;
     /**
-     * Number of times PIN entry can be attempted before the device will self-lock. FIDO2 standard says eight.
+     * Number of times PIN entry can be attempted before the device will self-lock. FIDO2 standards say eight.
      */
     private static final short MAX_PIN_RETRIES = 8;
     /**
      * How many times a PIN can be incorrectly entered before the authentiator must be rebooted to proceed.
-     * FIDO2 standard says three.
+     * FIDO2 standards say three.
      */
     private static final short PIN_TRIES_PER_RESET = 3;
 
     // Fields for decoding incoming APDUs and encoding outgoing ones
     /**
-     * Total byte length of output FIDO2 Credential ID struct
+     * Total byte length of output FIDO2 Credential ID struct.
+     * Most authenticators use 64, so you probably want to use 64 as well so creds that come from this authenticator
+     * in particular can't be distinguished. The minimum possible value is 32, since credentials need to contain RP
+     * ID hashes (which are 32-byte SHA256es). In order to reduce this to 32 you would need to deterministically derive
+     * the credential private key from the RP and User IDs instead of storing it inside the credential.
      */
     private static final short CREDENTIAL_ID_LEN = 64;
     /**
-     * Length of scratch space used for decrypting credentials
+     * Length of scratch space used for decrypting credentials - must be long enough to hold a decrypted credential ID
      */
     private static final short PRIVATE_SCRATCH_SIZE = CREDENTIAL_ID_LEN;
     /**
@@ -75,7 +95,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private static final short CLIENT_DATA_HASH_LEN = 32;
     /**
-     * Required byte length of wrapped incoming PINs
+     * Required byte length of wrapped incoming PINs. FIDO standards say 64
      */
     private static final short PIN_PAD_LENGTH = 64;
     /**
@@ -224,9 +244,13 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private static final short IDX_RESPONSE_FROM_SCRATCH = 6;
     /**
+     * For reset "protection" feature, checks if a reset request has been received since the last authenticator powerup
+     */
+    private static final short IDX_RESET_RECEIVED_SINCE_POWERON = 7;
+    /**
      * number of booleans total in array
      */
-    private static final short NUM_RESET_BOOLS = 7;
+    private static final short NUM_RESET_BOOLS = 8;
 
     /**
      * per-device salt for deriving keys from PINs
@@ -298,6 +322,10 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * General hashing of stuff
      */
     private final MessageDigest sha256;
+    /**
+     * Used to make sure the user REALLY wants to reset their authenticator
+     */
+    private boolean resetRequested;
 
     // Data storage for resident keys
     /**
@@ -607,6 +635,10 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     private void makeCredential(APDU apdu, short lc, short readIdx) {
         if (lc == 0) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
+        }
+
+        if (resetRequested) {
+            resetRequested = false;
         }
 
         if ((bufferMem[readIdx] & 0xF0) != 0xA0) { // short-entry-count map
@@ -1421,6 +1453,10 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     private void getAssertion(APDU apdu, short lc, short readIdx, short firstCredIdx) {
         if (lc == 0) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
+        }
+
+        if (resetRequested) {
+            resetRequested = false;
         }
 
         if ((bufferMem[readIdx] & 0xF0) != 0xA0) { // map with relatively few entries
@@ -2585,6 +2621,10 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param readIdx Read index into bufferMem
      */
     private void credManagementSubcommand(APDU apdu, short lc, short readIdx) {
+        if (resetRequested) {
+            resetRequested = false;
+        }
+
         if (!pinSet) {
             // All credential management commands require and validate a PIN
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_NOT_SET);
@@ -3058,6 +3098,21 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param apdu Request/response object
      */
     private void authenticatorReset(APDU apdu) {
+        if (PROTECT_AGAINST_MALICIOUS_RESETS) {
+            if (tempBools[IDX_RESET_RECEIVED_SINCE_POWERON]) {
+                // Already tried to reset once since power applied, and the protection feature is enabled.
+                // Power off the token before trying again.
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
+            }
+
+            if (!resetRequested) {
+                // Reject this request, to require confirmation
+                tempBools[IDX_RESET_RECEIVED_SINCE_POWERON] = true;
+                resetRequested = true;
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
+            }
+        }
+
         JCSystem.beginTransaction();
         boolean ok = false;
         try {
@@ -3089,6 +3144,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             }
 
             forceInitKeyAgreementKey();
+
+            resetRequested = false;
 
             ok = true;
         } finally {
@@ -3864,6 +3921,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         residentKeyUniqueRP = new boolean[NUM_RESIDENT_KEY_SLOTS];
         numResidentCredentials = 0;
         numResidentRPs = 0;
+        resetRequested = false;
 
         // RAM usage - direct buffers
         bufferMem = JCSystem.makeTransientByteArray(BUFFER_MEM_SIZE, JCSystem.CLEAR_ON_DESELECT);
