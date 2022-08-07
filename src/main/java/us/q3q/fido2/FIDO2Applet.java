@@ -6,6 +6,9 @@ import javacardx.apdu.ExtendedLength;
 
 import javacardx.crypto.Cipher;
 
+/**
+ * Core applet class implementing FIDO2 specifications on Javacard
+ */
 public class FIDO2Applet extends Applet implements ExtendedLength {
 
     // Configurable parameters
@@ -123,59 +126,6 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private final byte[] hmacWrapperBytes;
 
-    /**
-     * Set of short variables held in memory for generally avoiding flash use
-     */
-    private final short[] tempShorts;
-    /**
-     * Used for storing found indices in searches
-     */
-    private static final short IDX_TEMP_BUF_IDX_STORAGE = 0;
-    /**
-     * Used for storing found lengths in searches
-     */
-    private static final short IDX_TEMP_BUF_IDX_LEN = 1;
-    /**
-     * When writing an overlong response using chained APDUs, stores the position we're up to in the outgoing buffer
-     */
-    private static final short IDX_CONTINUATION_OUTGOING_WRITE_OFFSET = 2;
-    /**
-     * When writing an overlong response using chained APDUs, stores the remaining bytes in the outgoing buffer
-     */
-    private static final short IDX_CONTINUATION_OUTGOING_REMAINING = 3;
-    /**
-     * When reading an overlong incoming request using chained APDUs, stores the fill level of the incoming buffer
-     */
-    private static final short IDX_CHAINING_INCOMING_READ_OFFSET = 4;
-    /**
-     * When reading incoming request chains, which FIDO2 command the request represents (pulled from the first packet)
-     */
-    private static final short IDX_STORED_COMMAND_BYTE = 5;
-    /**
-     * How full the scratch buffer is
-     */
-    private static final short IDX_SCRATCH_ALLOC_SIZE = 6;
-    /**
-     * Number of times a PIN has been attempted since last reset
-     */
-    private static final short IDX_PIN_TRIES_SINCE_RESET = 7;
-    /**
-     * Index of next credential to consider when iterating through RPs with credManagement commands
-     */
-    private static final short IDX_RP_ITERATION_POINTER = 8;
-    /**
-     * Index of next credential to consider when iterating through creds with credManagement commands
-     */
-    private static final short IDX_CRED_ITERATION_POINTER = 9;
-    /**
-     * Index of next credential (in either allowList or resident keys) to consider when iterating through
-     * assertions with getNextAssertion commands
-     */
-    private static final short IDX_ASSERT_ITERATION_POINTER = 10;
-    /**
-     * Total number of in-memory short variables
-     */
-    private static final short NUM_TEMP_SHORTS = 11;
 
     // Fields for negotiating auth with the platform
     /**
@@ -210,47 +160,6 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * Decrypter used to unwrap data by using a key derived from the user's PIN
      */
     private final Cipher pinUnwrapper;
-
-    /**
-     * array of per-reset booleans used internally
-     */
-    private final boolean[] tempBools;
-    /**
-     * set when authenticator key initialized
-     */
-    private static final short IDX_RESET_PLATFORM_KEY_SET = 0;
-    /**
-     * set when PIN has been provided (device unlocked)
-     */
-    private static final short IDX_RESET_PIN_PROVIDED = 1;
-    /**
-     * set if platform supports authenticator-compatible key
-     */
-    private static final short IDX_RESET_FOUND_KEY_MATCH = 2;
-    /**
-     * set if the "up" (User Presence) option is enabled
-     */
-    private static final short IDX_OPTION_UP = 3;
-    /**
-     * set if the "uv" (User Validation) option is enabled
-     */
-    private static final short IDX_OPTION_UV = 4;
-    /**
-     * set if the "rk" (Resident Key) option is enabled
-     */
-    private static final short IDX_OPTION_RK = 5;
-    /**
-     * set if chaining responses should come from the getNextAssertion buffer
-     */
-    private static final short IDX_RESPONSE_FROM_SCRATCH = 6;
-    /**
-     * For reset "protection" feature, checks if a reset request has been received since the last authenticator powerup
-     */
-    private static final short IDX_RESET_RECEIVED_SINCE_POWERON = 7;
-    /**
-     * number of booleans total in array
-     */
-    private static final short NUM_RESET_BOOLS = 8;
 
     /**
      * per-device salt for deriving keys from PINs
@@ -326,6 +235,10 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * Used to make sure the user REALLY wants to reset their authenticator
      */
     private boolean resetRequested;
+    /**
+     * Everything that needs to be hot in RAM instead of stored to the flash. All goes away on deselect or reset!
+     */
+    private final TransientStorage transientStorage;
 
     // Data storage for resident keys
     /**
@@ -372,100 +285,9 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private byte numResidentRPs;
 
-    // Parameters for canned responses
-    private static final byte[] U2F_V2_RESPONSE = {
-            0x55, 0x32, 0x46, 0x5F, 0x56, 0x32
-          //   U     2     F     _     V     2
-    };
-    private static final byte[] FIDO_2_RESPONSE = {
-            0x46, 0x49, 0x44, 0x4F, 0x5F, 0x32, 0x5F, 0x30
-          //   F     I     D     O     _     2     _     0
-    };
-    private static final byte[] HMAC_SECRET_EXTENSION_ID = {
-            0x68, 0x6D, 0x61, 0x63, 0x2D, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, // hmac-secret
-    };
-    private static final byte[] CRED_PROTECT_EXTENSION_ID = {
-            0x63, 0x72, 0x65, 0x64, 0x50, 0x72, 0x6F, 0x74, 0x65, 0x63, 0x74, // credProtect
-    };
-    private static final byte[] AUTH_INFO_RESPONSE = {
-            FIDOConstants.CTAP2_OK,
-            (byte) 0xA5, // Map - five keys
-                0x01, // map key: versions
-                    (byte) 0x81, // array - one item
-                        0x68, // string - eight bytes long
-                        0x46, 0x49, 0x44, 0x4F, 0x5F, 0x32, 0x5F, 0x30, // FIDO_2_0
-                0x02, // map key: extensions
-                    (byte) 0x82, // array - two items
-                        0x6B, // string - eleven bytes long
-                            0x63, 0x72, 0x65, 0x64, 0x50, 0x72, 0x6F, 0x74, 0x65, 0x63, 0x74, // credProtect
-                        0x6B, // string - eleven bytes long
-                            0x68, 0x6D, 0x61, 0x63, 0x2D, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, // hmac-secret
-                    0x03, // map key: aaguid
-                        0x50, // byte string, 16 bytes long
-                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // aaguid
-                0x04, // map key: options
-                    (byte) 0xA4, // map: four entries
-                        0x62, // string: two bytes long
-                            0x72, 0x6B, // rk
-                            (byte) 0xF5, // true
-                        0x68, // string - eight bytes long
-                            0x61, 0x6c, 0x77, 0x61, 0x79, 0x73, 0x55, 0x76, // alwaysUv
-                            (byte) 0xF5, // true
-                        0x68, // string - eight bytes long
-                            0x63, 0x72, 0x65, 0x64, 0x4d, 0x67, 0x6d, 0x74, // credMgmt
-                            (byte) 0xF5, // true
-                        0x69, // string: nine bytes long
-                            0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x50, 0x69, 0x6e, // clientPin
-    };
     private byte[] aaguid = {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    };
-    private static final byte[] MAKE_CREDENTIAL_RESPONSE_PREAMBLE = {
-            0x00, // status - OK!
-            (byte) 0xA3, // Map - three keys
-                0x01, // map key: fmt
-                    0x66, // string - six bytes long
-                    0x70, 0x61, 0x63, 0x6B, 0x65, 0x64, // packed
-                0x02, // map key: authData
-    };
-    private static final byte[] PUBLIC_KEY_ALG_PREAMBLE = {
-            (byte) 0xA5, // map - five entries
-                0x01, // map key: kty
-                    0x02, // integer (2) - means EC2, a two-point elliptic curve key
-                0x03, // map key: alg
-                    0x26, // integer (-7) - means ES256 algorithm
-                0x20, // map key: crv
-                    0x01, // integer (1) - means P256 curve
-                0x21, // map key: x-point
-                    0x58, // byte string with one-byte length next
-                        0x20 // 32 bytes long
-    };
-    private static final byte[] PUBLIC_KEY_DH_ALG_PREAMBLE = {
-                0x01, // map key: kty
-                    0x02, // integer (2) - means EC2, a two-point elliptic curve key
-                0x03, // map key: alg
-                    0x38, 0x18, // integer (-25) - means ECDH with SHA256 hash algorithm
-                0x20, // map key: crv
-                    0x01, // integer (1) - means P256 curve
-                0x21, // map key: x-point
-                    0x58, // byte string with one-byte length next
-                        0x20 // 32 bytes long
-    };
-    private static final byte[] ATTESTATION_STATEMENT_PREAMBLE = {
-            0x03, // map key: attestation statement
-            (byte) 0xA2, // map - two entries
-                    0x63, // string - three bytes long
-                        0x61, 0x6C, 0x67, // alg
-                        0x26, // integer (-7) - means ES256 algorithm
-            0x63, // string: three characters
-                        0x73, 0x69, 0x67, // sig
-                        0x58, // byte string with one-byte length
-    };
-    private static final byte[] SINGLE_ID_MAP_PREAMBLE = {
-            (byte) 0xA1, // map: one entry
-                0x62, // string - two bytes long
-                    0x69, 0x64, // id
     };
 
     /**
@@ -500,9 +322,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param sendByte Byte representing the CTAP error state
      */
     private void sendErrorByte(APDU apdu, byte sendByte) {
-        tempShorts[IDX_CHAINING_INCOMING_READ_OFFSET] = 0;
-        tempShorts[IDX_CRED_ITERATION_POINTER] = 0;
-        tempShorts[IDX_RP_ITERATION_POINTER] = 0;
+        transientStorage.clearIterationPointers();
         scratchRelease(); // Just in case
 
         byte[] buffer = apdu.getBuffer();
@@ -521,11 +341,11 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @return Index of the allocation's start in the scratch buffer
      */
     private short scratchAlloc(short numBytes) {
-        short ret = tempShorts[IDX_SCRATCH_ALLOC_SIZE];
+        short ret = transientStorage.getScratchFillLevel();
         if (ret > (short)(SCRATCH_SIZE - numBytes)) {
             throwException(ISO7816.SW_FILE_FULL);
         }
-        tempShorts[IDX_SCRATCH_ALLOC_SIZE] += numBytes;
+        transientStorage.increaseScratchFillLevel(numBytes);
         return ret;
     }
 
@@ -533,7 +353,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * Releases ALL scratch space allocated through scratchAlloc
      */
     private void scratchRelease() {
-        tempShorts[IDX_SCRATCH_ALLOC_SIZE] = 0;
+        transientStorage.clearScratchFillLevel();
     }
 
     /**
@@ -545,7 +365,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param numBytes The number of bytes to release
      */
     private void scratchRelease(short numBytes) {
-        tempShorts[IDX_SCRATCH_ALLOC_SIZE] -= numBytes;
+        transientStorage.decreaseScratchFillLevel(numBytes);
     }
 
     /**
@@ -593,9 +413,9 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param amtRead Amount of the request already read into the APDU buffer
      */
     private void fullyReadReq(APDU apdu, byte[] buffer, short lc, short amtRead) {
-        tempShorts[IDX_ASSERT_ITERATION_POINTER] = 0;
+        transientStorage.clearAssertIterationPointer();
 
-        short chainOff = tempShorts[IDX_CHAINING_INCOMING_READ_OFFSET];
+        short chainOff = transientStorage.getChainIncomingReadOffset();
         Util.arrayCopyNonAtomic(buffer, apdu.getOffsetCdata(),
                 bufferMem, chainOff, amtRead);
 
@@ -616,12 +436,12 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         if (curRead > lc) {
-            tempShorts[IDX_CHAINING_INCOMING_READ_OFFSET] = 0;
+            transientStorage.resetChainIncomingReadOffset();
             throwException(ISO7816.SW_WRONG_LENGTH);
         }
 
         if (!apdu.isCommandChainingCLA()) {
-            tempShorts[IDX_CHAINING_INCOMING_READ_OFFSET] = 0;
+            transientStorage.getChainIncomingReadOffset();
         }
     }
 
@@ -676,10 +496,9 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
         }
 
-        tempShorts[IDX_TEMP_BUF_IDX_STORAGE] = 0;
         readIdx = consumeMapAndGetID(apdu, readIdx, lc);
-        short rpIdIdx = tempShorts[IDX_TEMP_BUF_IDX_STORAGE];
-        short rpIdLen = tempShorts[IDX_TEMP_BUF_IDX_LEN];
+        short rpIdIdx = transientStorage.getStoredIdx();
+        short rpIdLen = transientStorage.getStoredLen();
 
         if (bufferMem[readIdx++] != 0x03) { // user
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
@@ -688,10 +507,9 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
         }
 
-        tempShorts[IDX_TEMP_BUF_IDX_STORAGE] = 0;
         readIdx = consumeMapAndGetID(apdu, readIdx, lc);
-        short userIdIdx = tempShorts[IDX_TEMP_BUF_IDX_STORAGE];
-        short userIdLen = tempShorts[IDX_TEMP_BUF_IDX_LEN];
+        short userIdIdx = transientStorage.getStoredIdx();
+        short userIdLen = transientStorage.getStoredLen();
         if (userIdLen > MAX_USER_ID_LENGTH) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
         }
@@ -713,11 +531,11 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         // We only support one algorithm, so let's find that one.
         boolean foundES256 = false;
-        tempBools[IDX_RESET_FOUND_KEY_MATCH] = false;
+        transientStorage.resetFoundKeyMatch();
         short numPubKeys = (short)(pubKeyCredParamsType & 0x0F);
         for (short i = 0; i < numPubKeys; i++) {
             readIdx = checkIfPubKeyBlockSupported(apdu, readIdx, lc);
-            if (tempBools[IDX_RESET_FOUND_KEY_MATCH]) {
+            if (transientStorage.hasFoundKeyMatch()) {
                 foundES256 = true;
                 break;
             }
@@ -766,17 +584,17 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                     if (readIdx >= (short)(lc - sLen)) {
                         sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
                     }
-                    if (sLen == HMAC_SECRET_EXTENSION_ID.length &&
+                    if (sLen == CannedCBOR.HMAC_SECRET_EXTENSION_ID.length &&
                             Util.arrayCompare(bufferMem, readIdx,
-                                    HMAC_SECRET_EXTENSION_ID, (short) 0, sLen) == 0) {
+                                    CannedCBOR.HMAC_SECRET_EXTENSION_ID, (short) 0, sLen) == 0) {
                         readIdx += sLen;
                         if (bufferMem[readIdx] != (byte) 0xF5 && bufferMem[readIdx] != (byte) 0xF4) {
                             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                         }
                         hmacSecretEnabled = bufferMem[readIdx++] == (byte) 0xF5;
-                    } else if (sLen == CRED_PROTECT_EXTENSION_ID.length &&
+                    } else if (sLen == CannedCBOR.CRED_PROTECT_EXTENSION_ID.length &&
                                 Util.arrayCompare(bufferMem, readIdx,
-                                        CRED_PROTECT_EXTENSION_ID, (short) 0, sLen) == 0) {
+                                        CannedCBOR.CRED_PROTECT_EXTENSION_ID, (short) 0, sLen) == 0) {
                         readIdx += sLen;
                         credProtectLevel = bufferMem[readIdx++];
                         if (credProtectLevel != 0x01 && credProtectLevel != 0x02 && credProtectLevel != 0x03) {
@@ -819,7 +637,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 // PIN is set, but no PIN-auth option was provided
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
             }
-            if (!ALLOW_RESIDENT_KEY_CREATION_WITHOUT_PIN && tempBools[IDX_OPTION_RK]) {
+            if (!ALLOW_RESIDENT_KEY_CREATION_WITHOUT_PIN && transientStorage.hasRKOption()) {
                 // Don't allow storing resident keys without a PIN set
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
             }
@@ -838,10 +656,9 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
             short excludeReadIdx = excludeListStartIdx;
             for (short excludeListIdx = 0; excludeListIdx < numExcludeListEntries; excludeListIdx++) {
-                tempShorts[IDX_TEMP_BUF_IDX_STORAGE] = 0;
                 excludeReadIdx = consumeMapAndGetID(apdu, excludeReadIdx, lc);
-                short credIdIdx = tempShorts[IDX_TEMP_BUF_IDX_STORAGE];
-                short credIdLen = tempShorts[IDX_TEMP_BUF_IDX_LEN];
+                short credIdIdx = transientStorage.getStoredIdx();
+                short credIdLen = transientStorage.getStoredLen();
                 if (credIdIdx == 0) {
                     // Not having an ID in here means it's invalid
                     sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
@@ -883,7 +700,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         encodeCredentialID(apdu, (ECPrivateKey) ecKeyPair.getPrivate(), scratch, scratchRPIDHashOffset);
 
         // if we're making a resident key, we need to, you know, save that for later
-        if (tempBools[IDX_OPTION_RK]) {
+        if (transientStorage.hasRKOption()) {
             short decodedCredOffset = scratchAlloc(CREDENTIAL_ID_LEN);
             short rkSpecificScratchAlloc = CREDENTIAL_ID_LEN;
 
@@ -991,8 +808,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         // We're now okay to use the whole bufferMem space to build and send our reply
 
         // First, preamble
-        short outputLen = Util.arrayCopyNonAtomic(MAKE_CREDENTIAL_RESPONSE_PREAMBLE, (short) 0,
-                bufferMem, (short) 0, (short) MAKE_CREDENTIAL_RESPONSE_PREAMBLE.length);
+        short outputLen = Util.arrayCopyNonAtomic(CannedCBOR.MAKE_CREDENTIAL_RESPONSE_PREAMBLE, (short) 0,
+                bufferMem, (short) 0, (short) CannedCBOR.MAKE_CREDENTIAL_RESPONSE_PREAMBLE.length);
 
         // CBOR requires us to know how long authData is before we can start writing it out...
         // ... so let's calculate that
@@ -1017,8 +834,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         outputLen += adLen + adAddlBytes;
 
         // Attestation statement
-        outputLen = Util.arrayCopyNonAtomic(ATTESTATION_STATEMENT_PREAMBLE, (short) 0,
-                bufferMem, outputLen, (short) ATTESTATION_STATEMENT_PREAMBLE.length);
+        outputLen = Util.arrayCopyNonAtomic(CannedCBOR.ATTESTATION_STATEMENT_PREAMBLE, (short) 0,
+                bufferMem, outputLen, (short) CannedCBOR.ATTESTATION_STATEMENT_PREAMBLE.length);
 
         attester.init(ecKeyPair.getPrivate(), Signature.MODE_SIGN);
         attester.update(bufferMem, offsetForStartOfAuthData, adLen);
@@ -1208,7 +1025,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         byte algIntType = bufferMem[readIdx++];
         if (algIntType == 0x26) { // ES256...
-            tempBools[IDX_RESET_FOUND_KEY_MATCH] = true;
+            transientStorage.setFoundKeyMatch();
         } else if (algIntType == 0x38 || algIntType == 0x18) {
             readIdx++;
         } else if (algIntType == 0x39 || algIntType == 0x19) {
@@ -1322,8 +1139,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 outBuf, writeIdx, CREDENTIAL_ID_LEN);
 
         // Public key
-        writeIdx = Util.arrayCopyNonAtomic(PUBLIC_KEY_ALG_PREAMBLE, (short) 0,
-                outBuf, writeIdx, (short) PUBLIC_KEY_ALG_PREAMBLE.length);
+        writeIdx = Util.arrayCopyNonAtomic(CannedCBOR.PUBLIC_KEY_ALG_PREAMBLE, (short) 0,
+                outBuf, writeIdx, (short) CannedCBOR.PUBLIC_KEY_ALG_PREAMBLE.length);
         writeIdx = writePubKey(outBuf, writeIdx, pubKeyBuffer, pubKeyOffset);
 
         short numExtensions = 0;
@@ -1339,16 +1156,16 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         if (hmacSecretEnabled) {
-            outBuf[writeIdx++] = (byte) (96 + HMAC_SECRET_EXTENSION_ID.length);
-            writeIdx = Util.arrayCopy(HMAC_SECRET_EXTENSION_ID, (short) 0,
-                    outBuf, writeIdx, (short)HMAC_SECRET_EXTENSION_ID.length);
+            outBuf[writeIdx++] = (byte) (96 + CannedCBOR.HMAC_SECRET_EXTENSION_ID.length);
+            writeIdx = Util.arrayCopy(CannedCBOR.HMAC_SECRET_EXTENSION_ID, (short) 0,
+                    outBuf, writeIdx, (short) CannedCBOR.HMAC_SECRET_EXTENSION_ID.length);
             outBuf[writeIdx++] = (byte) 0xF5; // boolean true
         }
 
         if (credProtectLevel > 0) {
-            outBuf[writeIdx++] = (byte) (96 + CRED_PROTECT_EXTENSION_ID.length);
-            writeIdx = Util.arrayCopy(CRED_PROTECT_EXTENSION_ID, (short) 0,
-                    outBuf, writeIdx, (short)CRED_PROTECT_EXTENSION_ID.length);
+            outBuf[writeIdx++] = (byte) (96 + CannedCBOR.CRED_PROTECT_EXTENSION_ID.length);
+            writeIdx = Util.arrayCopy(CannedCBOR.CRED_PROTECT_EXTENSION_ID, (short) 0,
+                    outBuf, writeIdx, (short) CannedCBOR.CRED_PROTECT_EXTENSION_ID.length);
             outBuf[writeIdx++] = credProtectLevel;
         }
 
@@ -1428,13 +1245,13 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 (short) aaguid.length + // aaguid
                 2 + // credential ID length
                 CREDENTIAL_ID_LEN + // credential ID
-                PUBLIC_KEY_ALG_PREAMBLE.length + // preamble for cred public key
+                CannedCBOR.PUBLIC_KEY_ALG_PREAMBLE.length + // preamble for cred public key
                 KEY_POINT_LENGTH + // x-point
                 3 + // CBOR bytes to introduce the y-point
                 KEY_POINT_LENGTH + // y-point
                 (useCredProtect || useHmacSecret ? 1 : 0) + // extension data intro
-                (useHmacSecret ? 2 + HMAC_SECRET_EXTENSION_ID.length : 0) + // extension data
-                (useCredProtect ? 2 + CRED_PROTECT_EXTENSION_ID.length : 0) // more extension data
+                (useHmacSecret ? 2 + CannedCBOR.HMAC_SECRET_EXTENSION_ID.length : 0) + // extension data
+                (useCredProtect ? 2 + CannedCBOR.CRED_PROTECT_EXTENSION_ID.length : 0) // more extension data
         );
     }
 
@@ -1573,8 +1390,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                         sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                     }
                     short keyLength = (short)(bufferMem[readIdx++] & 0x0F);
-                    if (keyLength != HMAC_SECRET_EXTENSION_ID.length || Util.arrayCompare(bufferMem, readIdx,
-                            HMAC_SECRET_EXTENSION_ID, (short) 0, (short) HMAC_SECRET_EXTENSION_ID.length) != 0) {
+                    if (keyLength != CannedCBOR.HMAC_SECRET_EXTENSION_ID.length || Util.arrayCompare(bufferMem, readIdx,
+                            CannedCBOR.HMAC_SECRET_EXTENSION_ID, (short) 0, (short) CannedCBOR.HMAC_SECRET_EXTENSION_ID.length) != 0) {
                         // Extension that is NOT hmac-secret: ignore it
                         readIdx = consumeAnyEntity(apdu, (short)(readIdx + keyLength), lc);
                         continue;
@@ -1606,13 +1423,13 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             readIdx = consumeAnyEntity(apdu, readIdx, lc);
         }
 
-        if (pinSet && pinAuthSuccess && tempBools[IDX_OPTION_UV]) {
+        if (pinSet && pinAuthSuccess && transientStorage.hasUVOption()) {
             // When a PIN is set and provided, the "uv" input option MUST NOT be set.
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_OPTION);
         }
 
         // Report PIN-validation failures before we report lack of matching creds
-        if (pinSet && (!tempBools[IDX_RESET_PIN_PROVIDED] || !pinAuthSuccess)) {
+        if (pinSet && (!transientStorage.isResetPinProvided() || !pinAuthSuccess)) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
         }
 
@@ -1632,11 +1449,10 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             }
 
             for (short i = 0; i < allowListLength; i++) {
-                tempShorts[IDX_TEMP_BUF_IDX_STORAGE] = 0;
                 short beforeReadIdx = blockReadIdx;
                 blockReadIdx = consumeMapAndGetID(apdu, blockReadIdx, lc);
-                short pubKeyIdx = tempShorts[IDX_TEMP_BUF_IDX_STORAGE];
-                short pubKeyLen = tempShorts[IDX_TEMP_BUF_IDX_LEN];
+                short pubKeyIdx = transientStorage.getStoredIdx();
+                short pubKeyLen = transientStorage.getStoredLen();
 
                 if (i < firstCredIdx) {
                     // Don't check credentials that are before our iteration point, just skip them
@@ -1726,8 +1542,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         // credential
         if (rkMatch > -1) {
             // Resident keys need CBOR wrapping...
-            outputIdx = Util.arrayCopyNonAtomic(SINGLE_ID_MAP_PREAMBLE, (short) 0,
-                    outBuf, outputIdx, (short) SINGLE_ID_MAP_PREAMBLE.length);
+            outputIdx = Util.arrayCopyNonAtomic(CannedCBOR.SINGLE_ID_MAP_PREAMBLE, (short) 0,
+                    outBuf, outputIdx, (short) CannedCBOR.SINGLE_ID_MAP_PREAMBLE.length);
             outBuf[outputIdx++] = 0x58; // byte array with one-byte length
             outBuf[outputIdx++] = (byte) matchingPubKeyCredDataLen;
         }
@@ -1736,7 +1552,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         outBuf[outputIdx++] = 0x02; // map key: authData
 
-        byte flags = tempBools[IDX_OPTION_UP] ? (byte) 0x01 : 0x00;
+        byte flags = transientStorage.hasUPOption() ? (byte) 0x01 : 0x00;
         if (pinAuthSuccess) {
             flags = (byte)(flags | 0x04);
         }
@@ -1747,7 +1563,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             extensionDataLen = (short) (
                     hmacSecretBytes +
                     4 + // CBOR overhead bytes
-                    HMAC_SECRET_EXTENSION_ID.length
+                    CannedCBOR.HMAC_SECRET_EXTENSION_ID.length
             );
             flags = (byte)(flags | 0x80);
         }
@@ -1762,8 +1578,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         if (hmacSecretBytes > 0) {
             outBuf[outputIdx++] = (byte) 0xA1; // map with one item
             outBuf[outputIdx++] = 0x6B; // string: eleven bytes long
-            outputIdx = Util.arrayCopyNonAtomic(HMAC_SECRET_EXTENSION_ID, (short) 0,
-                    outBuf, outputIdx, (short) HMAC_SECRET_EXTENSION_ID.length);
+            outputIdx = Util.arrayCopyNonAtomic(CannedCBOR.HMAC_SECRET_EXTENSION_ID, (short) 0,
+                    outBuf, outputIdx, (short) CannedCBOR.HMAC_SECRET_EXTENSION_ID.length);
             outBuf[outputIdx++] = 0x58; // byte string: one-byte length
             outBuf[outputIdx++] = (byte) hmacSecretBytes;
             outputIdx = Util.arrayCopyNonAtomic(scratch, hmacScratchOffset,
@@ -1824,8 +1640,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             short uidLen = ub(residentKeyUserIdLengths[rkMatch]);
 
             outBuf[outputIdx++] = 0x04; // map key: user
-            outputIdx = Util.arrayCopyNonAtomic(SINGLE_ID_MAP_PREAMBLE, (short) 0,
-                    outBuf, outputIdx, (short) SINGLE_ID_MAP_PREAMBLE.length);
+            outputIdx = Util.arrayCopyNonAtomic(CannedCBOR.SINGLE_ID_MAP_PREAMBLE, (short) 0,
+                    outBuf, outputIdx, (short) CannedCBOR.SINGLE_ID_MAP_PREAMBLE.length);
             outputIdx = encodeIntLenTo(outBuf, outputIdx, uidLen, true);
             outputIdx = Util.arrayCopyNonAtomic(scratch, rkUIDOffset,
                     outBuf, outputIdx, uidLen);
@@ -1836,10 +1652,10 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             outputIdx = encodeIntTo(outBuf, outputIdx, numMatchesThisRP);
         }
 
-        tempShorts[IDX_ASSERT_ITERATION_POINTER] = potentialAssertionIterationPointer;
+        transientStorage.setAssertIterationPointer(potentialAssertionIterationPointer);
         if (overLength) {
             // We filled the APDU buffer to max capacity, and left the rest in scratch space
-            tempBools[IDX_RESPONSE_FROM_SCRATCH] = true;
+            transientStorage.setResponseFromScratch();
             apdu.setOutgoingLength(maxAPDUBufferSize);
             apdu.sendBytes((short) 0, maxAPDUBufferSize);
             setupChainedResponse(scratchRemainingDataOffset, (short)(outputIdx - scratchRemainingDataOffset));
@@ -1897,9 +1713,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * Sets in-memory variables capturing possible incoming CTAP options to their default values
      */
     private void defaultOptions() {
-        tempBools[IDX_OPTION_UP] = true;
-        tempBools[IDX_OPTION_UV] = false;
-        tempBools[IDX_OPTION_RK] = false;
+        transientStorage.defaultOptions();
     }
 
     /**
@@ -1937,9 +1751,9 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 // rk option
                 readIdx += 2;
                 if (bufferMem[readIdx] == (byte) 0xF5) { // true
-                    tempBools[IDX_OPTION_RK] = true;
+                    transientStorage.setRKOption(true);
                 } else if (bufferMem[readIdx] == (byte) 0xF4) { // false
-                    tempBools[IDX_OPTION_RK] = false;
+                    transientStorage.setRKOption(false);
                 } else {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                 }
@@ -1956,15 +1770,15 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 byte val = bufferMem[++readIdx];
                 if (val == (byte) 0xF5) { // true
                     if (bufferMem[pOrVPos] == 'p') {
-                        tempBools[IDX_OPTION_UP] = true;
+                        transientStorage.setUPOption(true);
                     } else {
-                        tempBools[IDX_OPTION_UV] = true;
+                        transientStorage.setUVOption(true);
                     }
                 } else if (val == (byte) 0xF4) { // false
                     if (bufferMem[pOrVPos] == 'p') {
-                        tempBools[IDX_OPTION_UP] = false;
+                        transientStorage.setUPOption(false);
                     } else {
-                        tempBools[IDX_OPTION_UV] = false;
+                        transientStorage.setUVOption(false);
                     }
                 } else {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
@@ -2039,7 +1853,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         if (bufferMem[readIdx++] != (byte) 0xA3) { // map, three entries
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
         }
-        if (readIdx >= (short)(lc - (PUBLIC_KEY_DH_ALG_PREAMBLE.length + KEY_POINT_LENGTH * 2 + 7))) {
+        if (readIdx >= (short)(lc - (CannedCBOR.PUBLIC_KEY_DH_ALG_PREAMBLE.length + KEY_POINT_LENGTH * 2 + 7))) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
         }
 
@@ -2224,14 +2038,13 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param remaining The total number of bytes remaining after the already-sent packet
      */
     private void setupChainedResponse(short offset, short remaining) {
-        tempShorts[IDX_CONTINUATION_OUTGOING_WRITE_OFFSET] = offset;
-        tempShorts[IDX_CONTINUATION_OUTGOING_REMAINING] = remaining;
-        if (tempShorts[IDX_CONTINUATION_OUTGOING_REMAINING] >= 256) {
+        transientStorage.setOutgoingContinuation(offset, remaining);
+        if (remaining >= 256) {
             // at least ANOTHER full chunk remains
             throwException(ISO7816.SW_BYTES_REMAINING_00);
         } else {
             // exactly one more chunk remains
-            throwException((short) (ISO7816.SW_BYTES_REMAINING_00 + tempShorts[IDX_CONTINUATION_OUTGOING_REMAINING]));
+            throwException((short) (ISO7816.SW_BYTES_REMAINING_00 + remaining));
         }
     }
 
@@ -2366,8 +2179,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * Consumes a CBOR map and locates the element having string key "id". After call, temp variables
      * representing the index and length of the matched value are set, if a match was found. Values for the ID
-     * element are allowed to be string or byte arrays. Before call those variables should be cleared, as there's
-     * no way to determine if they are set as a result of the call other than comparing.
+     * element are allowed to be string or byte arrays.
      *
      * @param apdu Request/response object
      * @param readIdx Current index into the request buffer
@@ -2376,6 +2188,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @return New index into the request buffer, after consuming one CBOR map element
      */
     private short consumeMapAndGetID(APDU apdu, short readIdx, short lc) {
+        boolean foundId = false;
+        transientStorage.readyStoredVars();
         short mapDef = bufferMem[readIdx++];
         if (readIdx >= lc) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
@@ -2413,6 +2227,9 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             }
 
             boolean isId = (keyLen == 2 && bufferMem[readIdx] == 'i' && bufferMem[(short)(readIdx+1)] == 'd');
+            if (foundId) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
+            }
             readIdx += keyLen;
             if (readIdx >= lc) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
@@ -2422,15 +2239,13 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             if (readIdx >= lc) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
             }
-            if (isId) {
-                tempShorts[IDX_TEMP_BUF_IDX_STORAGE] = readIdx;
-            }
+            short idPos = readIdx;
 
             short valLen = 0;
             if (valDef == 0x78 || valDef == 0x58) {
                 valLen = ub(bufferMem[readIdx++]);
                 if (isId) {
-                    tempShorts[IDX_TEMP_BUF_IDX_STORAGE]++;
+                    idPos++;
                 }
                 if (readIdx >= lc) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
@@ -2444,7 +2259,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             }
 
             if (isId) {
-                tempShorts[IDX_TEMP_BUF_IDX_LEN] = valLen;
+                foundId = true;
+                transientStorage.setStoredVars(idPos, valLen);
             }
 
             readIdx += valLen;
@@ -2453,8 +2269,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             }
         }
 
-        if (tempShorts[IDX_TEMP_BUF_IDX_STORAGE] == 0) {
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
+        if (!foundId) {
+            sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
         }
 
         return readIdx;
@@ -2477,7 +2293,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             // sendByteArray(apdu, U2F_V2_RESPONSE);
 
             // ... but we DON'T implement U2F, so we can send the CTAP2-only response type
-            sendByteArray(apdu, FIDO_2_RESPONSE);
+            sendByteArray(apdu, CannedCBOR.FIDO_2_RESPONSE);
 
             return;
         }
@@ -2485,31 +2301,34 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         byte[] apduBytes = apdu.getBuffer();
 
         if (apduBytes[ISO7816.OFFSET_CLA] == 0x00 && apduBytes[ISO7816.OFFSET_INS] == (byte) 0xC0) {
-            if (tempShorts[IDX_CONTINUATION_OUTGOING_WRITE_OFFSET] == 0 || tempShorts[IDX_CONTINUATION_OUTGOING_REMAINING] == 0) {
+            if (transientStorage.getOutgoingContinuationRemaining() == 0) {
                 throwException(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
             }
 
-            byte[] sourceBuffer = tempBools[IDX_RESPONSE_FROM_SCRATCH] ? scratch : bufferMem;
+            byte[] sourceBuffer = transientStorage.isResponseFromScratch() ? scratch : bufferMem;
 
-            short writeSize = 256 <= tempShorts[IDX_CONTINUATION_OUTGOING_REMAINING] ? 256 : tempShorts[IDX_CONTINUATION_OUTGOING_REMAINING];
+            short outgoingOffset = transientStorage.getOutgoingContinuationOffset();
+            short outgoingRemaining = transientStorage.getOutgoingContinuationRemaining();
+
+            short writeSize = 256 <= outgoingRemaining ? 256 : outgoingRemaining;
             apdu.setOutgoing();
             apdu.setOutgoingLength(writeSize);
-            Util.arrayCopyNonAtomic(sourceBuffer, tempShorts[IDX_CONTINUATION_OUTGOING_WRITE_OFFSET],
+            Util.arrayCopyNonAtomic(sourceBuffer, outgoingOffset,
                     apdu.getBuffer(), (short) 0, writeSize);
             apdu.sendBytes((short) 0, writeSize);
-            tempShorts[IDX_CONTINUATION_OUTGOING_WRITE_OFFSET] += writeSize;
-            tempShorts[IDX_CONTINUATION_OUTGOING_REMAINING] -= writeSize;
-            if (tempShorts[IDX_CONTINUATION_OUTGOING_REMAINING] >= 256) {
+            outgoingOffset += writeSize;
+            outgoingRemaining -= writeSize;
+            transientStorage.setOutgoingContinuation(outgoingOffset, outgoingRemaining);
+            if (outgoingRemaining >= 256) {
                 throwException(ISO7816.SW_BYTES_REMAINING_00);
-            } else if (tempShorts[IDX_CONTINUATION_OUTGOING_REMAINING] > 0) {
-                throwException((short) (ISO7816.SW_BYTES_REMAINING_00 + tempShorts[IDX_CONTINUATION_OUTGOING_REMAINING]));
+            } else if (outgoingRemaining > 0) {
+                throwException((short) (ISO7816.SW_BYTES_REMAINING_00 + outgoingRemaining));
             }
-            tempShorts[IDX_CONTINUATION_OUTGOING_WRITE_OFFSET] = 0;
+            transientStorage.clearOutgoingContinuation();
             return;
         } else {
-            tempShorts[IDX_CONTINUATION_OUTGOING_WRITE_OFFSET] = 0;
-            tempShorts[IDX_CONTINUATION_OUTGOING_REMAINING] = 0;
-            tempBools[IDX_RESPONSE_FROM_SCRATCH] = false;
+            transientStorage.clearOutgoingContinuation();
+            transientStorage.clearResponseFromScratch();
         }
 
         if (apdu.isCommandChainingCLA()) {
@@ -2521,11 +2340,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             }
             fullyReadReq(apdu, apduBytes, lc, amtRead);
 
-            tempShorts[IDX_CHAINING_INCOMING_READ_OFFSET] += lc;
-            if (tempShorts[IDX_STORED_COMMAND_BYTE] == 0x00) {
-                tempShorts[IDX_STORED_COMMAND_BYTE] = ub(apduBytes[apdu.getOffsetCdata()]);
-            }
-
+            transientStorage.increaseChainIncomingReadOffset(lc);
+            transientStorage.setStoredCommandByteIfNone(apduBytes[apdu.getOffsetCdata()]);
             return;
         }
 
@@ -2551,20 +2367,20 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         short incomingOffset = 1;
         short lcEffective = (short)(lc + 1);
         byte cmdByte = apduBytes[apdu.getOffsetCdata()];
-        if (tempShorts[IDX_CHAINING_INCOMING_READ_OFFSET] > 0) {
-            cmdByte = bufferMem[0];
-            lcEffective += tempShorts[IDX_CHAINING_INCOMING_READ_OFFSET];
-            tempShorts[IDX_STORED_COMMAND_BYTE] = 0x00;
+        short chainingReadOffset = transientStorage.getChainIncomingReadOffset();
+        if (chainingReadOffset > 0) {
+            cmdByte = transientStorage.getStoredCommandByte();
+            lcEffective += chainingReadOffset;
+            transientStorage.clearStoredCommandByte();
         }
 
         if (cmdByte != FIDOConstants.CMD_CREDENTIAL_MANAGEMENT
             && cmdByte != FIDOConstants.CMD_CREDENTIAL_MANAGEMENT_PREVIEW) {
-            tempShorts[IDX_CRED_ITERATION_POINTER] = 0;
-            tempShorts[IDX_RP_ITERATION_POINTER] = 0;
+            transientStorage.clearIterationPointers();
         }
 
         if (cmdByte != FIDOConstants.CMD_GET_NEXT_ASSERTION) {
-            tempShorts[IDX_ASSERT_ITERATION_POINTER] = 0;
+            transientStorage.clearAssertIterationPointer();
         }
 
         switch (cmdByte) {
@@ -2582,14 +2398,14 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 getAssertion(apdu, lcEffective, incomingOffset, (short) 0);
                 break;
             case FIDOConstants.CMD_GET_NEXT_ASSERTION:
-                if (tempShorts[IDX_ASSERT_ITERATION_POINTER] <= 0) {
+                if (transientStorage.getAssertIterationPointer() <= 0) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NOT_ALLOWED);
                 }
                 // Note: no fullyReadReq here, because bufferMem should still contain the getAssertion request
 
                 // We set lc to a high value here because we ALREADY successfully processed the request once,
                 // back when it was a normal getAssertion call. We know it's valid... enough.
-                getAssertion(apdu, (short) 16000, incomingOffset, tempShorts[IDX_ASSERT_ITERATION_POINTER]);
+                getAssertion(apdu, (short) 16000, incomingOffset, transientStorage.getAssertIterationPointer());
                 break;
             case FIDOConstants.CMD_CLIENT_PIN:
                 fullyReadReq(apdu, apduBytes, lc, amtRead);
@@ -2610,7 +2426,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 break;
         }
 
-        tempShorts[IDX_CHAINING_INCOMING_READ_OFFSET] = 0;
+        transientStorage.resetChainIncomingReadOffset();
     }
 
     /**
@@ -2700,14 +2516,14 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 handleEnumerateRPs(apdu, (short) 0);
                 break;
             case FIDOConstants.CRED_MGMT_ENUMERATE_RPS_NEXT:
-                short rpPtr = tempShorts[IDX_RP_ITERATION_POINTER];
+                short rpPtr = transientStorage.getRPIterationPointer();
                 if (rpPtr == 0) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
                 }
                 handleEnumerateRPs(apdu, rpPtr);
                 break;
             case FIDOConstants.CRED_MGMT_ENUMERATE_CREDS_NEXT:
-                short credPtr = tempShorts[IDX_CRED_ITERATION_POINTER];
+                short credPtr = transientStorage.getCredIterationPointer();
                 if (credPtr == 0) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
                 }
@@ -2733,8 +2549,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param lc Length of incoming request, as sent by the platform
      */
     private void handleDeleteCred(APDU apdu, short readOffset, short lc) {
-        tempShorts[IDX_CRED_ITERATION_POINTER] = 0;
-        tempShorts[IDX_RP_ITERATION_POINTER] = 0;
+        transientStorage.clearIterationPointers();
 
         if (bufferMem[readOffset++] != (byte) 0xA1) { // map with one entry
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
@@ -2743,10 +2558,9 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
         }
 
-        tempShorts[IDX_TEMP_BUF_IDX_STORAGE] = 0;
         readOffset = consumeMapAndGetID(apdu, readOffset, lc);
-        short credIdIdx = tempShorts[IDX_TEMP_BUF_IDX_STORAGE];
-        short credIdLen = tempShorts[IDX_TEMP_BUF_IDX_LEN];
+        short credIdIdx = transientStorage.getStoredIdx();
+        short credIdLen = transientStorage.getStoredLen();
 
         if (credIdLen != CREDENTIAL_ID_LEN) {
             // We're not gonna have credentials of random lengths on here...
@@ -2821,6 +2635,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                     try {
                         residentKeyValidity[i] = false;
                         numResidentCredentials--;
+                        ok = true;
                     } finally {
                         if (ok) {
                             JCSystem.commitTransaction();
@@ -2850,7 +2665,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param lc Length of the incoming request, as sent by the platform
      */
     private void handleEnumerateCreds(APDU apdu, short bufferIdx, short startCredIdx, short lc) {
-        tempShorts[IDX_CRED_ITERATION_POINTER] = 0;
+        transientStorage.clearIterationPointers();
 
         if (startCredIdx > NUM_RESIDENT_KEY_SLOTS) { // intentional > instead of >=
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NO_CREDENTIALS);
@@ -2921,15 +2736,15 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
                     scratchRelease(CREDENTIAL_ID_LEN);
                 }
-                tempShorts[IDX_CRED_ITERATION_POINTER] = (short)(rkIndex + 1); // resume iteration from beyond this one
+                transientStorage.setCredIterationPointer((short)(rkIndex + 1)); // resume iteration from beyond this one
 
                 short writeOffset = 0;
 
                 bufferMem[writeOffset++] = FIDOConstants.CTAP2_OK;
                 bufferMem[writeOffset++] = startCredIdx == 0 ? (byte) 0xA5 : (byte) 0xA4; // map, four or five entries
                 bufferMem[writeOffset++] = 0x06; // map key: pubKeyCredentialsUserEntry
-                writeOffset = Util.arrayCopyNonAtomic(SINGLE_ID_MAP_PREAMBLE, (short) 0,
-                        bufferMem, writeOffset, (short) SINGLE_ID_MAP_PREAMBLE.length);
+                writeOffset = Util.arrayCopyNonAtomic(CannedCBOR.SINGLE_ID_MAP_PREAMBLE, (short) 0,
+                        bufferMem, writeOffset, (short) CannedCBOR.SINGLE_ID_MAP_PREAMBLE.length);
                 short userIdLength = ub(residentKeyUserIdLengths[rkIndex]);
                 writeOffset = encodeIntLen(writeOffset, userIdLength, true);
 
@@ -2941,15 +2756,15 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 scratchRelease(MAX_USER_ID_LENGTH);
 
                 bufferMem[writeOffset++] = 0x07; // map key: credentialId
-                writeOffset = Util.arrayCopyNonAtomic(SINGLE_ID_MAP_PREAMBLE, (short) 0,
-                        bufferMem, writeOffset, (short) SINGLE_ID_MAP_PREAMBLE.length);
+                writeOffset = Util.arrayCopyNonAtomic(CannedCBOR.SINGLE_ID_MAP_PREAMBLE, (short) 0,
+                        bufferMem, writeOffset, (short) CannedCBOR.SINGLE_ID_MAP_PREAMBLE.length);
                 writeOffset = encodeIntLen(writeOffset, CREDENTIAL_ID_LEN, true);
                 writeOffset = Util.arrayCopyNonAtomic(residentKeyData, (short)(CREDENTIAL_ID_LEN * rkIndex),
                         bufferMem, writeOffset, CREDENTIAL_ID_LEN);
 
                 bufferMem[writeOffset++] = 0x08; // map key: publicKey
-                writeOffset = Util.arrayCopyNonAtomic(PUBLIC_KEY_ALG_PREAMBLE, (short) 0,
-                        bufferMem, writeOffset, (short) PUBLIC_KEY_ALG_PREAMBLE.length);
+                writeOffset = Util.arrayCopyNonAtomic(CannedCBOR.PUBLIC_KEY_ALG_PREAMBLE, (short) 0,
+                        bufferMem, writeOffset, (short) CannedCBOR.PUBLIC_KEY_ALG_PREAMBLE.length);
                 short pubKeyOff = scratchAlloc((short)(KEY_POINT_LENGTH * 2));
                 symmetricUnwrapper.doFinal(residentKeyPublicKeys, (short)(rkIndex * KEY_POINT_LENGTH * 2), (short)(KEY_POINT_LENGTH * 2),
                         scratch, pubKeyOff);
@@ -2981,7 +2796,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private void handleEnumerateRPs(APDU apdu, short startOffset) {
         // if anything goes wrong, iteration will need to be restarted
-        tempShorts[IDX_RP_ITERATION_POINTER] = 0;
+        transientStorage.clearIterationPointers();
 
         short rkIndex;
         for (rkIndex = startOffset; rkIndex < NUM_RESIDENT_KEY_SLOTS; rkIndex++) {
@@ -3015,12 +2830,12 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             throwException(ISO7816.SW_UNKNOWN);
         }
 
-        tempShorts[IDX_RP_ITERATION_POINTER] = (short)(rkIndex + 1);
+        transientStorage.setRPIterationPointer((short)(rkIndex + 1));
 
         bufferMem[writeOffset++] = isContinuation ? (byte) 0xA2 : (byte) 0xA3; // map with two or three keys
         bufferMem[writeOffset++] = 0x03; // map key: rp
-        writeOffset = Util.arrayCopyNonAtomic(SINGLE_ID_MAP_PREAMBLE, (short) 0,
-                bufferMem, writeOffset, (short) SINGLE_ID_MAP_PREAMBLE.length);
+        writeOffset = Util.arrayCopyNonAtomic(CannedCBOR.SINGLE_ID_MAP_PREAMBLE, (short) 0,
+                bufferMem, writeOffset, (short) CannedCBOR.SINGLE_ID_MAP_PREAMBLE.length);
         byte rpIdLength = residentKeyRPIdLengths[rkIndex];
         writeOffset = encodeIntLen(writeOffset, rpIdLength, false);
         writeOffset = Util.arrayCopyNonAtomic(scratch, rkReturnOffset,
@@ -3099,7 +2914,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private void authenticatorReset(APDU apdu) {
         if (PROTECT_AGAINST_MALICIOUS_RESETS) {
-            if (tempBools[IDX_RESET_RECEIVED_SINCE_POWERON]) {
+            if (transientStorage.isResetCommandSentSincePoweron()) {
                 // Already tried to reset once since power applied, and the protection feature is enabled.
                 // Power off the token before trying again.
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
@@ -3107,7 +2922,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
             if (!resetRequested) {
                 // Reject this request, to require confirmation
-                tempBools[IDX_RESET_RECEIVED_SINCE_POWERON] = true;
+                transientStorage.setResetCommandSentSincePoweron();
                 resetRequested = true;
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
             }
@@ -3136,12 +2951,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 counter[i] = 0;
             }
 
-            for (short s = 0; s < tempShorts.length; s++) {
-                tempShorts[s] = 0;
-            }
-            for (short s = 0; s < tempBools.length; s++) {
-                tempBools[s] = false;
-            }
+            transientStorage.fullyReset();
 
             forceInitKeyAgreementKey();
 
@@ -3188,8 +2998,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         short offset = 0;
 
-        offset = Util.arrayCopyNonAtomic(AUTH_INFO_RESPONSE, (short) 0,
-                buffer, offset, (short) AUTH_INFO_RESPONSE.length);
+        offset = Util.arrayCopyNonAtomic(CannedCBOR.AUTH_INFO_RESPONSE, (short) 0,
+                buffer, offset, (short) CannedCBOR.AUTH_INFO_RESPONSE.length);
 
         if (pinSet) {
             buffer[offset++] = (byte) 0xF5; // true
@@ -3211,9 +3021,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param swCode Two-byte status code - may be SW_NO_ERROR if desired
      */
     private void throwException(short swCode) {
-        tempShorts[IDX_CHAINING_INCOMING_READ_OFFSET] = 0;
-        tempShorts[IDX_CRED_ITERATION_POINTER] = 0;
-        tempShorts[IDX_RP_ITERATION_POINTER] = 0;
+        transientStorage.clearIterationPointers();
         scratchRelease();
 
         ISOException.throwIt(swCode);
@@ -3413,7 +3221,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_BLOCKED);
         }
 
-        if (tempShorts[IDX_PIN_TRIES_SINCE_RESET] == PIN_TRIES_PER_RESET) {
+        if (transientStorage.getPinTriesSinceReset() == PIN_TRIES_PER_RESET) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_BLOCKED);
         }
 
@@ -3444,16 +3252,16 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 scratch, scratchOff, (short) 32) == 0) {
             // Good PIN!
             pinRetryCounter = MAX_PIN_RETRIES;
-            tempBools[IDX_RESET_PIN_PROVIDED] = true;
+            transientStorage.setResetPinProvided();
             wrappingKey.setKey(privateKeySpace, (short) 0);
             initSymmetricCrypto(); // Need to re-key the wrapper since we messed it up above
-            tempShorts[IDX_PIN_TRIES_SINCE_RESET] = 0;
+            transientStorage.clearPinTriesSinceReset();
             scratchRelease((short) 32);
             return;
         }
 
         // BAD PIN
-        tempShorts[IDX_PIN_TRIES_SINCE_RESET]++;
+        transientStorage.incrementPinTriesSinceReset();
         forceInitKeyAgreementKey();
         sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
     }
@@ -3601,10 +3409,10 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
         }
         if (Util.arrayCompare(bufferMem, readIdx,
-                PUBLIC_KEY_DH_ALG_PREAMBLE, (short) 0, (short) PUBLIC_KEY_DH_ALG_PREAMBLE.length) != 0) {
+                CannedCBOR.PUBLIC_KEY_DH_ALG_PREAMBLE, (short) 0, (short) CannedCBOR.PUBLIC_KEY_DH_ALG_PREAMBLE.length) != 0) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_UNSUPPORTED_ALGORITHM);
         }
-        readIdx += PUBLIC_KEY_DH_ALG_PREAMBLE.length;
+        readIdx += CannedCBOR.PUBLIC_KEY_DH_ALG_PREAMBLE.length;
 
         short xIdx = readIdx;
         readIdx += KEY_POINT_LENGTH;
@@ -3636,7 +3444,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param pinLength Length in bytes of new PIN
      */
     private void rawSetPIN(APDU apdu, byte[] pinBuf, short offset, short pinLength) {
-        if (pinSet && !tempBools[IDX_RESET_PIN_PROVIDED]) {
+        if (pinSet && !transientStorage.isResetPinProvided()) {
             // We already have a PIN, but we haven't unlocked with it this boot...
             // that's not going to work.
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
@@ -3665,7 +3473,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             }
 
             pinSet = true;
-            tempBools[IDX_RESET_PIN_PROVIDED] = false;
+            transientStorage.setResetPinProvided();
             pinRetryCounter = MAX_PIN_RETRIES;
 
             // Encrypt the wrapping key with the PIN key
@@ -3748,8 +3556,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         bufferMem[outputLen++] = (byte) 0xA1; // map - one entry
         bufferMem[outputLen++] = 0x01; // map key: keyAgreement
         bufferMem[outputLen++] = (byte) 0xA5; // map: five entries
-        outputLen = Util.arrayCopyNonAtomic(PUBLIC_KEY_DH_ALG_PREAMBLE, (short) 0,
-                bufferMem, outputLen, (short) PUBLIC_KEY_DH_ALG_PREAMBLE.length);
+        outputLen = Util.arrayCopyNonAtomic(CannedCBOR.PUBLIC_KEY_DH_ALG_PREAMBLE, (short) 0,
+                bufferMem, outputLen, (short) CannedCBOR.PUBLIC_KEY_DH_ALG_PREAMBLE.length);
 
         short scratchOff = scratchAlloc((short) (KEY_POINT_LENGTH * 2 + 1));
 
@@ -3786,14 +3594,14 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         random.generateData(pinToken, (short) 0, (short) pinToken.length);
 
-        tempBools[IDX_RESET_PLATFORM_KEY_SET] = true;
+        transientStorage.setPlatformKeySet();
     }
 
     /**
      * If the authenticator-to-and-from-platform key agreement hasn't already been set up this boot, set it up
      */
     private void initKeyAgreementKeyIfNecessary() {
-        if (!tempBools[IDX_RESET_PLATFORM_KEY_SET]) {
+        if (!transientStorage.isPlatformKeySet()) {
             forceInitKeyAgreementKey();
         }
     }
@@ -3816,13 +3624,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         // This one NEEDS to be cleared, because we *might* be using a TRANSIENT_DESELECT private key
         // for the platformKeyAgreementKey. If we are, it'll disappear into the ether after deselect,
         // so we need to make sure that we re-initialize it when we're selected again.
-        tempBools[IDX_RESET_PLATFORM_KEY_SET] = false;
-
-        tempShorts[IDX_RP_ITERATION_POINTER] = 0;
-        tempShorts[IDX_CRED_ITERATION_POINTER] = 0;
-        tempShorts[IDX_CONTINUATION_OUTGOING_WRITE_OFFSET] = 0;
-        tempShorts[IDX_CHAINING_INCOMING_READ_OFFSET] = 0;
-        tempBools[IDX_RESET_PIN_PROVIDED] = false;
+        transientStorage.clearOnDeselect();
     }
 
     /**
@@ -3887,7 +3689,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param array install parameters array
      * @param offset install parameters offset
      * @param length install parameters length
-     * @throws ISOException
+     * @throws ISOException If anything goes wrong during installation
      */
     public static void install(byte[] array, short offset, byte length)
             throws ISOException {
@@ -3926,8 +3728,6 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         // RAM usage - direct buffers
         bufferMem = JCSystem.makeTransientByteArray(BUFFER_MEM_SIZE, JCSystem.CLEAR_ON_DESELECT);
         scratch = JCSystem.makeTransientByteArray(SCRATCH_SIZE, JCSystem.CLEAR_ON_RESET);
-        tempShorts = JCSystem.makeTransientShortArray(NUM_TEMP_SHORTS, JCSystem.CLEAR_ON_DESELECT);
-        tempBools = JCSystem.makeTransientBooleanArray(NUM_RESET_BOOLS, JCSystem.CLEAR_ON_DESELECT);
         privateScratch = JCSystem.makeTransientByteArray(PRIVATE_SCRATCH_SIZE, JCSystem.CLEAR_ON_RESET);
         privateKeySpace = JCSystem.makeTransientByteArray((short) 32, JCSystem.CLEAR_ON_DESELECT);
         pinToken = JCSystem.makeTransientByteArray((short) 16, JCSystem.CLEAR_ON_DESELECT);
@@ -3955,6 +3755,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         sharedSecretUnwrapper = getAES();
         attester = getECSig();
         sha256 = MessageDigest.getInstance(MessageDigest.ALG_SHA_256, false);
+        transientStorage = new TransientStorage();
 
         // Actual init work
         // Four things are truly random and persist until we hard-FIDO2-reset the authenticator:

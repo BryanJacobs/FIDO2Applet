@@ -1,6 +1,10 @@
 package us.q3q.fido2;
 
+/**
+ * Constants defined by the FIDO specifications
+ */
 public abstract class FIDOConstants {
+    // Command byte values
     public static final byte CMD_MAKE_CREDENTIAL = 0x01;
     public static final byte CMD_GET_ASSERTION = 0x02;
     public static final byte CMD_GET_INFO = 0x04;
@@ -10,12 +14,14 @@ public abstract class FIDOConstants {
     public static final byte CMD_CREDENTIAL_MANAGEMENT = 0x0A;
     public static final byte CMD_CREDENTIAL_MANAGEMENT_PREVIEW = 0x41;
 
+    // Client pin subCommands
     public static final byte CLIENT_PIN_GET_RETRIES = 0x01;
     public static final byte CLIENT_PIN_GET_KEY_AGREEMENT = 0x02;
     public static final byte CLIENT_PIN_SET_PIN = 0x03;
     public static final byte CLIENT_PIN_CHANGE_PIN = 0x04;
     public static final byte CLIENT_PIN_GET_PIN_TOKEN = 0x05;
 
+    // Credential management subcommands
     public static final byte CRED_MGMT_GET_CREDS_META = 0x01;
     public static final byte CRED_MGMT_ENUMERATE_RPS_BEGIN = 0x02;
     public static final byte CRED_MGMT_ENUMERATE_RPS_NEXT = 0x03;
@@ -24,6 +30,7 @@ public abstract class FIDOConstants {
     public static final byte CRED_MGMT_DELETE_CRED = 0x06;
     public static final byte CRED_MGMT_UPDATE_USER_INFO = 0x07;
 
+    // Error (and OK) responses
     public static final byte CTAP2_OK = 0x00; // 	Indicates successful response.
     public static final byte CTAP1_ERR_INVALID_COMMAND = 0x01; //	 	The command is not a valid CTAP command.
     public static final byte CTAP1_ERR_INVALID_PARAMETER = 0x02; //	 	The command included an invalid parameter.

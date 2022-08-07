@@ -3,7 +3,7 @@ package us.q3q.fido2;
 import javacard.security.ECKey;
 
 /**
- * Elliptic curve parameters for curve P256/secp256r1, mandatory for CTAP2 authenticators
+ * Elliptic curve parameters for curve P256/secp256r1, mandatory for CTAP2 (and U2F) authenticators
  */
 public abstract class P256Constants {
     private static final byte[] P = {
