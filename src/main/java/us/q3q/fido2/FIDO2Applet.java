@@ -441,7 +441,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         if (!apdu.isCommandChainingCLA()) {
-            transientStorage.getChainIncomingReadOffset();
+            transientStorage.resetChainIncomingReadOffset();
         }
     }
 
