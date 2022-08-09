@@ -117,7 +117,6 @@ public class TransientStorage {
     }
 
     public void clearIterationPointers() {
-        tempShorts[IDX_CHAINING_INCOMING_READ_OFFSET] = 0;
         tempShorts[IDX_CRED_ITERATION_POINTER] = 0;
         tempShorts[IDX_RP_ITERATION_POINTER] = 0;
     }

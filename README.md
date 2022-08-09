@@ -65,7 +65,7 @@ I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/s
 | CTAP2.1 credProtect extension  | Implemented, one caveat                                 |
 | CTAP2.1 PIN Protocol 1         | Implemented                                             |
 | CTAP2.1 PIN Protocol 2         | Not implemented                                         |
-| CTAP2.1 credential management  | Mostly implemented - no user update                     |
+| CTAP2.1 credential management  | Implemented                                             |
 | CTAP2.1 Enterprise attestation | Not implemented                                         |
 | CTAP2.1 authenticator config   | Not implemented                                         |
 | CTAP2.1 blob storage           | Not implemented                                         |
