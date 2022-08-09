@@ -136,7 +136,7 @@ See what's going on. Raise a pull request to fix it.
 
 Ahahahahahahahaahha
 
-Javacard versions before 3.0.4 don't support SHA-2 hashing. Not gonna happen.
+Javacard versions before 3.0.1 don't support SHA-2 hashing. Not gonna happen.
 
 ## Why doesn't this work on my Android phone?
 
