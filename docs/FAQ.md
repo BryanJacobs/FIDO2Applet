@@ -147,3 +147,25 @@ FIDO2 at all.
 
 There's nothing technically wrong with Android compatibility
 but the Google Play Services implementation isn't great.
+
+## What does this applet mean for the flash storage lifetime of my smartcard?
+
+On every makeCred or getAssertion operation, the app will:
+
+- Increment a flash-stored counter (1-4 bytes written)
+- Set an elliptic curve private key object
+
+The applet will try to allocate the EC private key object in RAM, but will fall back to flash if
+the smartcard doesn't support RAM-backed allocations.
+
+Additionally, creating resident keys will (of course) write to flash, and there are some
+initial flash writes when installing or resetting the applet.
+
+Overall, this applet is pretty great at keeping everything in RAM, and you're much more likely
+to be given trouble by software bugs than by your flash write endurance. Flash is never used as
+writable buffer space.
+
+## Can I update the app and maintain the validity of my previously-issued credentials?
+
+No. Once you start using a certain version of the applet, you're stuck on that version if you
+want the issued credentials to stay valid. Have multiple authenticators, eh?

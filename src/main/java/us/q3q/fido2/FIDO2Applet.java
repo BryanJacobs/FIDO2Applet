@@ -3115,6 +3115,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     private void throwException(short swCode) {
         transientStorage.clearIterationPointers();
         scratchRelease();
+        ecPrivateKey.clearKey();
 
         ISOException.throwIt(swCode);
     }
