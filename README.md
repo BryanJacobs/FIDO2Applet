@@ -13,7 +13,9 @@ This applet does **not** presently implement U2F support, for
 [valid reasons](docs/FAQ.md).
 
 In order to run this, you will need
-[a compatible smartcard](docs/requirements.md).
+[a compatible smartcard](docs/requirements.md). Some smartcards which
+describe themselves as running Javacard 3.0.1 might work - see the
+detailed requirements.
 
 You might be interested in [reading about the security model](docs/security.md).
 
@@ -61,12 +63,13 @@ I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/s
 | ECDSA (SecP256r1)              | Implemented                                             |
 | Other crypto like ed25519      | Not implemented                                         |
 | CTAP2.0 hmac-secret extension  | Implemented                                             |
-| CTAP2.1 alwaysUv extension     | Implemented                                             |
-| CTAP2.1 credProtect extension  | Implemented, one caveat                                 |
+| CTAP2.1 hmac-secret extension  | Not implemented (one secret, requiring UV, not two)     |
+| CTAP2.1 alwaysUv option        | Implemented                                             |
+| CTAP2.1 credProtect option     | Implemented, one caveat                                 |
 | CTAP2.1 PIN Protocol 1         | Implemented                                             |
 | CTAP2.1 PIN Protocol 2         | Not implemented                                         |
 | CTAP2.1 credential management  | Implemented                                             |
-| CTAP2.1 Enterprise attestation | Not implemented                                         |
+| CTAP2.1 enterprise attestation | Not implemented                                         |
 | CTAP2.1 authenticator config   | Not implemented                                         |
 | CTAP2.1 blob storage           | Not implemented                                         |
 | APDU chaining                  | Supported                                               |

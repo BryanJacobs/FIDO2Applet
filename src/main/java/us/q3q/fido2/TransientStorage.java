@@ -39,26 +39,22 @@ public class TransientStorage {
      */
     private static final short IDX_SCRATCH_ALLOC_SIZE = 6;
     /**
-     * Number of times a PIN has been attempted since last reset
-     */
-    private static final short IDX_PIN_TRIES_SINCE_RESET = 7;
-    /**
      * Index of next credential to consider when iterating through RPs with credManagement commands
      */
-    private static final short IDX_RP_ITERATION_POINTER = 8;
+    private static final short IDX_RP_ITERATION_POINTER = 7;
     /**
      * Index of next credential to consider when iterating through creds with credManagement commands
      */
-    private static final short IDX_CRED_ITERATION_POINTER = 9;
+    private static final short IDX_CRED_ITERATION_POINTER = 8;
     /**
      * Index of next credential (in either allowList or resident keys) to consider when iterating through
      * assertions with getNextAssertion commands
      */
-    private static final short IDX_ASSERT_ITERATION_POINTER = 10;
+    private static final short IDX_ASSERT_ITERATION_POINTER = 9;
     /**
      * Total number of in-memory short variables
      */
-    private static final short NUM_TEMP_SHORTS = 11;
+    private static final short NUM_TEMP_SHORTS = 10;
 
     /**
      * array of per-reset booleans used internally
@@ -101,9 +97,15 @@ public class TransientStorage {
      */
     private static final short NUM_RESET_BOOLS = 8;
 
+    /**
+     * Pin-retries-since-reset counter, which must be cleared on RESET, not on deselect
+     */
+    private final short[] pinRetrySinceResetStorage;
+
     public TransientStorage() {
         tempShorts = JCSystem.makeTransientShortArray(NUM_TEMP_SHORTS, JCSystem.CLEAR_ON_DESELECT);
         tempBools = JCSystem.makeTransientBooleanArray(NUM_RESET_BOOLS, JCSystem.CLEAR_ON_DESELECT);
+        pinRetrySinceResetStorage = JCSystem.makeTransientShortArray((short) 1, JCSystem.CLEAR_ON_RESET);
     }
 
     public void fullyReset() {
@@ -154,15 +156,15 @@ public class TransientStorage {
     }
 
     public short getPinTriesSinceReset() {
-        return tempShorts[IDX_PIN_TRIES_SINCE_RESET];
+        return pinRetrySinceResetStorage[0];
     }
 
     public void clearPinTriesSinceReset() {
-        tempShorts[IDX_PIN_TRIES_SINCE_RESET] = 0;
+        pinRetrySinceResetStorage[0] = 0;
     }
 
     public void incrementPinTriesSinceReset() {
-        tempShorts[IDX_PIN_TRIES_SINCE_RESET]++;
+        pinRetrySinceResetStorage[0]++;
     }
 
     public void setResetPinProvided() {

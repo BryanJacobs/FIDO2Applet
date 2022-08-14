@@ -91,7 +91,7 @@ It will store:
 - the credential ID (an AES256 encrypted blob of the RP ID SHA-256
   hash and the credential private key)
 - up to 32 characters of the RP ID, again AES256 encrypted
-- a 64-character-long user ID, again AES256 encrypted
+- a max 64-character-long user ID, again AES256 encrypted
 - the length of the RP ID, unencrypted
 - the length of the user ID, unencrypted
 - a boolean set to true on the first credential from a given RP ID, used
@@ -156,9 +156,16 @@ On every makeCred or getAssertion operation, the app will:
 - Set an elliptic curve private key object
 
 The applet will try to allocate the EC private key object in RAM, but will fall back to flash if
-the smartcard doesn't support RAM-backed allocations.
+the smartcard doesn't support RAM-backed allocations. The flash-stored counter is wear-leveled
+across 67 bytes.
 
-Additionally, creating resident keys will (of course) write to flash, and there are some
+On every powerup or unsuccessful PIN attempt, the app will set an elliptic curve private key object.
+
+On every PIN attempt, the app will overwrite a PIN retry counter... whether the PIN attempt is
+successful or not. But that's one byte written for a failure, or two bytes for a success. The PIN
+retry counter is wear-leveled across 64 bytes.
+
+Additionally, creating or deleting resident keys will (of course) write to flash, and there are some
 initial flash writes when installing or resetting the applet.
 
 Overall, this applet is pretty great at keeping everything in RAM, and you're much more likely
@@ -169,3 +176,19 @@ writable buffer space.
 
 No. Once you start using a certain version of the applet, you're stuck on that version if you
 want the issued credentials to stay valid. Have multiple authenticators, eh?
+
+## Are there any limits to how long I can keep using this on a card?
+
+Each time you create a credential or get an assertion (regardless of whether the credential is
+discoverable or not) a counter is incremented. When it hits its maximum value of 2^32 you must
+reset the authenticator (invalidating all created credentials) to continue using the app. This counter is
+shared across all credentials, discoverable or otherwise.
+
+2^32 is 4,294,967,296 - large enough that you could use the token once per second for 136 years
+without reaching the maximum value.
+
+That should be enough longevity.
+
+The only other limit to be aware of is the PIN retry count - if you incorrectly attempt a PIN eight
+times (by default) across three power-ups of the authenticator without successfully entering it once,
+the app will be locked and you won't be able to use it without clearing everything.

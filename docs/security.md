@@ -69,13 +69,17 @@ someone's PIN except when it's being initially set, and even then it's sent
 encrypted with ECDH. The least secure part of it is when the **initial** PIN
 is being set - so do that first!
 
+The wrapping key is stored in RAM from when you enter your PIN until you reset
+the card, so if you want to be very secure, power the card down each time you
+finish using it.
+
 ### hmac-secret keys
 
 The hmac-secret extension keys are made by performing an HMAC-SHA256
-of a particular credential's ECDSA private key, using a unique
-32-byte key. This makes the brute-force resistance of these keys
-dependent on the entropy in a raw ECDSA private key, which is
-somewhat less than 256 bits and likely considerably stronger
+of a particular credential's ECDSA private key, using a random 32-byte
+key generated when the app is first installed. This makes the brute-force
+resistance of these keys dependent on the entropy in a raw ECDSA private key,
+which is somewhat less than 256 bits and likely considerably stronger
 than the ECDSA keypair itself.
 
 ## Threat Modeling
@@ -84,7 +88,7 @@ than the ECDSA keypair itself.
 
 The attacker is you. Do better next time.
 
-### An attacker can intercept traffic to and from my authenticator
+### An attacker can view traffic to and from my authenticator
 
 Yeah, that's how NFC works when your attacker has a nice antenna.
 
@@ -95,6 +99,18 @@ the security impact is minimal.
 
 If they can forge traffic to the authenticator, they could hard-reset it,
 wiping your keys.
+
+### An attacker can man-in-the-middle traffic to and from my authenticator
+
+This threat scenario is explored in depth elsewhere, but in brief:
+
+- The CTAP2.1 `credManagement` functions are protected using the PIN as a private
+  key, so a MITM cannot just delete your credentials
+- The authenticator reset function is anonymous and could be performed by a MITM
+- Setting a PIN for the first time is not secure over a compromised channel
+- Creating new credentials and getting assertions over a channel with an active
+  MITM will reveal the first sixteen bytes of the SHA256 of your PIN, which is
+  all that FIDO2 uses. You'll need to change your PIN after this happens
 
 ### An attacker has malware on the machine I'm using with my authenticator
 
