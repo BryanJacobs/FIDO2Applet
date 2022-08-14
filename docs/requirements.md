@@ -21,37 +21,37 @@ operation. But these processors don't even have 32-bit integers, much less the
 not feasible, sorry.
 
 HOWEVER, there do exist cards that support the appropriate algorithms atop Javacard
-3.0.1. Those will work. Check [JCAlgTest](https://github.com/crocs-muni/JCAlgTest).
-You need:
+3.0.1. Those will work. In fact, the OMNI Ring itself is one of those! Check
+[JCAlgTest](https://github.com/crocs-muni/JCAlgTest) on your target card. You need:
 
-- KeyBuilder LENGTH_AES_256 (symmetric crypto for credential ID wrapping BUT also used
+- KeyBuilder `LENGTH_AES_256` (symmetric crypto for credential ID wrapping BUT also used
   for communication between the card and the platform)
-- Cipher ALG_AES_BLOCK_128_CBC_NOPAD (using symmetric crypto - note this is AES with
+- Cipher `ALG_AES_BLOCK_128_CBC_NOPAD` (using symmetric crypto - note this is AES with
   256-bit keys and 128-bit blocks, aka AES256, despite the 128 in the alg name)
-- Cipher getInstance CIPHER_AES_CBC PAD_NOPAD (using symmetric crypto)
-- KeyPair on-card generation ALG_EC_FP LENGTH_EC_FP_256 (core ECDSA keypair generation)
-- KeyBuilder TYPE_EC_FP_PRIVATE LENGTH_EC_FP_256 (core ECDSA keypair usage)
-- Signature ALG_ECDSA_SHA_256 (actually signing card-produced results)
-- KeyAgreement ALG_EC_SVDP_DH_PLAIN (used in combo with SHA256 to implement secure channel
+- Cipher getInstance `CIPHER_AES_CBC PAD_NOPAD` (using symmetric crypto)
+- KeyPair on-card generation `ALG_EC_FP LENGTH_EC_FP_256` (core ECDSA keypair generation)
+- KeyBuilder `TYPE_EC_FP_PRIVATE LENGTH_EC_FP_256` (core ECDSA keypair usage)
+- Signature `ALG_ECDSA_SHA_256` (actually signing card-produced results)
+- KeyAgreement `ALG_EC_SVDP_DH_PLAIN` (used in combo with SHA256 to implement secure channel
   between the card and the platform)
-- MessageDigest ALG_SHA_256 (used to implement HMAC-SHA256 for verifying PINs, etc, and
+- MessageDigest `ALG_SHA_256` (used to implement HMAC-SHA256 for verifying PINs, etc, and
   for the above-mentioned secure channel)
-- RandomData ALG_SECURE_RANDOM (used for key generation etc. Note ALG_KEYGENERATION is not
-  used)
-- About 400 bytes MEMORY_TYPE_TRANSIENT_RESET (sorry)
-- Almost 2k total memory including the above and MEMORY_TYPE_TRANSIENT_DESELECT
+- RandomData `ALG_SECURE_RANDOM` (used for key generation etc. Note `ALG_KEYGENERATION` is not
+  used, that's too new)
+- About 400 bytes `MEMORY_TYPE_TRANSIENT_RESET` (sorry)
+- Almost 2k total memory including the above and `MEMORY_TYPE_TRANSIENT_DESELECT`
 - About 200 bytes max commit capacity, used for atomically creating and updating resident
   keys
-- An amount of MEMORY_TYPE_PERSISTENT sufficient to hold the app and the resident keys, etc
+- An amount of `MEMORY_TYPE_PERSISTENT` sufficient to hold the app and the resident keys, etc
 
-Signature ALG_HMAC_SHA_256 is missing from the above list, because the HMAC part
+Signature `ALG_HMAC_SHA_256` is missing from the above list, because the HMAC part
 is implemented in software (using the OS-provided SHA256).
 
-You also want the following to avoid having flash storage wear each time the card is
+You also **want** the following to avoid having flash storage wear each time the card is
 powered up, and the risk of private keys being stored there in the first place:
 
-- TYPE_EC_FP_PRIVATE_TRANSIENT_DESELECT (ideal) or TYPE_EC_FP_PRIVATE_TRANSIENT_RESET
-- TYPE_AES_TRANSIENT_DESELECT (ideal) or TYPE_AES_TRANSIENT_RESET
+- `TYPE_EC_FP_PRIVATE_TRANSIENT_DESELECT` (ideal) or `TYPE_EC_FP_PRIVATE_TRANSIENT_RESET`
+- `TYPE_AES_TRANSIENT_DESELECT` (ideal) or `TYPE_AES_TRANSIENT_RESET`
 
 So to summarize, let's discuss the full requirements on the authenticator side:
 
@@ -71,12 +71,12 @@ others should work fine too.
 # Platform-side requirements
 
 On the computer side of things, you'll likely want `libfido2` compiled
-with support for PC/SC, which is currently experimental, or `libnfc`. On
+with support for PC/SC, which is currently experimental, and/or `libnfc`. On
 Arch Linux this is not the default - out of the box `libfido2` only works with
-USB HID tokens, which this is **not**. I have uploaded an AUR package with
-the appropriate support at https://aur.archlinux.org/packages/libfido2-full .
+USB HID tokens, which this is **not**. I have uploaded [an AUR package with
+the appropriate support for your convenience](https://aur.archlinux.org/packages/libfido2-full).
 
-Without one of those two options you will Have A Bad Day.
+Without either of those two options you will Have A Bad Day.
 
 If you have them, you should see the card start showing up in the output
 of `fido2-token -L`. You can see what gets sent to and from the card by
