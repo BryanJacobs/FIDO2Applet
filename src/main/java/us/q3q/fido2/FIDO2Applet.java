@@ -847,13 +847,49 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @return Length of RP ID after padding/truncation
      */
     private short truncateRPId(byte[] rpIdBuf, short rpIdIdx, short rpIdLen, byte[] outputBuff, short outputOff) {
-        // TODO: better truncation as described in CTAP2.1
-        if (rpIdLen > MAX_RESIDENT_RP_ID_LENGTH) {
-            rpIdLen = MAX_RESIDENT_RP_ID_LENGTH;
+        if (rpIdLen <= MAX_RESIDENT_RP_ID_LENGTH) {
+            Util.arrayCopyNonAtomic(rpIdBuf, rpIdIdx,
+                    outputBuff, outputOff, rpIdLen);
+        } else {
+            // Truncation necessary...
+            short colonPos = -1;
+            for (short i = 0; i < rpIdLen; i++) {
+                if (rpIdBuf[(short)(rpIdIdx + i)] == (byte) ':') {
+                    colonPos = i;
+                    break;
+                }
+            }
+            short used = 0;
+
+            if (colonPos != -1) {
+                short protocolLen = (short)(colonPos + 1);
+                short toCopy = protocolLen <= MAX_RESIDENT_RP_ID_LENGTH ? protocolLen : MAX_RESIDENT_RP_ID_LENGTH;
+
+                Util.arrayCopyNonAtomic(rpIdBuf, rpIdIdx,
+                        outputBuff, outputOff, toCopy);
+
+                used += toCopy;
+            }
+
+            if (MAX_RESIDENT_RP_ID_LENGTH - used < 3) {
+                // No room for anything but the protocol bit we already copied
+                rpIdLen = used;
+            } else {
+                // Insert ellipsis
+                outputBuff[(short)(outputOff + used++)] = (byte) 0xE2;
+                outputBuff[(short)(outputOff + used++)] = (byte) 0x80;
+                outputBuff[(short)(outputOff + used++)] = (byte) 0xA6;
+
+                // Copy anything else we have room for after the ellipsis
+                short toCopy = (short)(MAX_RESIDENT_RP_ID_LENGTH - used);
+                Util.arrayCopyNonAtomic(rpIdBuf, (short)(rpIdIdx + used),
+                        outputBuff, (short)(outputOff + used), toCopy);
+                rpIdLen = MAX_RESIDENT_RP_ID_LENGTH;
+            }
         }
-        Util.arrayCopyNonAtomic(rpIdBuf, rpIdIdx,
-                outputBuff, outputOff, rpIdLen);
+
         if (rpIdLen < MAX_RESIDENT_RP_ID_LENGTH) {
+            // Zero-fill remainder after RP ID
             Util.arrayFillNonAtomic(outputBuff, (short)(outputOff + rpIdLen),
                     (short)(MAX_RESIDENT_RP_ID_LENGTH - rpIdLen), (byte) 0x00);
         }
