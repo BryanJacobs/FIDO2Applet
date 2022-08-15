@@ -3360,7 +3360,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_BLOCKED);
         }
 
-        if (transientStorage.getPinTriesSinceReset() == PIN_TRIES_PER_RESET) {
+        if (transientStorage.getPinTriesSinceReset() >= PIN_TRIES_PER_RESET) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_BLOCKED);
         }
 
@@ -3385,6 +3385,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         // remove power from the authenticator between it determining correctness and decrementing the
         // counter. So we'll accept the risk that a good PIN still results in the counter going down
         // in the event of a strange failure.
+        transientStorage.incrementPinTriesSinceReset();
         pinRetryCounter.decrement(pinRetryIndex);
 
         // ... and check that the result equals the second 32 bytes. If it does, we have the correct key.
@@ -3401,7 +3402,6 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         // BAD PIN
-        transientStorage.incrementPinTriesSinceReset();
         forceInitKeyAgreementKey();
         sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
     }
@@ -3719,9 +3719,12 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         short outputLen = 0;
         bufferMem[outputLen++] = FIDOConstants.CTAP2_OK;
-        bufferMem[outputLen++] = (byte) 0xA1; // map - one entry
+        bufferMem[outputLen++] = (byte) 0xA2; // map - two entries
         bufferMem[outputLen++] = 0x03; // map key: retries
         bufferMem[outputLen++] = pinRetryCounter.getRetryCount(pinIdx);
+        bufferMem[outputLen++] = 0x04; // map key: powerCycleState
+        bufferMem[outputLen++] = (byte) (transientStorage.getPinTriesSinceReset() >= PIN_TRIES_PER_RESET
+                ? 0xF5 : 0xF4); // true or false
 
         doSendResponse(apdu, outputLen);
     }

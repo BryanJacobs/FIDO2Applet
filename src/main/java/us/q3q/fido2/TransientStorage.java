@@ -100,12 +100,12 @@ public class TransientStorage {
     /**
      * Pin-retries-since-reset counter, which must be cleared on RESET, not on deselect
      */
-    private final short[] pinRetrySinceResetStorage;
+    private final byte[] pinRetrySinceResetStorage;
 
     public TransientStorage() {
         tempShorts = JCSystem.makeTransientShortArray(NUM_TEMP_SHORTS, JCSystem.CLEAR_ON_DESELECT);
         tempBools = JCSystem.makeTransientBooleanArray(NUM_RESET_BOOLS, JCSystem.CLEAR_ON_DESELECT);
-        pinRetrySinceResetStorage = JCSystem.makeTransientShortArray((short) 1, JCSystem.CLEAR_ON_RESET);
+        pinRetrySinceResetStorage = JCSystem.makeTransientByteArray((short) 1, JCSystem.CLEAR_ON_RESET);
     }
 
     public void fullyReset() {
@@ -155,7 +155,7 @@ public class TransientStorage {
         tempShorts[IDX_CHAINING_INCOMING_READ_OFFSET] += amt;
     }
 
-    public short getPinTriesSinceReset() {
+    public byte getPinTriesSinceReset() {
         return pinRetrySinceResetStorage[0];
     }
 
