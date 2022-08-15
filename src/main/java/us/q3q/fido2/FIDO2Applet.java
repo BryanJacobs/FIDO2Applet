@@ -2450,12 +2450,28 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
                 credManagementSubcommand(apdu, lcEffective, incomingOffset);
                 break;
+            case FIDOConstants.CMD_AUTHENTICATOR_SELECTION:
+                authenticatorSelection(apdu);
+                break;
             default:
                 sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_COMMAND);
                 break;
         }
 
         transientStorage.resetChainIncomingReadOffset();
+    }
+
+    /**
+     * Handles an authenticatorSelection FIDO2 command
+     *
+     * @param apdu Request/response object
+     */
+    private void authenticatorSelection(APDU apdu) {
+        // Presence not really implemented - user always considered present
+
+        bufferMem[0] = FIDOConstants.CTAP2_OK;
+
+        doSendResponse(apdu, (short) 1);
     }
 
     /**
