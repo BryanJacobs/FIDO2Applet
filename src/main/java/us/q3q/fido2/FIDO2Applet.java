@@ -3109,9 +3109,27 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             buffer[offset++] = (byte) 0xF4; // false
         }
 
+        offset = encodeIntLenTo(buffer, offset, (short) CannedCBOR.MAKE_CRED_UV_NOT_REQD.length, false);
+        offset = Util.arrayCopyNonAtomic(CannedCBOR.MAKE_CRED_UV_NOT_REQD, (short) 0,
+                buffer, offset, (short) CannedCBOR.MAKE_CRED_UV_NOT_REQD.length);
+        buffer[offset++] = (byte) 0xF4; // false
+
         buffer[offset++] = 0x06; // map key: pinProtocols
         buffer[offset++] = (byte) 0x81; // array: one item
         buffer[offset++] = 0x01; // pin protocol version 1
+
+        buffer[offset++] = 0x07; // map key: maxCredentialCountInList
+        buffer[offset++] = 0x0A; // ten
+
+        buffer[offset++] = 0x08; // map key: maxCredentialIdLength
+        buffer[offset++] = 0x18; // one-byte integer
+        buffer[offset++] = 0x40; // sixty-four
+
+        buffer[offset++] = 0x0E; // map key: firmwareVersion
+        buffer[offset++] = 0x01; // one
+
+        buffer[offset++] = 0x14; // map key: remainingDiscoverableCredentials
+        offset = encodeInt(offset, (byte)(NUM_RESIDENT_KEY_SLOTS - numResidentCredentials));
 
         apdu.setOutgoingAndSend((short) 0, offset);
     }

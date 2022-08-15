@@ -21,7 +21,7 @@ public abstract class CannedCBOR {
     };
     static final byte[] AUTH_INFO_RESPONSE = {
             FIDOConstants.CTAP2_OK,
-            (byte) 0xA5, // Map - five keys
+            (byte) 0xA8, // Map - eight keys
                 0x01, // map key: versions
                     (byte) 0x81, // array - one item
                         0x68, // string - eight bytes long
@@ -36,7 +36,7 @@ public abstract class CannedCBOR {
                         0x50, // byte string, 16 bytes long
                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // aaguid
                 0x04, // map key: options
-                    (byte) 0xA4, // map: four entries
+                    (byte) 0xA5, // map: five entries
                         0x62, // string: two bytes long
                             0x72, 0x6B, // rk
                             (byte) 0xF5, // true
@@ -48,6 +48,9 @@ public abstract class CannedCBOR {
                             (byte) 0xF5, // true
                         0x69, // string: nine bytes long
                             0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x50, 0x69, 0x6e, // clientPin
+    };
+    static final byte[] MAKE_CRED_UV_NOT_REQD = {
+            0x6D, 0x61, 0x6B, 0x65, 0x43, 0x72, 0x65, 0x64, 0x55, 0x76, 0x4E, 0x6F, 0x74, 0x52, 0x71, 0x64
     };
     static final byte[] MAKE_CREDENTIAL_RESPONSE_PREAMBLE = {
             0x00, // status - OK!
