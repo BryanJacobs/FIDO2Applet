@@ -34,6 +34,12 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private static final boolean PROTECT_AGAINST_MALICIOUS_RESETS = false;
     /**
+     * If true, the behavior of the getAssertion command with a given allowList will comply with CTAP2.1 instead of
+     * CTAP2.0. In CTAP2.1, the authenticator returns one assertion from a cred in the allowList; in CTAP2.0, the
+     * authenticator iterates over the allowList creds just like it would with resident credentials.
+     */
+    private static final boolean CTAP_2_1_GETASSERTION_WITH_ALLOW_LIST = true;
+    /**
      * Size of buffer used for receiving incoming data and sending responses.
      * To be standards-compliant, must be at least 1024 bytes, but can be larger.
      */
@@ -1489,7 +1495,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
                 if (startOfMatchingPubKeyCredData == (short) -1 || firstCredIdx == 0) {
                     // We need to check all the creds in the list if we're starting iteration...
-                    // ... in order to count the number of matches
+                    // ... in order to count the number of matches (for CTAP2.0 only!)
                     boolean matches = checkCredential(bufferMem, pubKeyIdx, pubKeyLen, scratch, scratchRPIDHashIdx,
                             privateScratch, (short) 0);
                     if (matches) {
@@ -1499,6 +1505,11 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                             startOfMatchingPubKeyCredData = beforeReadIdx;
                             matchingPubKeyCredDataLen = (short) (blockReadIdx - startOfMatchingPubKeyCredData);
                             loadPrivateScratchIntoAttester();
+
+                            if (CTAP_2_1_GETASSERTION_WITH_ALLOW_LIST) {
+                                // In CTAP2.1, we are done, as we're supposed to treat this match as the only match
+                                break;
+                            }
                         }
                     }
                 }
@@ -2161,7 +2172,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             }
             return readIdx;
         }
-        if (s > 0x80 && s <= 0x97) {
+        if (s >= 0x80 && s <= 0x97) {
             readIdx++;
             for (short i = 0; i < (short)(s - 0x80); i++) {
                 if (readIdx >= lc) {
@@ -2171,7 +2182,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             }
             return readIdx;
         }
-        if (s > 0xA0 && s <= 0xB7) {
+        if (s >= 0xA0 && s <= 0xB7) {
             readIdx++;
             for (short i = 0; i < (short)(s - 0xA0); i++) {
                 if (readIdx >= lc) {
