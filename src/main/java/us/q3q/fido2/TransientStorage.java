@@ -52,9 +52,13 @@ public class TransientStorage {
      */
     private static final short IDX_ASSERT_ITERATION_POINTER = 9;
     /**
+     * Which PIN protocol is currently in use, as at the time the pinToken was sent to the platform
+     */
+    private static final short IDX_PIN_PROTOCOL_IN_USE = 10;
+    /**
      * Total number of in-memory short variables
      */
-    private static final short NUM_TEMP_SHORTS = 10;
+    private static final short NUM_TEMP_SHORTS = 11;
 
     /**
      * array of per-reset booleans used internally
@@ -65,37 +69,33 @@ public class TransientStorage {
      */
     private static final short BOOL_IDX_RESET_PLATFORM_KEY_SET = 0;
     /**
-     * set when PIN has been provided (device unlocked)
-     */
-    private static final short BOOL_IDX_RESET_PIN_PROVIDED = 1;
-    /**
      * set if platform supports authenticator-compatible key
      */
-    private static final short BOOL_IDX_RESET_FOUND_KEY_MATCH = 2;
+    private static final short BOOL_IDX_RESET_FOUND_KEY_MATCH = 1;
     /**
      * set if the "up" (User Presence) option is enabled
      */
-    private static final short BOOL_IDX_OPTION_UP = 3;
+    private static final short BOOL_IDX_OPTION_UP = 2;
     /**
      * set if the "uv" (User Validation) option is enabled
      */
-    private static final short BOOL_IDX_OPTION_UV = 4;
+    private static final short BOOL_IDX_OPTION_UV = 3;
     /**
      * set if the "rk" (Resident Key) option is enabled
      */
-    private static final short BOOL_IDX_OPTION_RK = 5;
+    private static final short BOOL_IDX_OPTION_RK = 4;
     /**
      * set if chaining responses should come from the getNextAssertion buffer
      */
-    private static final short BOOL_IDX_RESPONSE_FROM_SCRATCH = 6;
+    private static final short BOOL_IDX_RESPONSE_FROM_SCRATCH = 5;
     /**
      * For reset "protection" feature, checks if a reset request has been received since the last authenticator powerup
      */
-    private static final short BOOL_IDX_RESET_RECEIVED_SINCE_POWERON = 7;
+    private static final short BOOL_IDX_RESET_RECEIVED_SINCE_POWERON = 6;
     /**
      * number of booleans total in array
      */
-    private static final short NUM_RESET_BOOLS = 8;
+    private static final short NUM_RESET_BOOLS = 7;
 
     /**
      * Pin-retries-since-reset counter, which must be cleared on RESET, not on deselect
@@ -167,14 +167,6 @@ public class TransientStorage {
         pinRetrySinceResetStorage[0]++;
     }
 
-    public void setResetPinProvided() {
-        tempBools[BOOL_IDX_RESET_PIN_PROVIDED] = true;
-    }
-
-    public boolean isResetPinProvided() {
-        return tempBools[BOOL_IDX_RESET_PIN_PROVIDED];
-    }
-
     public void setPlatformKeySet() {
         tempBools[BOOL_IDX_RESET_PLATFORM_KEY_SET] = true;
     }
@@ -188,7 +180,7 @@ public class TransientStorage {
 
         tempBools[BOOL_IDX_RESET_PLATFORM_KEY_SET] = false;
         tempShorts[IDX_CONTINUATION_OUTGOING_WRITE_OFFSET] = 0;
-        tempBools[BOOL_IDX_RESET_PIN_PROVIDED] = false;
+        tempShorts[IDX_PIN_PROTOCOL_IN_USE] = 0;
     }
 
     public void readyStoredVars() {
@@ -325,5 +317,13 @@ public class TransientStorage {
 
     public void setCredIterationPointer(short val) {
         tempShorts[IDX_CRED_ITERATION_POINTER] = val;
+    }
+
+    public void setPinProtocolInUse(short pinProtocol) {
+        tempShorts[IDX_PIN_PROTOCOL_IN_USE] = pinProtocol;
+    }
+
+    public short getPinProtocolInUse() {
+        return tempShorts[IDX_PIN_PROTOCOL_IN_USE];
     }
 }

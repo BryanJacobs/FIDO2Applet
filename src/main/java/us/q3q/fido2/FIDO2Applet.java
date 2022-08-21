@@ -139,9 +139,13 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private final KeyPair authenticatorKeyAgreementKey;
     /**
-     * key to be set based on platform<->authenticator shared secret
+     * encrypt/decrypt key to be set based on platform<->authenticator shared secret
      */
-    private final AESKey sharedSecretKey;
+    private final AESKey sharedSecretAESKey;
+    /**
+     * verify/hash key to be set based on platform<->authenticator shared secret
+     */
+    private final byte[] sharedSecretVerifyKey;
     /**
      * DH for platform <-> authenticator secure channel
      */
@@ -158,6 +162,25 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * must be zeroes. Is used for encryption and decryption of messages between authenticator and platform
      */
     private static final byte[] ZERO_IV = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    /**
+     * HKDF salt - 32 zeros
+     */
+    private static final byte[] ZERO_SALT = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    /**
+     * HKDF "info" for PIN protocol two HMAC key
+     */
+    private static final byte[] CTAP2_HMAC_KEY_INFO = {
+            0x43, 0x54, 0x41, 0x50, 0x32, 0x20, 0x48, 0x4D, 0x41, 0x43, 0x20, 0x6B, 0x65, 0x79, 0x01
+          //   C     T     A     P     2           H     M     A     C           k     e     y
+    };
+    /**
+     * HKDF "info" for PIN protocol two AES key
+     */
+    private static final byte[] CTAP2_AES_KEY_INFO = {
+            0x43, 0x54, 0x41, 0x50, 0x32, 0x20, 0x41, 0x45, 0x53, 0x20, 0x6B, 0x65, 0x79, 0x01
+          //   C     T     A     P     2           A     E     S           k     e     y
+    };
     /**
      * per-reset random proxy used instead of true user PIN, as proof PIN was obtained
      */
@@ -525,6 +548,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         short excludeListStartIdx = -1;
         short numExcludeListEntries = 0;
+        byte pinProtocol = 1;
+        short pinAuthIdx = -1;
 
         // Consume any remaining parameters
         byte lastMapKey = 0x04;
@@ -586,13 +611,13 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 readIdx = processOptionsMap(apdu, readIdx, lc);
                 continue;
             } else if (bufferMem[readIdx] == 0x08) { // pinAuth
-                readIdx = verifyPinAuth(apdu, ++readIdx, clientDataHashIdx);
-                pinAuthSuccess = true;
+                pinAuthIdx = ++readIdx;
+                // Read past this, because we need the pinProtocol option first
+                readIdx = consumeAnyEntity(apdu, readIdx, lc);
                 continue;
             } else if (bufferMem[readIdx] == 0x09) { // pinProtocol
-                if (bufferMem[++readIdx] != 0x01) { // PIN protocol version 1
-                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_UNSUPPORTED_OPTION);
-                }
+                pinProtocol = bufferMem[++readIdx];
+                checkPinProtocolSupported(apdu, pinProtocol);
                 continue;
             } else {
                 readIdx++;
@@ -602,6 +627,12 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
             }
             readIdx = consumeAnyEntity(apdu, readIdx, lc);
+        }
+
+        if (pinAuthIdx != -1) {
+            // Come back and verify PIN auth
+            verifyPinAuth(apdu, pinAuthIdx, clientDataHashIdx, pinProtocol);
+            pinAuthSuccess = true;
         }
 
         if (!pinAuthSuccess) {
@@ -972,25 +1003,30 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param checkAgainst Buffer containing "correct" hash we're looking for
      * @param checkIdx Index of correct hash in corresponding buffer
      * @param useAPDUBuffer If true, use the APDU buffer as HMAC working space instead of scratch memory
+     * @param pinProtocol Integer PIN protocol version number
      */
-    private void checkPinTokenProtocolOne(APDU apdu, byte[] content, short contentIdx, short contentLen,
-                                          byte[] checkAgainst, short checkIdx, boolean useAPDUBuffer) {
+    private void checkPinToken(APDU apdu, byte[] content, short contentIdx, short contentLen,
+                               byte[] checkAgainst, short checkIdx, boolean useAPDUBuffer, byte pinProtocol) {
+        if (pinProtocol != transientStorage.getPinProtocolInUse()) {
+            // Can't use PIN protocol 1 with tokens created with v2 or vice versa
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_TOKEN_EXPIRED);
+        }
+
+        short checkLength = 16;
+        if (pinProtocol == 2) {
+            checkLength = 32;
+        }
+
         short scratchAmt = (short) 32;
         short scratchOff = scratchAlloc(scratchAmt);
 
-        // Pad pinToken to 32 bytes for HMAC-ing
-        Util.arrayCopyNonAtomic(pinToken, (short) 0,
-                scratch, scratchOff, (short) 16);
-        Util.arrayFillNonAtomic(scratch, (short)(scratchOff + 16), (short) 16, (byte) 0x00);
-
-        hmacSha256(apdu, scratch, scratchOff,
+        hmacSha256(apdu, pinToken, (short) 0,
                    content, contentIdx, contentLen,
                    scratch, scratchOff, useAPDUBuffer);
 
-        // Compare only the first 16 bytes, because that's the protocol
         if (Util.arrayCompare(
                 scratch, scratchOff,
-                checkAgainst, checkIdx, (short) 16
+                checkAgainst, checkIdx, checkLength
         ) != 0) {
             // PIN token incorrect...
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
@@ -1002,21 +1038,36 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * Consumes an incoming pinAuth block and checks it matches our set pinToken.
      *
-     * @param apdu Request/response object
-     * @param readIdx Read index into bufferMem pointing to a 16-byte array (pinAuth)
+     * @param apdu              Request/response object
+     * @param readIdx           Read index into bufferMem pointing to a 16-byte array (pinAuth)
      * @param clientDataHashIdx Index in bufferMem of the hash of the clientData object, as given by the platform
+     * @param pinProtocol       Integer PIN protocol number
      *
      * @return New read index into bufferMem after consuming the pinAuth options block
      */
-    private short verifyPinAuth(APDU apdu, short readIdx, short clientDataHashIdx) {
-        if (bufferMem[readIdx++] != 0x50) { // byte array, 16 bytes long
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+    private short verifyPinAuth(APDU apdu, short readIdx, short clientDataHashIdx, byte pinProtocol) {
+        byte desiredLength = 16;
+        if (pinProtocol == 2) {
+            desiredLength = 32;
         }
 
-        checkPinTokenProtocolOne(apdu, bufferMem, clientDataHashIdx, CLIENT_DATA_HASH_LEN,
-                bufferMem, readIdx, false);
+        if (desiredLength < 24) {
+            if (bufferMem[readIdx++] != (byte)(0x40 + desiredLength)) { // byte array with included length
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+            }
+        } else {
+            if (bufferMem[readIdx++] != 0x58) { // byte array, one-byte length
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+            }
+            if (bufferMem[readIdx++] != desiredLength) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+            }
+        }
 
-        readIdx += 16;
+        checkPinToken(apdu, bufferMem, clientDataHashIdx, CLIENT_DATA_HASH_LEN,
+                bufferMem, readIdx, false, pinProtocol);
+
+        readIdx += desiredLength;
 
         return readIdx;
     }
@@ -1400,6 +1451,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         defaultOptions();
         boolean pinAuthSuccess = false;
         short allowListLength = 0;
+        byte pinProtocol = 0x01;
+        short pinAuthIdx = -1;
 
         // Consume any remaining parameters
         byte lastMapKey = 0x03; // Doesn't matter if it's actually 0x02 or whatever, we just need them in order
@@ -1444,17 +1497,22 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 readIdx = processOptionsMap(apdu, readIdx, lc);
                 continue;
             } else if (mapKey == 0x06) { // pinAuth
-                readIdx = verifyPinAuth(apdu, readIdx, clientDataHashIdx);
-                pinAuthSuccess = true;
+                pinAuthIdx = readIdx;
+                // Read past this and come back later, when pinProtocol is set correctly
+                readIdx = consumeAnyEntity(apdu, readIdx, lc);
                 continue;
             } else if (mapKey == 0x07) { // pinProtocol
-                if (bufferMem[readIdx++] != 0x01) {
-                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
-                }
+                pinProtocol = bufferMem[readIdx++];
+                checkPinProtocolSupported(apdu, pinProtocol);
                 continue;
             }
 
             readIdx = consumeAnyEntity(apdu, readIdx, lc);
+        }
+
+        if (pinAuthIdx != -1) {
+            verifyPinAuth(apdu, pinAuthIdx, clientDataHashIdx, pinProtocol);
+            pinAuthSuccess = true;
         }
 
         if (pinSet && pinAuthSuccess && transientStorage.hasUVOption()) {
@@ -1463,8 +1521,13 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         // Report PIN-validation failures before we report lack of matching creds
-        if (pinSet && (!transientStorage.isResetPinProvided() || !pinAuthSuccess)) {
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
+        if (pinSet) {
+            if (transientStorage.getPinProtocolInUse() == 0 || !pinAuthSuccess) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
+            }
+            if (transientStorage.getPinProtocolInUse() != pinProtocol) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+            }
         }
 
         loadWrappingKeyIfNoPIN();
@@ -1551,7 +1614,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         // HMAC will clobber privateScratch, so it needs to be below the private key setup above
         short hmacScratchOffset = scratchAlloc((short) 64);
         if (hmacSecretDataIdx > -1) {
-            hmacSecretBytes = computeHMACSecret(apdu, ecPrivateKey, hmacSecretDataIdx, lc, scratch, hmacScratchOffset);
+            hmacSecretBytes = computeHMACSecret(apdu, ecPrivateKey, hmacSecretDataIdx, lc, scratch, hmacScratchOffset,
+                    pinProtocol);
         }
 
         // RESPONSE BELOW HERE
@@ -1707,6 +1771,18 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     }
 
     /**
+     * Sends an error to the client if the given PIN protocol version is not supported
+     *
+     * @param apdu Request/response object
+     * @param pinProtocol Integer PIN protocol version number
+     */
+    private void checkPinProtocolSupported(APDU apdu, byte pinProtocol) {
+        if (pinProtocol != 1 && pinProtocol != 2) {
+            sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
+        }
+    }
+
+    /**
      * Initializes the attester using the contents of privateScratch for keying. After call, attestations may be made.
      */
     private void loadPrivateScratchIntoAttester() {
@@ -1831,13 +1907,16 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
     /**
      * After call, DH platform<->authenticator shared secret is available:
-     * sharedSecretWrapper and sharedSecretUnwrapper may be used
+     * sharedSecretWrapper and sharedSecretUnwrapper may be used (for PIN protocol one - two requires an IV),
+     * and sharedSecretVerifyKey contains the verify HMAC key (for either PIN protocol)
      *
+     * @param apdu Request/response object
      * @param buf Buffer containing platform public key
      * @param xOff Index of the platform key's X coordinate in the given buffer
      * @param yOff Index of the platform key's Y coordinate in the given buffer
+     * @param pinProtocol Integer PIN protocol version in use
      */
-    private void prepareSharedSecret(byte[] buf, short xOff, short yOff) {
+    private void prepareSharedSecret(APDU apdu, byte[] buf, short xOff, short yOff, byte pinProtocol) {
         final short fullKeyLength = KEY_POINT_LENGTH * 2 + 1;
 
         short scratchOff = scratchAlloc(fullKeyLength);
@@ -1855,17 +1934,43 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 scratch, scratchStartOff, fullKeyLength,
                 scratch, scratchStartOff
         );
-        // This was a "plain" DH so we need to sha256 the result to get the real secret
-        short sharedSecretLength = sha256.doFinal(scratch, scratchStartOff, rawSecretLength,
-                privateKeySpace, (short) 0);
-        if (sharedSecretLength != privateKeySpace.length) {
-            throwException(ISO7816.SW_UNKNOWN);
-        }
 
-        // Now, finally, the shared secret is ready!
-        sharedSecretKey.setKey(privateKeySpace, (short) 0);
-        sharedSecretWrapper.init(sharedSecretKey, Cipher.MODE_ENCRYPT, ZERO_IV, (short) 0, (short) ZERO_IV.length);
-        sharedSecretUnwrapper.init(sharedSecretKey, Cipher.MODE_DECRYPT, ZERO_IV, (short) 0, (short) ZERO_IV.length);
+        if (pinProtocol == 1) {
+            // This was a "plain" DH so we need to sha256 the result to get the real secret
+            short sharedSecretLength = sha256.doFinal(scratch, scratchStartOff, rawSecretLength,
+                    privateKeySpace, (short) 0);
+            if (sharedSecretLength != privateKeySpace.length) {
+                throwException(ISO7816.SW_UNKNOWN);
+            }
+
+            // Now, finally, the shared secret is ready!
+            sharedSecretAESKey.setKey(privateKeySpace, (short) 0);
+            Util.arrayCopyNonAtomic(privateKeySpace, (short) 0,
+                    sharedSecretVerifyKey, (short) 0, sharedSecretLength);
+            sharedSecretWrapper.init(sharedSecretAESKey, Cipher.MODE_ENCRYPT, ZERO_IV, (short) 0, (short) ZERO_IV.length);
+            sharedSecretUnwrapper.init(sharedSecretAESKey, Cipher.MODE_DECRYPT, ZERO_IV, (short) 0, (short) ZERO_IV.length);
+        } else if (pinProtocol == 2) {
+            // HKDF step one: get PRK by using zeros as a key to HMAC-SHA256 the IKM
+            hmacSha256(apdu, ZERO_SALT, (short) 0,
+                    scratch, scratchStartOff, rawSecretLength,
+                    scratch, scratchStartOff, false
+            );
+
+            // HKDF step two (for AES key): use PRK as key to HMAC-SHA256 a magic info string (plus a 0x01 byte)
+            hmacSha256(apdu, scratch, scratchStartOff,
+                    CTAP2_AES_KEY_INFO, (short) 0, (short) CTAP2_AES_KEY_INFO.length,
+                    privateKeySpace, (short) 0, false
+            );
+            sharedSecretAESKey.setKey(privateKeySpace, (short) 0);
+
+            // HKDF step two (for HMAC key): use PRK as key to HMAC-SHA256 a different magic info string (plus a 0x01 byte)
+            hmacSha256(apdu, scratch, scratchStartOff,
+                    CTAP2_HMAC_KEY_INFO, (short) 0, (short) CTAP2_HMAC_KEY_INFO.length,
+                    sharedSecretVerifyKey, (short) 0, false
+            );
+        } else {
+            sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
+        }
 
         scratchRelease(fullKeyLength);
     }
@@ -1884,12 +1989,14 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param lc Length of incoming request, as sent by the platform
      * @param outBuffer Buffer into which to pack the HMAC secret result
      * @param outOffset Write index into output buffer
+     * @param pinProtocol Integer PIN protocol version in use
      *
-     * @return New read index into bufferMem after consuming HMAC-secret options
+     * @return Length of HMAC secret data in output buffer
      */
     private short computeHMACSecret(APDU apdu, ECPrivateKey privateKey, short readIdx, short lc,
-                                    byte[] outBuffer, short outOffset) {
-        if (bufferMem[readIdx++] != (byte) 0xA3) { // map, three entries
+                                    byte[] outBuffer, short outOffset, byte pinProtocol) {
+        short mapType = bufferMem[readIdx++];
+        if (mapType != (byte) 0xA3 && mapType != (byte) 0xA4) { // map, three or four entries
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
         }
         if (readIdx >= (short)(lc - (CannedCBOR.PUBLIC_KEY_DH_ALG_PREAMBLE.length + KEY_POINT_LENGTH * 2 + 7))) {
@@ -1900,7 +2007,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
         }
 
-        readIdx = consumeKeyAgreement(apdu, readIdx);
+        readIdx = consumeKeyAgreement(apdu, readIdx, pinProtocol);
 
         if (bufferMem[readIdx++] != 0x02) { // map key: saltEnc
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
@@ -1909,49 +2016,66 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
         }
 
-        short saltLen = ub(bufferMem[readIdx++]);
-        if (saltLen != 32 && saltLen != 64) { // Standard says one or two 32-byte salts
+        short saltLenWithIV = ub(bufferMem[readIdx++]);
+        short saltLen = saltLenWithIV;
+        short expectedBaseLen = 32;
+        if (pinProtocol == 2) {
+            expectedBaseLen += 16; // 16-byte IV for decryption
+        }
+        if (saltLenWithIV != expectedBaseLen && saltLenWithIV != (short)(expectedBaseLen + 32)) { // Standard says one or two 32-byte salts
             sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_LENGTH);
         }
         short saltIdx = readIdx;
 
-        if (readIdx >= (short)(lc - saltLen - 2 - 16)) {
+        if (readIdx >= (short)(lc - saltLenWithIV - 2 - 16)) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
+        }
+        if (pinProtocol == 2) {
+            saltLen -= 16; // "real" salt length shouldn't include the IV
         }
 
         short scratchAllocAmt = 80;
         short scratchFOff = scratchAlloc((short) 32);
         short scratchSOff = scratchAlloc((short) 32);
         short scratchTOff = scratchAlloc((short) 16);
-        short unwrapped = sharedSecretUnwrapper.doFinal(bufferMem, readIdx, saltLen,
-                scratch, scratchFOff
-        ); // NB: we either just wrote into scratchFOff, or both scratchFOff and scratchSOff, depending on saltLen
-        if (unwrapped != saltLen) {
-            sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
-        }
-        readIdx += saltLen;
+        readIdx = sharedSecretDecrypt(apdu, bufferMem, readIdx, lc, (byte) saltLen,
+                scratch, scratchFOff, pinProtocol, false);
+        // NB: we either just wrote into scratchFOff, or both scratchFOff and scratchSOff, depending on saltLen
 
         if (bufferMem[readIdx++] != 0x03) { // map key: saltAuth
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
         }
-        if (bufferMem[readIdx++] != 0x50) { // byte string, 16 bytes long
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+
+        byte expectedSaltAuthLen = 16;
+        if (pinProtocol == 2) {
+            expectedSaltAuthLen = 32;
+        }
+        if (expectedSaltAuthLen < 24) {
+            if (bufferMem[readIdx++] != (byte)(0x40 + expectedSaltAuthLen)) { // byte string with included length
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+            }
+        } else {
+            if (bufferMem[readIdx++] != 0x58) { // byte string, one-byte length
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+            }
+            if (bufferMem[readIdx++] != expectedSaltAuthLen) { // fixed length
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+            }
         }
 
-        sharedSecretKey.getKey(privateKeySpace, (short) 0);
-        hmacSha256(apdu, privateKeySpace, (short) 0,
-                bufferMem, saltIdx, saltLen,
+        hmacSha256(apdu, sharedSecretVerifyKey, (short) 0,
+                bufferMem, saltIdx, saltLenWithIV,
                 scratch, scratchTOff, false
         );
 
         if (Util.arrayCompare(scratch, scratchTOff,
-                bufferMem, readIdx, (short) 16
+                bufferMem, readIdx, expectedSaltAuthLen
         ) != 0) {
             // We must have gotten the crypto wrong somehow... (or the platform sent incorrect vals)
             // our computed HMAC didn't match the input
             sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
         }
-        readIdx += 16;
+        readIdx += expectedSaltAuthLen;
 
         // If we're here, we've correctly validated that we have the right sharedSecret
         // (and the right salt index and length...)
@@ -1977,16 +2101,12 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         // encrypt the salted hashes using the shared secret, and that's our result
-        short hmacSecretBytes = sharedSecretWrapper.doFinal(scratch, scratchFOff, saltLen,
-                outBuffer, outOffset
-        );
-        if (hmacSecretBytes != saltLen) {
-            throwException(ISO7816.SW_UNKNOWN);
-        }
+        short newOutOffset = sharedSecretEncrypt(scratch, scratchFOff, saltLen, outBuffer, outOffset, pinProtocol,
+                false);
 
         scratchRelease(scratchAllocAmt);
 
-        return hmacSecretBytes;
+        return (short)(newOutOffset - outOffset);
     }
 
     /**
@@ -2536,15 +2656,23 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             if (bufferMem[readIdx++] != 0x03) { // map key: pinUvAuthProtocol
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
             }
-            if (bufferMem[readIdx++] != 0x01) { // protocol one
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
-            }
+            byte pinProtocol = bufferMem[readIdx++];
+            checkPinProtocolSupported(apdu, pinProtocol);
 
             if (bufferMem[readIdx++] != 0x04) { // map key: pinUvAuthParam
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
             }
-            if (bufferMem[readIdx++] != 0x50) { // byte array, 16 bytes long
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+            if (pinProtocol == 1) {
+                if (bufferMem[readIdx++] != 0x50) { // byte array, 16 bytes long
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                }
+            } else {
+                if (bufferMem[readIdx++] != 0x58) { // byte array, one-byte length
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                }
+                if (bufferMem[readIdx++] != 0x20) { // 32 bytes long
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                }
             }
 
             // Check PIN token
@@ -2558,8 +2686,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 Util.arrayCopyNonAtomic(bufferMem, subCommandParamsIdx,
                         scratch, (short)(scratchOff + 1), subCommandParamsLen);
             }
-            checkPinTokenProtocolOne(apdu, scratch, (short) 0, scratchAmt,
-                    bufferMem, readIdx, true);
+            checkPinToken(apdu, scratch, (short) 0, scratchAmt,
+                    bufferMem, readIdx, true, pinProtocol);
             scratchRelease(scratchAmt);
         }
 
@@ -3142,8 +3270,9 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         buffer[offset++] = (byte) 0xF4; // false
 
         buffer[offset++] = 0x06; // map key: pinProtocols
-        buffer[offset++] = (byte) 0x81; // array: one item
+        buffer[offset++] = (byte) 0x82; // array: two items
         buffer[offset++] = 0x01; // pin protocol version 1
+        buffer[offset++] = 0x02; // pin protocol version 2
 
         buffer[offset++] = 0x07; // map key: maxCredentialCountInList
         buffer[offset++] = 0x0A; // ten
@@ -3203,9 +3332,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         if (bufferMem[readIdx++] != 0x01) { // map key: pinProtocol
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
         }
-        if (bufferMem[readIdx++] != 0x01) { // pin protocol version 1
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_UNSUPPORTED_OPTION);
-        }
+        byte pinProtocol = bufferMem[readIdx++];
+        checkPinProtocolSupported(apdu, pinProtocol);
 
         if (bufferMem[readIdx++] != 0x02) { // map key: subCommand
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
@@ -3221,13 +3349,13 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 handleClientPinGetRetries(apdu);
                 return;
             case FIDOConstants.CLIENT_PIN_SET_PIN:
-                handleClientPinInitialSet(apdu, readIdx, lc);
+                handleClientPinInitialSet(apdu, readIdx, lc, pinProtocol);
                 return;
             case FIDOConstants.CLIENT_PIN_CHANGE_PIN:
-                handleClientPinChange(apdu, readIdx, lc);
+                handleClientPinChange(apdu, readIdx, lc, pinProtocol);
                 return;
             case FIDOConstants.CLIENT_PIN_GET_PIN_TOKEN:
-                handleClientPinGetToken(apdu, readIdx, lc);
+                handleClientPinGetToken(apdu, readIdx, lc, pinProtocol);
                 return;
             default:
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_UNSUPPORTED_OPTION);
@@ -3238,11 +3366,12 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * Processes the CTAP2 clientPin change subcommand
      *
-     * @param apdu Request/response object
-     * @param readIdx Read index into request buffer
-     * @param lc Length of incoming request, as sent by the platform
+     * @param apdu        Request/response object
+     * @param readIdx     Read index into request buffer
+     * @param lc          Length of incoming request, as sent by the platform
+     * @param pinProtocol Integer PIN protocol version in use
      */
-    private void handleClientPinChange(APDU apdu, short readIdx, short lc) {
+    private void handleClientPinChange(APDU apdu, short readIdx, short lc, byte pinProtocol) {
         if (!pinSet) {
             // need to have a PIN to change a PIN...
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_NOT_SET);
@@ -3250,7 +3379,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         short scratchOff = scratchAlloc((short) (PIN_PAD_LENGTH + 16)); // 16 bytes for PIN partial hash
 
-        readIdx = handlePinSetPreamble(apdu, readIdx, lc, scratch, scratchOff, true);
+        readIdx = handlePinSetPreamble(apdu, readIdx, lc, scratch, scratchOff, true, pinProtocol);
 
         short wrappedPinLocation = readIdx;
         readIdx += PIN_PAD_LENGTH;
@@ -3258,29 +3387,16 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         if (bufferMem[readIdx++] != 0x06) { // pinHashEnc
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
         }
-        if (bufferMem[readIdx++] != 0x50) { // byte string: 16 bytes long
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
-        }
-        if (readIdx > (short)(lc - 16)) {
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
-        }
-
         // Decrypt the sent PIN hash using the shared secret
-        short pinUnwrapped = sharedSecretUnwrapper.doFinal(bufferMem, readIdx, (short) 16,
-                scratch, scratchOff);
-        if (pinUnwrapped != 16) {
-            throwException(ISO7816.SW_UNKNOWN);
-        }
+        readIdx = sharedSecretDecrypt(apdu, bufferMem, readIdx, lc, (byte) 16,
+                scratch, scratchOff, pinProtocol, true);
 
         // Use pinHash, now decrypted, to unlock the symmetric wrapping key (or fail if the PIN is wrong...)
-        testAndReadyPIN(apdu, scratch, scratchOff);
+        testAndReadyPIN(apdu, scratch, scratchOff, pinProtocol);
 
         // Decrypt the real PIN
-        short unwrapped = sharedSecretUnwrapper.doFinal(bufferMem, wrappedPinLocation, (short) 64,
-                scratch, scratchOff);
-        if (unwrapped != PIN_PAD_LENGTH) {
-            throwException(ISO7816.SW_UNKNOWN);
-        }
+        sharedSecretDecrypt(apdu, bufferMem, wrappedPinLocation, lc, (byte) 64,
+                scratch, scratchOff, pinProtocol, false);
 
         short realPinLength = 0;
         for (; realPinLength < PIN_PAD_LENGTH; realPinLength++) {
@@ -3292,7 +3408,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_POLICY_VIOLATION);
         }
 
-        rawSetPIN(apdu, scratch, scratchOff, realPinLength);
+        rawSetPIN(apdu, scratch, scratchOff, realPinLength, pinProtocol);
 
         bufferMem[0] = FIDOConstants.CTAP2_OK; // no data in the response to this command, just an OK status
         doSendResponse(apdu, (short) 1);
@@ -3302,11 +3418,12 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * Checks incoming pinHash and returns a pinToken to the platform for use in future commands
      * (until the next reset, of course...)
      *
-     * @param apdu Request/response object
-     * @param readIdx Read index into request buffer
-     * @param lc Length of incoming request, as sent by the platform
+     * @param apdu        Request/response object
+     * @param readIdx     Read index into request buffer
+     * @param lc          Length of incoming request, as sent by the platform
+     * @param pinProtocol Integer PIN protocol version in use
      */
-    private void handleClientPinGetToken(APDU apdu, short readIdx, short lc) {
+    private void handleClientPinGetToken(APDU apdu, short readIdx, short lc, byte pinProtocol) {
         if (!pinSet) {
             // duh
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_NOT_SET);
@@ -3316,29 +3433,19 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
         }
 
-        readIdx = consumeKeyAgreement(apdu, readIdx);
+        readIdx = consumeKeyAgreement(apdu, readIdx, pinProtocol);
 
         if (bufferMem[readIdx++] != 0x06) { // map key: pinHashEnc
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
-        }
-        if (bufferMem[readIdx++] != 0x50) { // byte string: 16 bytes long
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
-        }
-        if (readIdx > (short)(lc - 16)) {
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
         }
 
         short scratchAmt = 16;
         short scratchOff = scratchAlloc(scratchAmt);
 
         // Decrypt the 16 bytes of the PIN verification first
-        short unwrapped = sharedSecretUnwrapper.doFinal(bufferMem, readIdx, (short) 16,
-                scratch, scratchOff);
-        if (unwrapped != 16) {
-            throwException(ISO7816.SW_UNKNOWN);
-        }
+        readIdx = sharedSecretDecrypt(apdu, bufferMem, readIdx, lc, (byte) 16, scratch, scratchOff, pinProtocol, true);
 
-        testAndReadyPIN(apdu, scratch, scratchOff);
+        testAndReadyPIN(apdu, scratch, scratchOff, pinProtocol);
 
         scratchRelease(scratchAmt);
 
@@ -3349,12 +3456,106 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         bufferMem[writeOffset++] = FIDOConstants.CTAP2_OK;
         bufferMem[writeOffset++] = (byte) 0xA1; // map: one item
         bufferMem[writeOffset++] = 0x02; // map key: pinToken
-        bufferMem[writeOffset++] = 0x50; // byte string, sixteen bytes long
-
-        writeOffset += sharedSecretWrapper.doFinal(pinToken, (short) 0, (short) pinToken.length,
-                bufferMem, writeOffset);
+        writeOffset = sharedSecretEncrypt(pinToken, (short) 0, (short) pinToken.length, bufferMem, writeOffset,
+                pinProtocol, true);
 
         doSendResponse(apdu, writeOffset);
+    }
+
+    /**
+     * Encrypt data destined for the platform using a shared secret, and pack the result into a target buffer
+     *
+     * @param inBuf Buffer containing data to be encrypted
+     * @param inOffset Read offset into input buffer
+     * @param length Length of data to be encrypted
+     * @param outBuf Output buffer into which to write byte string with optional CBOR header
+     * @param writeOffset Write offset into output buffer
+     * @param pinProtocol Integer PIN protocol number
+     * @param addCBORHeader If true, add CBOR byte array header to output as well
+     *
+     * @return New write index into output buffer after adding encrypted data
+     */
+    private short sharedSecretEncrypt(byte[] inBuf, short inOffset, short length, byte[] outBuf, short writeOffset,
+                                      byte pinProtocol, boolean addCBORHeader) {
+        short rawLength = length;
+        if (pinProtocol == 2) {
+            // byte array length includes 16-byte IV
+            rawLength += 16;
+        }
+
+        if (addCBORHeader) {
+            writeOffset = encodeIntLenTo(outBuf, writeOffset, rawLength, true);
+        }
+
+        if (pinProtocol == 2) {
+            // Write out a random 16-byte IV and set up the wrapper to use it
+            random.generateData(outBuf, writeOffset, (short) 16);
+            sharedSecretWrapper.init(sharedSecretAESKey, Cipher.MODE_ENCRYPT, outBuf, writeOffset, (short) 16);
+            writeOffset += 16;
+        }
+
+        writeOffset += sharedSecretWrapper.doFinal(inBuf, inOffset, length,
+                outBuf, writeOffset);
+
+        return writeOffset;
+    }
+
+    /**
+     * Unwrap platform-encrypted data from a CBOR buffer into a designated output buffer
+     *
+     * @param apdu Request/response object
+     * @param inBuf Buffer from which to read a CBOR byte array representing platform-encrypted data
+     * @param readIdx Read index into input buffer
+     * @param lc Length of incoming request, as sent by the platform
+     * @param expectedLength How long the decrypted result should be
+     * @param outputBuffer Buffer into which to write the decrypted result
+     * @param outOff Offset into output buffer
+     * @param pinProtocol Integer PIN protocol number
+     * @param consumeCBOR If true, consume a CBOR byte array header before the data
+     *
+     * @return New read index into input buffer after consuming encrypted data
+     */
+    private short sharedSecretDecrypt(APDU apdu, byte[] inBuf, short readIdx, short lc, byte expectedLength,
+                                      byte[] outputBuffer, short outOff, byte pinProtocol, boolean consumeCBOR) {
+        byte rawLength = expectedLength;
+        if (pinProtocol == 2) {
+            // PIN protocol two means 16 bytes of IV before actual data, sooo...
+            rawLength += 16;
+        }
+
+        if (consumeCBOR) {
+            if (rawLength < 24) {
+                // Single byte for type and length
+                if (inBuf[readIdx++] != (byte)(0x40 + rawLength)) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                }
+            } else {
+                if (inBuf[readIdx++] != 0x58) { // byte string, one-byte length
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                }
+                if (inBuf[readIdx++] != rawLength) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                }
+            }
+        }
+
+        if (readIdx > (short)(lc - rawLength)) {
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
+        }
+
+        if (pinProtocol == 2) {
+            // Set IV and advance past it
+            sharedSecretUnwrapper.init(sharedSecretAESKey, Cipher.MODE_DECRYPT, inBuf, readIdx, (short) 16);
+            readIdx += 16;
+        }
+
+        short unwrapped = sharedSecretUnwrapper.doFinal(inBuf, readIdx, expectedLength,
+                outputBuffer, outOff);
+        if (unwrapped != expectedLength) {
+            throwException(ISO7816.SW_UNKNOWN);
+        }
+
+        return (short)(readIdx + expectedLength);
     }
 
     /**
@@ -3364,8 +3565,9 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param apdu Request/response object
      * @param buf Buffer potentially containing the first 16 bytes of the SHA-256 hash of the PIN
      * @param off Offset of the putative PIN hash within the given buffer
+     * @param pinProtocol PIN protocol used to pass PIN in
      */
-    private void testAndReadyPIN(APDU apdu, byte[] buf, short off) {
+    private void testAndReadyPIN(APDU apdu, byte[] buf, short off, byte pinProtocol) {
         short pinRetryIndex = pinRetryCounter.prepareIndex();
         if (pinRetryCounter.getRetryCount(pinRetryIndex) <= 0) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_BLOCKED);
@@ -3404,7 +3606,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 scratch, scratchOff, (short) 32) == 0) {
             // Good PIN!
             pinRetryCounter.reset(pinRetryIndex);
-            transientStorage.setResetPinProvided();
+            transientStorage.setPinProtocolInUse(pinProtocol);
             wrappingKey.setKey(privateKeySpace, (short) 0);
             initSymmetricCrypto(); // Need to re-key the wrapper since we messed it up above
             transientStorage.clearPinTriesSinceReset();
@@ -3428,25 +3630,40 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param outOffset Offset into output buffer. Again, must be at least PIN_PAD_LENGTH+16 bytes from the end of the buffer
      * @param expectPinHashEnc If true, expect that pinAuth matches hash(newPinEnc || pinHashEnc). In other words,
      *                         that an existing PIN was provided and this is a change-PIN operation
+     * @param pinProtocol Integer PIN protocol version in use
      *
      * @return Index into request/response buffer of the encrypted new PIN
      */
     private short handlePinSetPreamble(APDU apdu, short readIdx, short lc, byte[] outBuf, short outOffset,
-                                       boolean expectPinHashEnc) {
+                                       boolean expectPinHashEnc, byte pinProtocol) {
         if (bufferMem[readIdx++] != 0x03) { // map key: keyAgreement
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
         }
 
-        readIdx = consumeKeyAgreement(apdu, readIdx);
+        readIdx = consumeKeyAgreement(apdu, readIdx, pinProtocol);
 
         if (bufferMem[readIdx++] != 0x04) { // map key: pinAuth
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
         }
-        if (bufferMem[readIdx++] != 0x50) { // byte string: 16 bytes long
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+
+        short pinAuthLength = 16;
+        if (pinProtocol == 1) {
+            if (bufferMem[readIdx++] != 0x50) { // byte string: 16 bytes long
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+            }
+        } else if (pinProtocol == 2) {
+            if (bufferMem[readIdx++] != 0x58) { // byte string with one-byte length
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+            }
+            if (bufferMem[readIdx++] != 0x20) { // 32 bytes long
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+            }
+            pinAuthLength = 32;
+        } else {
+            sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
         }
         short pinAuthIdx = readIdx;
-        readIdx += 16;
+        readIdx += pinAuthLength;
 
         if (bufferMem[readIdx++] != 0x05) { // map key: newPinEnc
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
@@ -3460,13 +3677,16 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
         }
 
-        if (bLen != PIN_PAD_LENGTH) { // standard-mandated minimum pad for PINs
+        short expectedLength = PIN_PAD_LENGTH;
+        if (pinProtocol == 2) {
+            expectedLength += 16; // 16-byte IV
+        }
+
+        if (bLen != expectedLength) { // standard-mandated minimum pad for PINs
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_INVALID);
         }
 
         // Verify pinAuth before we proceed
-        sharedSecretKey.getKey(privateKeySpace, (short) 0);
-
         if (expectPinHashEnc) {
             // Need to buffer-pack newPinEnc and pinHashEnc together before verifying
             short readAheadIdx = readIdx;
@@ -3485,17 +3705,17 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             Util.arrayCopyNonAtomic(bufferMem, readAheadIdx,
                     outBuf, (short)(outOffset + bLen), (short) 16);
 
-            hmacSha256(apdu, privateKeySpace, (short) 0,
+            hmacSha256(apdu, sharedSecretVerifyKey, (short) 0,
                     outBuf, outOffset, (short)(bLen + 16),
                     outBuf, outOffset, false);
         } else {
-            hmacSha256(apdu, privateKeySpace, (short) 0,
+            hmacSha256(apdu, sharedSecretVerifyKey, (short) 0,
                     bufferMem, readIdx, bLen,
                     outBuf, outOffset, false);
         }
 
         if (Util.arrayCompare(outBuf, outOffset,
-                bufferMem, pinAuthIdx, (short) 16) != 0) { // verify only the first 16 bytes, per protocol
+                bufferMem, pinAuthIdx, pinAuthLength) != 0) {
             // Messed up crypto or invalid input: cannot proceed
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_INVALID);
         }
@@ -3508,25 +3728,22 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * Handles the FIDO2 clientPin initial set subcommand
      *
-     * @param apdu Request/response object
-     * @param readIdx Read index into request buffer
-     * @param lc Length of incoming request, as sent by the platform
+     * @param apdu        Request/response object
+     * @param readIdx     Read index into request buffer
+     * @param lc          Length of incoming request, as sent by the platform
+     * @param pinProtocol Integer PIN protocol version in use
      */
-    private void handleClientPinInitialSet(APDU apdu, short readIdx, short lc) {
+    private void handleClientPinInitialSet(APDU apdu, short readIdx, short lc, byte pinProtocol) {
         if (pinSet) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
         }
 
         short scratchOff = scratchAlloc((short) 80);
 
-        readIdx = handlePinSetPreamble(apdu, readIdx, lc, scratch, scratchOff, false);
+        readIdx = handlePinSetPreamble(apdu, readIdx, lc, scratch, scratchOff, false, pinProtocol);
 
-        short unwrapped = sharedSecretUnwrapper.doFinal(bufferMem, readIdx, (short) 64,
-                scratch, scratchOff);
-        if (unwrapped != 64) {
-            throwException(ISO7816.SW_UNKNOWN);
-        }
-        readIdx += 64;
+        readIdx = sharedSecretDecrypt(apdu, bufferMem, readIdx, lc, (byte) 64,
+                scratch, scratchOff, pinProtocol, false);
 
         short realPinLength = 0;
         for (; realPinLength < 64; realPinLength++) {
@@ -3538,7 +3755,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_POLICY_VIOLATION);
         }
 
-        rawSetPIN(apdu, scratch, scratchOff, realPinLength);
+        rawSetPIN(apdu, scratch, scratchOff, realPinLength, pinProtocol);
 
         bufferMem[0] = FIDOConstants.CTAP2_OK;
         doSendResponse(apdu, (short) 1);
@@ -3552,10 +3769,11 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      *
      * @param apdu Request/response object
      * @param readIdx Index of the platform public key in bufferMem
+     * @param pinProtocol Integer PIN protocol version in use
      *
      * @return New read index position in bufferMem after consuming the key agreement CBOR block
      */
-    private short consumeKeyAgreement(APDU apdu, short readIdx) {
+    private short consumeKeyAgreement(APDU apdu, short readIdx, byte pinProtocol) {
         if (bufferMem[readIdx++] != (byte) 0xA5) { // map, with five entries
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
         }
@@ -3580,7 +3798,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         short yIdx = readIdx;
         readIdx += KEY_POINT_LENGTH;
 
-        prepareSharedSecret(bufferMem, xIdx, yIdx);
+        prepareSharedSecret(apdu, bufferMem, xIdx, yIdx, pinProtocol);
         return readIdx;
     }
 
@@ -3593,9 +3811,10 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param pinBuf Buffer containing raw (unhashed) new PIN
      * @param offset Offset into request buffer of start of PIN
      * @param pinLength Length in bytes of new PIN
+     * @param pinProtocol Integer PIN protocol used to set PIN
      */
-    private void rawSetPIN(APDU apdu, byte[] pinBuf, short offset, short pinLength) {
-        if (pinSet && !transientStorage.isResetPinProvided()) {
+    private void rawSetPIN(APDU apdu, byte[] pinBuf, short offset, short pinLength, byte pinProtocol) {
+        if (pinSet && transientStorage.getPinProtocolInUse() == 0) {
             // We already have a PIN, but we haven't unlocked with it this boot...
             // that's not going to work.
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
@@ -3624,7 +3843,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             }
 
             pinSet = true;
-            transientStorage.setResetPinProvided();
+            transientStorage.setPinProtocolInUse(pinProtocol);
             short pinIdx = pinRetryCounter.prepareIndex();
             pinRetryCounter.reset(pinIdx);
 
@@ -3889,7 +4108,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         scratch = JCSystem.makeTransientByteArray(SCRATCH_SIZE, JCSystem.CLEAR_ON_RESET);
         privateScratch = JCSystem.makeTransientByteArray(PRIVATE_SCRATCH_SIZE, JCSystem.CLEAR_ON_RESET);
         privateKeySpace = JCSystem.makeTransientByteArray((short) 32, JCSystem.CLEAR_ON_DESELECT);
-        pinToken = JCSystem.makeTransientByteArray((short) 16, JCSystem.CLEAR_ON_DESELECT);
+        pinToken = JCSystem.makeTransientByteArray((short) 32, JCSystem.CLEAR_ON_DESELECT);
 
         // RAM usage - (ideally) ephemeral keys
         authenticatorKeyAgreementKey = new KeyPair(
@@ -3902,7 +4121,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         );
         ecPrivateKey = getECPrivKey();
         pinWrapKey = getTransientAESKey();
-        sharedSecretKey = getTransientAESKey();
+        sharedSecretAESKey = getTransientAESKey();
+        sharedSecretVerifyKey = JCSystem.makeTransientByteArray((short) 32, JCSystem.CLEAR_ON_DESELECT);
 
         // Trivial amounts of flash, object allocations without buffers
         random = RandomData.getInstance(RandomData.ALG_SECURE_RANDOM);

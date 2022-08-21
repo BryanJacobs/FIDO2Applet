@@ -59,6 +59,7 @@ I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/s
 |--------------------------------|---------------------------------------------------------|
 | CTAP1/U2F                      | Not implemented                                         |
 | CTAP2.0 core                   | Implemented, many caveats                               |
+| CTAP2.1 core                   | Incomplete - missing PIN token permissions              |
 | Resident keys                  | Implemented, default 50 slots                           |
 | User Presence                  | User always considered present: not standards compliant |
 | Self attestation               | Implemented                                             |
@@ -66,11 +67,11 @@ I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/s
 | ECDSA (SecP256r1)              | Implemented                                             |
 | Other crypto like ed25519      | Not implemented                                         |
 | CTAP2.0 hmac-secret extension  | Implemented                                             |
-| CTAP2.1 hmac-secret extension  | Not implemented (one secret, requiring UV, not two)     |
+| CTAP2.1 hmac-secret extension  | Implemented with one secret, requiring UV, not two      |
 | CTAP2.1 alwaysUv option        | Implemented                                             |
 | CTAP2.1 credProtect option     | Implemented, one caveat                                 |
 | CTAP2.1 PIN Protocol 1         | Implemented                                             |
-| CTAP2.1 PIN Protocol 2         | Not implemented                                         |
+| CTAP2.1 PIN Protocol 2         | Implemented                                             |
 | CTAP2.1 credential management  | Implemented                                             |
 | CTAP2.1 enterprise attestation | Not implemented                                         |
 | CTAP2.1 authenticator config   | Not implemented                                         |

@@ -56,13 +56,28 @@ CTAP2.1 standard says it's okay to return level three if two was requested,
 but that breaks OpenSSH, so... credProtect is incorrectly implemented in
 that it always applies level three internally.
 
-Finally, the CTAP API requires user presence detection, but there's really no
+Thirdly, the CTAP API requires user presence detection, but there's really no
 way to do that on Javacard 3.0.4. We can't even use the "presence timeout"
 that is described in the spec for NFC devices. So you're always treated as
 being present, which is to some extent offset by the fact that anything real
 requires you type your PIN (if one is set)...
 
 So set a PIN, and unplug your card when you're not using it.
+
+Fourthly, the CTAP2.1 standard says that credential matches should be performed
+in most-recent order, but to save implementation complexity and runtime performance,
+this implementation does them in arbitrary order instead.
+
+Finally, the CTAP2.0 and CTAP2.1 standards are actually mutually incompatible. When
+a getAssertion call is made with an `allowList` given, CTAP2.0 says that the
+authenticator should iterate through assertions generated with the matching
+credentials from the allowlist. CTAP2.1 says the authenticator should pick one
+matching credential, return an assertion generated with it, and ignore any
+other matches.
+
+This implementation allows toggling either behavior by flipping a boolean in the
+code, but because one or the other must be chosen, it can't be both fully CTAP2.0
+compatible and CTAP2.1 compatible at the same time.
 
 ## Why don't you implement U2F/CTAP1?
 
