@@ -934,7 +934,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 used += toCopy;
             }
 
-            if (MAX_RESIDENT_RP_ID_LENGTH - used < 3) {
+            if ((short)(MAX_RESIDENT_RP_ID_LENGTH - used) < 3) {
                 // No room for anything but the protocol bit we already copied
                 rpIdLen = used;
             } else {
