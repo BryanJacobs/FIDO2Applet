@@ -22,6 +22,7 @@ public abstract class FIDOConstants {
     public static final byte CLIENT_PIN_SET_PIN = 0x03;
     public static final byte CLIENT_PIN_CHANGE_PIN = 0x04;
     public static final byte CLIENT_PIN_GET_PIN_TOKEN = 0x05;
+    public static final byte CLIENT_PIN_GET_PIN_TOKEN_USING_PIN_WITH_PERMISSIONS = 0x09;
 
     // Credential management subcommands
     public static final byte CRED_MGMT_GET_CREDS_META = 0x01;
@@ -31,6 +32,14 @@ public abstract class FIDOConstants {
     public static final byte CRED_MGMT_ENUMERATE_CREDS_NEXT = 0x05;
     public static final byte CRED_MGMT_DELETE_CRED = 0x06;
     public static final byte CRED_MGMT_UPDATE_USER_INFO = 0x07;
+
+    // PIN token permissions
+    public static final byte PERM_MAKE_CREDENTIAL = 0x01;
+    public static final byte PERM_GET_ASSERTION = 0x02;
+    public static final byte PERM_CRED_MANAGEMENT = 0x04;
+    public static final byte PERM_BIO_ENROLLMENT = 0x08;
+    public static final byte PERM_LARGE_BLOB_WRITE = 0x10;
+    public static final byte PERM_AUTH_CONFIG = 0x20;
 
     // Error (and OK) responses
     public static final byte CTAP2_OK = 0x00; // 	Indicates successful response.

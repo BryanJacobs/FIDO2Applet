@@ -52,7 +52,9 @@ public class TransientStorage {
      */
     private static final short IDX_ASSERT_ITERATION_POINTER = 9;
     /**
-     * Which PIN protocol is currently in use, as at the time the pinToken was sent to the platform
+     * Two vars for the price of one!
+     * In the upper 8 bits, a permissions bitfield for the currently set PIN token
+     * In the lower 8 bits, which PIN protocol is currently in use, as at the time the pinToken was sent to the platform
      */
     private static final short IDX_PIN_PROTOCOL_IN_USE = 10;
     /**
@@ -319,11 +321,15 @@ public class TransientStorage {
         tempShorts[IDX_CRED_ITERATION_POINTER] = val;
     }
 
-    public void setPinProtocolInUse(short pinProtocol) {
-        tempShorts[IDX_PIN_PROTOCOL_IN_USE] = pinProtocol;
+    public void setPinProtocolInUse(byte pinProtocol, byte pinPermissions) {
+        tempShorts[IDX_PIN_PROTOCOL_IN_USE] = (short)(pinPermissions << 8 | pinProtocol);
     }
 
-    public short getPinProtocolInUse() {
-        return tempShorts[IDX_PIN_PROTOCOL_IN_USE];
+    public byte getPinProtocolInUse() {
+        return (byte)(tempShorts[IDX_PIN_PROTOCOL_IN_USE] & 0xFF);
+    }
+
+    public byte getPinPermissions() {
+        return (byte)(tempShorts[IDX_PIN_PROTOCOL_IN_USE] >> 8);
     }
 }

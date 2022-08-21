@@ -186,6 +186,10 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private final byte[] pinToken;
     /**
+     * RP ID associated with (restricting) the PIN token, prefixed by a byte which is 0x01 if RP ID set, 0x00 otherwise
+     */
+    private final byte[] permissionsRpId;
+    /**
      * Decrypter used to unwrap data by using a key derived from the user's PIN
      */
     private final Cipher pinUnwrapper;
@@ -632,6 +636,12 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         if (pinAuthIdx != -1) {
             // Come back and verify PIN auth
             verifyPinAuth(apdu, pinAuthIdx, clientDataHashIdx, pinProtocol);
+
+            if ((transientStorage.getPinPermissions() & FIDOConstants.PERM_MAKE_CREDENTIAL) == 0) {
+                // PIN token doesn't have permission for the MC operation
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+            }
+
             pinAuthSuccess = true;
         }
 
@@ -651,6 +661,22 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         short digested = sha256.doFinal(bufferMem, rpIdIdx, rpIdLen, scratch, scratchRPIDHashOffset);
         if (digested != RP_HASH_LEN) {
             throwException(ISO7816.SW_UNKNOWN);
+        }
+
+        if (pinAuthSuccess) {
+            if (permissionsRpId[0] == 0x00) {
+                // No permissions RP ID set - we got this PIN token using default permissions.
+                // We can proceed here, but we need to bind the current PIN token to this RP ID now.
+                permissionsRpId[0] = 0x01;
+                Util.arrayCopyNonAtomic(scratch, scratchRPIDHashOffset,
+                        permissionsRpId, (short) 1, RP_HASH_LEN);
+            } else {
+                // Permissions RP ID is set - check it
+                if (Util.arrayCompare(scratch, scratchRPIDHashOffset,
+                        permissionsRpId, (short) 1, RP_HASH_LEN) != 0) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+                }
+            }
         }
 
         // Check excludeList. This is deferred to here so it's after we check PIN auth...
@@ -1512,6 +1538,12 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         if (pinAuthIdx != -1) {
             verifyPinAuth(apdu, pinAuthIdx, clientDataHashIdx, pinProtocol);
+
+            if ((transientStorage.getPinPermissions() & FIDOConstants.PERM_GET_ASSERTION) == 0) {
+                // PIN token doesn't have permission for the GA operation
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+            }
+
             pinAuthSuccess = true;
         }
 
@@ -1527,6 +1559,21 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             }
             if (transientStorage.getPinProtocolInUse() != pinProtocol) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+            }
+        }
+
+        if (pinAuthSuccess) {
+            if (permissionsRpId[0] == 0x00) {
+                // getting an assertion with a PIN token created with default perms binds it to this RP ID
+                permissionsRpId[0] = 0x01;
+                Util.arrayCopyNonAtomic(scratch, scratchRPIDHashIdx,
+                        permissionsRpId, (short) 1, RP_HASH_LEN);
+            } else {
+                // Permissions RP ID is set - check it
+                if (Util.arrayCompare(scratch, scratchRPIDHashIdx,
+                        permissionsRpId, (short) 1, RP_HASH_LEN) != 0) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+                }
             }
         }
 
@@ -2688,6 +2735,10 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             }
             checkPinToken(apdu, scratch, (short) 0, scratchAmt,
                     bufferMem, readIdx, true, pinProtocol);
+            if ((transientStorage.getPinPermissions() & FIDOConstants.PERM_CRED_MANAGEMENT) == 0x00) {
+                // PIN token doesn't have appropriate permissions for credential management operations
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+            }
             scratchRelease(scratchAmt);
         }
 
@@ -2783,6 +2834,20 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                         bufferMem,userIdIdx,userIdLen) == 0) {
                     // Matches both credential and user ID - it's a hit.
                     // No actual updating work to do here because we don't store anything other than the ID...
+
+                    // ... but we need to extract the credential to check that our PIN token WOULD have permission
+                    short scratchExtractedCred = scratchAlloc(CREDENTIAL_ID_LEN);
+                    symmetricUnwrapper.doFinal(residentKeyData, (short)(i * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN,
+                            scratch, scratchExtractedCred
+                    );
+                    if (permissionsRpId[0] != 0x00) {
+                        if (Util.arrayCompare(scratch, (short)(scratchExtractedCred + 32),
+                                permissionsRpId, (short) 1, RP_HASH_LEN) != 0) {
+                            // permissions RP ID in use, but doesn't match RP of this credential
+                            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+                        }
+                    }
+
                     foundHit = true;
                     break;
                 }
@@ -2832,7 +2897,23 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             // Compare still encrypted, which is fine
             if (Util.arrayCompare(residentKeyData, (short)(i * CREDENTIAL_ID_LEN),
                     bufferMem, credIdIdx, CREDENTIAL_ID_LEN) == 0) {
-                // Found a match!
+                // Found a match! Unfortunately, we need to unpack the credential to check if this PIN token
+                // has permission to delete it...
+
+                short unpackedCredIdx = scratchAlloc(CREDENTIAL_ID_LEN);
+                symmetricUnwrapper.doFinal(
+                        bufferMem, credIdIdx, CREDENTIAL_ID_LEN,
+                        scratch, unpackedCredIdx
+                );
+                short rpIdHashIdx = (short)(unpackedCredIdx + 32);
+
+                if (permissionsRpId[0] != 0x00) {
+                    if (Util.arrayCompare(scratch, rpIdHashIdx,
+                            permissionsRpId, (short) 1, RP_HASH_LEN) != 0) {
+                        // permissions RP ID in use, but doesn't match RP of deleteCred operation
+                        sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+                    }
+                }
 
                 if (residentKeyUniqueRP[i]) {
                     // Due to how we manage RP validity, we need to find ANOTHER RK with the same RP,
@@ -2840,13 +2921,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                     // of the RP for iteration purposes
                     short rpHavingSameRP = -1;
 
-                    short unpackedCredIdx = scratchAlloc(CREDENTIAL_ID_LEN);
                     short unpackedSecondCredIdx = scratchAlloc(CREDENTIAL_ID_LEN);
-                    symmetricUnwrapper.doFinal(
-                            bufferMem, credIdIdx, CREDENTIAL_ID_LEN,
-                            scratch, unpackedCredIdx
-                    );
-                    short rpIdHashIdx = (short)(unpackedCredIdx + 32);
 
                     for (short otherRKIdx = 0; otherRKIdx < NUM_RESIDENT_KEY_SLOTS; otherRKIdx++) {
                         if (otherRKIdx == i) {
@@ -2946,6 +3021,14 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
             if ((short)(bufferIdx + RP_HASH_LEN) >= lc) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
+            }
+
+            if (permissionsRpId[0] != 0x00) {
+                // A permissions RP ID is set: verify it matches the RP for which we're iterating creds
+                if (Util.arrayCompare(rpIdHashBuf, rpIdHashIdx,
+                        permissionsRpId, (short) 1, RP_HASH_LEN) != 0) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+                }
             }
         } else {
             // Continuing iteration, we get the RP ID hash from the previous credential
@@ -3052,6 +3135,11 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param startOffset The index of the next RK which has a "unique" RP
      */
     private void handleEnumerateRPs(APDU apdu, short startOffset) {
+        if (permissionsRpId[0] != 0x00) {
+            // Standard requires that a PIN token *not* be bound to an RP ID for this subcommand
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+        }
+
         // if anything goes wrong, iteration will need to be restarted
         transientStorage.clearIterationPointers();
 
@@ -3120,6 +3208,11 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param apdu Request/response object
      */
     private void handleCredentialManagementGetCredsMetadata(APDU apdu) {
+        if (permissionsRpId[0] != 0x00) {
+            // Standard requires that a PIN token *not* be bound to an RP ID for this subcommand
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+        }
+
         short writeOffset = 0;
 
         bufferMem[writeOffset++] = FIDOConstants.CTAP2_OK;
@@ -3264,6 +3357,11 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             buffer[offset++] = (byte) 0xF4; // false
         }
 
+        offset = encodeIntLenTo(buffer, offset, (short) CannedCBOR.PIN_UV_AUTH_TOKEN.length, false);
+        offset = Util.arrayCopyNonAtomic(CannedCBOR.PIN_UV_AUTH_TOKEN, (short) 0,
+                buffer, offset, (short) CannedCBOR.PIN_UV_AUTH_TOKEN.length);
+        buffer[offset++] = (byte) 0xF5; // true
+
         offset = encodeIntLenTo(buffer, offset, (short) CannedCBOR.MAKE_CRED_UV_NOT_REQD.length, false);
         offset = Util.arrayCopyNonAtomic(CannedCBOR.MAKE_CRED_UV_NOT_REQD, (short) 0,
                 buffer, offset, (short) CannedCBOR.MAKE_CRED_UV_NOT_REQD.length);
@@ -3355,7 +3453,10 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 handleClientPinChange(apdu, readIdx, lc, pinProtocol);
                 return;
             case FIDOConstants.CLIENT_PIN_GET_PIN_TOKEN:
-                handleClientPinGetToken(apdu, readIdx, lc, pinProtocol);
+                handleClientPinGetToken(apdu, readIdx, lc, pinProtocol, false, numOptions);
+                return;
+            case FIDOConstants.CLIENT_PIN_GET_PIN_TOKEN_USING_PIN_WITH_PERMISSIONS:
+                handleClientPinGetToken(apdu, readIdx, lc, pinProtocol, true, numOptions);
                 return;
             default:
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_UNSUPPORTED_OPTION);
@@ -3392,7 +3493,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 scratch, scratchOff, pinProtocol, true);
 
         // Use pinHash, now decrypted, to unlock the symmetric wrapping key (or fail if the PIN is wrong...)
-        testAndReadyPIN(apdu, scratch, scratchOff, pinProtocol);
+        testAndReadyPIN(apdu, scratch, scratchOff, pinProtocol, (byte) 0x00);
 
         // Decrypt the real PIN
         sharedSecretDecrypt(apdu, bufferMem, wrappedPinLocation, lc, (byte) 64,
@@ -3418,12 +3519,15 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * Checks incoming pinHash and returns a pinToken to the platform for use in future commands
      * (until the next reset, of course...)
      *
-     * @param apdu        Request/response object
-     * @param readIdx     Read index into request buffer
-     * @param lc          Length of incoming request, as sent by the platform
-     * @param pinProtocol Integer PIN protocol version in use
+     * @param apdu              Request/response object
+     * @param readIdx           Read index into request buffer
+     * @param lc                Length of incoming request, as sent by the platform
+     * @param pinProtocol       Integer PIN protocol version in use
+     * @param expectPermissions If true, require permissions to be requested. If false, disallow them and use defaults
+     * @param numOptions        Number of CBOR options present
      */
-    private void handleClientPinGetToken(APDU apdu, short readIdx, short lc, byte pinProtocol) {
+    private void handleClientPinGetToken(APDU apdu, short readIdx, short lc, byte pinProtocol, boolean expectPermissions,
+                                         short numOptions) {
         if (!pinSet) {
             // duh
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_NOT_SET);
@@ -3442,10 +3546,78 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         short scratchAmt = 16;
         short scratchOff = scratchAlloc(scratchAmt);
 
-        // Decrypt the 16 bytes of the PIN verification first
-        readIdx = sharedSecretDecrypt(apdu, bufferMem, readIdx, lc, (byte) 16, scratch, scratchOff, pinProtocol, true);
+        // Decrypt the 16 bytes of PIN verification first
+        readIdx = sharedSecretDecrypt(apdu, bufferMem, readIdx, lc, (byte) 16,
+                scratch, scratchOff, pinProtocol, true);
 
-        testAndReadyPIN(apdu, scratch, scratchOff, pinProtocol);
+        // parse permissions before readying the PIN, so that we can set the right perms on it
+        byte permissions = (byte)(FIDOConstants.PERM_MAKE_CREDENTIAL | FIDOConstants.PERM_GET_ASSERTION);
+        short permRpIdIdx = -1;
+        short permRpIdLen = -1;
+
+        if (expectPermissions) {
+            if (readIdx == lc || numOptions < 5) {
+                // We expect permissions, but we don't have any!
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
+            }
+            if (bufferMem[readIdx++] != 0x09) { // map key: permissions
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
+            }
+            if (bufferMem[readIdx] == 0x18) { // one-byte integer follows
+                permissions = bufferMem[++readIdx];
+                readIdx++;
+            } else if (bufferMem[readIdx] < 0x18) { // in-place integer
+                permissions = bufferMem[readIdx++];
+            }
+
+            if (numOptions == 6) {
+                if (bufferMem[readIdx++] == 0x0A) { // map key: rpId
+                    if (bufferMem[readIdx] >= 0x60 && bufferMem[readIdx] <= 0x77) {
+                        // string with embedded length
+                        permRpIdLen = (short)(bufferMem[readIdx++] - 0x60);
+                    } else if (bufferMem[readIdx] == 0x78) {
+                        // string with one-byte length
+                        permRpIdLen = ub(bufferMem[++readIdx]);
+                        readIdx++;
+                    }
+                    if (permRpIdLen <= 0) {
+                        sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                    }
+
+                    permRpIdIdx = readIdx;
+                    readIdx += permRpIdLen;
+                }
+                // else ignore: could be options we don't support / know about
+            }
+        } else {
+            if (numOptions > 4) {
+                // We have more to read, but we don't expect anything more
+                sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
+            }
+        }
+
+        if (permissions == 0) {
+            // FIDO spec disallows providing empty permissions bitfield
+            sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
+        }
+
+        if (expectPermissions && permRpIdIdx == -1) {
+            // We can't allow a makeCredential or getAssertion without an RP ID binding
+            if ((permissions & FIDOConstants.PERM_MAKE_CREDENTIAL) != 0
+                || (permissions & FIDOConstants.PERM_GET_ASSERTION) != 0) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
+            }
+        }
+
+        testAndReadyPIN(apdu, scratch, scratchOff, pinProtocol, permissions);
+        if (permRpIdIdx != -1) {
+            permissionsRpId[0] = 0x01; // RP ID restriction enabled
+            sha256.doFinal(bufferMem, permRpIdIdx, permRpIdLen,
+                    permissionsRpId, (short) 1);
+        } else {
+            // no permissions RP ID provided - disable
+            permissionsRpId[0] = 0x00;
+        }
 
         scratchRelease(scratchAmt);
 
@@ -3566,8 +3738,9 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param buf Buffer potentially containing the first 16 bytes of the SHA-256 hash of the PIN
      * @param off Offset of the putative PIN hash within the given buffer
      * @param pinProtocol PIN protocol used to pass PIN in
+     * @param pinPermissions Bitfield representing permissions to be associated with the PIN if correct
      */
-    private void testAndReadyPIN(APDU apdu, byte[] buf, short off, byte pinProtocol) {
+    private void testAndReadyPIN(APDU apdu, byte[] buf, short off, byte pinProtocol, byte pinPermissions) {
         short pinRetryIndex = pinRetryCounter.prepareIndex();
         if (pinRetryCounter.getRetryCount(pinRetryIndex) <= 0) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_BLOCKED);
@@ -3606,7 +3779,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 scratch, scratchOff, (short) 32) == 0) {
             // Good PIN!
             pinRetryCounter.reset(pinRetryIndex);
-            transientStorage.setPinProtocolInUse(pinProtocol);
+            transientStorage.setPinProtocolInUse(pinProtocol, pinPermissions);
             wrappingKey.setKey(privateKeySpace, (short) 0);
             initSymmetricCrypto(); // Need to re-key the wrapper since we messed it up above
             transientStorage.clearPinTriesSinceReset();
@@ -3843,7 +4016,6 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             }
 
             pinSet = true;
-            transientStorage.setPinProtocolInUse(pinProtocol);
             short pinIdx = pinRetryCounter.prepareIndex();
             pinRetryCounter.reset(pinIdx);
 
@@ -3969,6 +4141,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         authenticatorKeyAgreementKey.genKeyPair();
         keyAgreement.init(authenticatorKeyAgreementKey.getPrivate());
 
+        transientStorage.setPinProtocolInUse((byte) 0, (byte) 0);
         random.generateData(pinToken, (short) 0, (short) pinToken.length);
 
         transientStorage.setPlatformKeySet();
@@ -4109,6 +4282,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         privateScratch = JCSystem.makeTransientByteArray(PRIVATE_SCRATCH_SIZE, JCSystem.CLEAR_ON_RESET);
         privateKeySpace = JCSystem.makeTransientByteArray((short) 32, JCSystem.CLEAR_ON_DESELECT);
         pinToken = JCSystem.makeTransientByteArray((short) 32, JCSystem.CLEAR_ON_DESELECT);
+        permissionsRpId = JCSystem.makeTransientByteArray((short) (RP_HASH_LEN + 1), JCSystem.CLEAR_ON_DESELECT);
 
         // RAM usage - (ideally) ephemeral keys
         authenticatorKeyAgreementKey = new KeyPair(

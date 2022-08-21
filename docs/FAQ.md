@@ -60,7 +60,8 @@ Thirdly, the CTAP API requires user presence detection, but there's really no
 way to do that on Javacard 3.0.4. We can't even use the "presence timeout"
 that is described in the spec for NFC devices. So you're always treated as
 being present, which is to some extent offset by the fact that anything real
-requires you type your PIN (if one is set)...
+requires you type your PIN (if one is set)... Additionally, this app will not
+clear CTAP2.1 PIN token permissions on use.
 
 So set a PIN, and unplug your card when you're not using it.
 

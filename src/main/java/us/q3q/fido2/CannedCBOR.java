@@ -23,10 +23,12 @@ public abstract class CannedCBOR {
             FIDOConstants.CTAP2_OK,
             (byte) 0xA8, // Map - eight keys
                 0x01, // map key: versions
-                    (byte) 0x81, // array - one item
+                    (byte) 0x82, // array - two items
                         0x68, // string - eight bytes long
                         0x46, 0x49, 0x44, 0x4F, 0x5F, 0x32, 0x5F, 0x30, // FIDO_2_0
-                0x02, // map key: extensions
+                        0x68, // string - eight bytes long
+                        0x46, 0x49, 0x44, 0x4F, 0x5F, 0x32, 0x5F, 0x31, // FIDO_2_1
+            0x02, // map key: extensions
                     (byte) 0x82, // array - two items
                         0x6B, // string - eleven bytes long
                             0x63, 0x72, 0x65, 0x64, 0x50, 0x72, 0x6F, 0x74, 0x65, 0x63, 0x74, // credProtect
@@ -36,7 +38,7 @@ public abstract class CannedCBOR {
                         0x50, // byte string, 16 bytes long
                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // aaguid
                 0x04, // map key: options
-                    (byte) 0xA5, // map: five entries
+                    (byte) 0xA6, // map: six entries
                         0x62, // string: two bytes long
                             0x72, 0x6B, // rk
                             (byte) 0xF5, // true
@@ -51,6 +53,9 @@ public abstract class CannedCBOR {
     };
     static final byte[] MAKE_CRED_UV_NOT_REQD = {
             0x6D, 0x61, 0x6B, 0x65, 0x43, 0x72, 0x65, 0x64, 0x55, 0x76, 0x4E, 0x6F, 0x74, 0x52, 0x71, 0x64
+    };
+    static final byte[] PIN_UV_AUTH_TOKEN = {
+            0x70, 0x69, 0x6E, 0x55, 0x76, 0x41, 0x75, 0x74, 0x68, 0x54, 0x6F, 0x6B, 0x65, 0x6E
     };
     static final byte[] MAKE_CREDENTIAL_RESPONSE_PREAMBLE = {
             0x00, // status - OK!
