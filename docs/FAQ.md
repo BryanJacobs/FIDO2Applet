@@ -74,11 +74,14 @@ a getAssertion call is made with an `allowList` given, CTAP2.0 says that the
 authenticator should iterate through assertions generated with the matching
 credentials from the allowlist. CTAP2.1 says the authenticator should pick one
 matching credential, return an assertion generated with it, and ignore any
-other matches.
+other matches. 
 
 This implementation allows toggling either behavior by flipping a boolean in the
 code, but because one or the other must be chosen, it can't be both fully CTAP2.0
 compatible and CTAP2.1 compatible at the same time.
+
+Another more minor difference is that CTAP2.0 allows PINs of 64  bytes or longer.
+This authenticator and CTAP2.1 cap PINs at 63 bytes long.
 
 ## Why don't you implement U2F/CTAP1?
 
@@ -107,7 +110,8 @@ It will store:
 - the credential ID (an AES256 encrypted blob of the RP ID SHA-256
   hash and the credential private key)
 - up to 32 characters of the RP ID, again AES256 encrypted
-- a max 64-character-long user ID, again AES256 encrypted
+- a max 64-byte-long user ID, again AES256 encrypted
+- the 64-byte public key associated with the credential, again AES256 encrypted
 - the length of the RP ID, unencrypted
 - the length of the user ID, unencrypted
 - a boolean set to true on the first credential from a given RP ID, used

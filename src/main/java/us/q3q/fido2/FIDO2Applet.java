@@ -3153,6 +3153,16 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NO_CREDENTIALS);
     }
 
+    /**
+     * Pack a credential ID (CBOR-wrapped) into a target buffer
+     *
+     * @param credBuffer Buffer containing credential ID
+     * @param credOffset Offset of credential ID in input buffer
+     * @param writeBuffer Output buffer into which to write CBOR
+     * @param writeOffset Write index into output buffer
+     *
+     * @return New write index into output buffer, after writing credential CBOR
+     */
     private short packCredentialId(byte[] credBuffer, short credOffset, byte[] writeBuffer, short writeOffset) {
         writeBuffer[writeOffset++] = (byte) 0xA2; // map: two entries
 
@@ -3162,7 +3172,6 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         writeOffset = encodeIntLenTo(writeBuffer, writeOffset, CREDENTIAL_ID_LEN, true);
         writeOffset = Util.arrayCopyNonAtomic(credBuffer, credOffset,
                 writeBuffer, writeOffset, CREDENTIAL_ID_LEN);
-
 
         writeBuffer[writeOffset++] = 0x64; // string - four bytes long
         writeBuffer[writeOffset++] = 0x74; // t
