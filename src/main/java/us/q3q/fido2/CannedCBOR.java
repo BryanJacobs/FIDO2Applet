@@ -21,7 +21,7 @@ public abstract class CannedCBOR {
     };
     static final byte[] AUTH_INFO_RESPONSE = {
             FIDOConstants.CTAP2_OK,
-            (byte) 0xA8, // Map - eight keys
+            (byte) 0xA9, // Map - nine keys
                 0x01, // map key: versions
                     (byte) 0x82, // array - two items
                         0x68, // string - eight bytes long
