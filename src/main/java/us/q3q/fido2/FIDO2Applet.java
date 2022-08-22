@@ -1152,6 +1152,14 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
         }
         short typeValLen = (short) (bufferMem[readIdx] & 0x0F);
+        if (typeValLen != CannedCBOR.PUBLIC_KEY_TYPE.length) {
+            // not the same length as type "public-key": can't be a match
+            transientStorage.resetFoundKeyMatch();
+        } else if (Util.arrayCompare(bufferMem, (short)(readIdx + 1),
+                CannedCBOR.PUBLIC_KEY_TYPE, (short) 0, typeValLen) != 0) {
+            // Not of type "public-key", although same length
+            transientStorage.resetFoundKeyMatch();
+        }
         readIdx += typeValLen + 1;
         if (readIdx >= lc) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
@@ -2507,7 +2515,22 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         byte[] apduBytes = apdu.getBuffer();
 
-        if (apduBytes[ISO7816.OFFSET_CLA] == 0x00 && apduBytes[ISO7816.OFFSET_INS] == (byte) 0xC0) {
+        byte cla = apduBytes[ISO7816.OFFSET_CLA];
+        byte ins = apduBytes[ISO7816.OFFSET_INS];
+
+        if (cla == (byte) 0x80 && ins == 0x12 && apduBytes[ISO7816.OFFSET_P1] == 0x01
+                && apduBytes[ISO7816.OFFSET_P2] == 0x00) {
+            // Explicit disable command (NFCCTAP_CONTROL end CTAP_MSG). Turn off, and stay off.
+            transientStorage.disableAuthenticator();
+        }
+
+        if (transientStorage.authenticatorDisabled()) {
+            return;
+        }
+
+        if ((cla == 0x00 || cla == (byte) 0x80)
+                && ins == (byte) 0xC0) {
+            // continue outgoing response from buffer
             if (transientStorage.getOutgoingContinuationRemaining() == 0) {
                 throwException(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
             }
@@ -2539,6 +2562,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         if (apdu.isCommandChainingCLA()) {
+            // Incoming chained request
             short amtRead = apdu.setIncomingAndReceive();
 
             short lc = apdu.getIncomingLength();
@@ -2552,7 +2576,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             return;
         }
 
-        if (apduBytes[ISO7816.OFFSET_CLA] != (byte)0x80) {
+        if (apduBytes[ISO7816.OFFSET_CLA] != (byte) 0x80) {
             throwException(ISO7816.SW_CLA_NOT_SUPPORTED);
         }
 
@@ -2568,7 +2592,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         short lc = apdu.getIncomingLength();
 
         if (amtRead == 0) {
-            throwException(ISO7816.SW_UNKNOWN);
+            throwException(ISO7816.SW_DATA_INVALID);
         }
 
         short incomingOffset = 1;
@@ -2726,7 +2750,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             short scratchAmt = (short)(1 + subCommandParamsLen);
             short scratchOff = scratchAlloc(scratchAmt);
             scratch[scratchOff] = bufferMem[subcommandIdx];
-            if (subCommandParamsLen > CREDENTIAL_ID_LEN + MAX_USER_ID_LENGTH + 30) {
+            if (subCommandParamsLen > CREDENTIAL_ID_LEN + MAX_USER_ID_LENGTH + 35) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
             }
             if (subCommandParamsLen > 0) {
@@ -2827,29 +2851,33 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             // Don't need to decrypt creds, just byte-compare them
             if (Util.arrayCompare(residentKeyData, (short)(i * CREDENTIAL_ID_LEN),
                     bufferMem, credIdIdx, CREDENTIAL_ID_LEN) == 0) {
-                // Credential matches - check user ID
+                // Matching cred.
+                // We need to extract the credential to check that our PIN token WOULD have permission
+                short scratchExtractedCred = scratchAlloc(CREDENTIAL_ID_LEN);
+                symmetricUnwrapper.doFinal(residentKeyData, (short)(i * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN,
+                        scratch, scratchExtractedCred
+                );
+                if (permissionsRpId[0] != 0x00) {
+                    if (Util.arrayCompare(scratch, (short)(scratchExtractedCred + 32),
+                            permissionsRpId, (short) 1, RP_HASH_LEN) != 0) {
+                        // permissions RP ID in use, but doesn't match RP of this credential
+                        sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+                    }
+                }
+
+                // Now that we have permission, check the user ID
                 symmetricUnwrapper.doFinal(residentKeyUserIds, (short)(i * MAX_USER_ID_LENGTH), MAX_USER_ID_LENGTH,
                         scratch, uidOffset);
                 if (Util.arrayCompare(scratch, uidOffset,
-                        bufferMem,userIdIdx,userIdLen) == 0) {
+                        bufferMem, userIdIdx, userIdLen) == 0) {
                     // Matches both credential and user ID - it's a hit.
-                    // No actual updating work to do here because we don't store anything other than the ID...
-
-                    // ... but we need to extract the credential to check that our PIN token WOULD have permission
-                    short scratchExtractedCred = scratchAlloc(CREDENTIAL_ID_LEN);
-                    symmetricUnwrapper.doFinal(residentKeyData, (short)(i * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN,
-                            scratch, scratchExtractedCred
-                    );
-                    if (permissionsRpId[0] != 0x00) {
-                        if (Util.arrayCompare(scratch, (short)(scratchExtractedCred + 32),
-                                permissionsRpId, (short) 1, RP_HASH_LEN) != 0) {
-                            // permissions RP ID in use, but doesn't match RP of this credential
-                            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
-                        }
-                    }
+                    // No actual updating work to do here because we don't store anything other than the ID
 
                     foundHit = true;
                     break;
+                } else {
+                    // matches credential ID, but doesn't match user ID
+                    sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
                 }
             }
         }
@@ -3505,7 +3533,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 break;
             }
         }
-        if (realPinLength < 4) {
+        if (realPinLength < 4 || realPinLength > 63) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_POLICY_VIOLATION);
         }
 
@@ -3789,7 +3817,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         // BAD PIN
         forceInitKeyAgreementKey();
-        sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+        sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_INVALID);
     }
 
     /**

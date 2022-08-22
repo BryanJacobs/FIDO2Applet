@@ -17,50 +17,50 @@ public class TransientStorage {
     /**
      * Used for storing found lengths in searches
      */
-    private static final short IDX_TEMP_BUF_IDX_LEN = 1;
+    private static final byte IDX_TEMP_BUF_IDX_LEN = 1;
     /**
      * When writing an overlong response using chained APDUs, stores the position we're up to in the outgoing buffer
      */
-    private static final short IDX_CONTINUATION_OUTGOING_WRITE_OFFSET = 2;
+    private static final byte IDX_CONTINUATION_OUTGOING_WRITE_OFFSET = 2;
     /**
      * When writing an overlong response using chained APDUs, stores the remaining bytes in the outgoing buffer
      */
-    private static final short IDX_CONTINUATION_OUTGOING_REMAINING = 3;
+    private static final byte IDX_CONTINUATION_OUTGOING_REMAINING = 3;
     /**
      * When reading an overlong incoming request using chained APDUs, stores the fill level of the incoming buffer
      */
-    private static final short IDX_CHAINING_INCOMING_READ_OFFSET = 4;
+    private static final byte IDX_CHAINING_INCOMING_READ_OFFSET = 4;
     /**
      * When reading incoming request chains, which FIDO2 command the request represents (pulled from the first packet)
      */
-    private static final short IDX_STORED_COMMAND_BYTE = 5;
+    private static final byte IDX_STORED_COMMAND_BYTE = 5;
     /**
      * How full the scratch buffer is
      */
-    private static final short IDX_SCRATCH_ALLOC_SIZE = 6;
+    private static final byte IDX_SCRATCH_ALLOC_SIZE = 6;
     /**
      * Index of next credential to consider when iterating through RPs with credManagement commands
      */
-    private static final short IDX_RP_ITERATION_POINTER = 7;
+    private static final byte IDX_RP_ITERATION_POINTER = 7;
     /**
      * Index of next credential to consider when iterating through creds with credManagement commands
      */
-    private static final short IDX_CRED_ITERATION_POINTER = 8;
+    private static final byte IDX_CRED_ITERATION_POINTER = 8;
     /**
      * Index of next credential (in either allowList or resident keys) to consider when iterating through
      * assertions with getNextAssertion commands
      */
-    private static final short IDX_ASSERT_ITERATION_POINTER = 9;
+    private static final byte IDX_ASSERT_ITERATION_POINTER = 9;
     /**
      * Two vars for the price of one!
      * In the upper 8 bits, a permissions bitfield for the currently set PIN token
      * In the lower 8 bits, which PIN protocol is currently in use, as at the time the pinToken was sent to the platform
      */
-    private static final short IDX_PIN_PROTOCOL_IN_USE = 10;
+    private static final byte IDX_PIN_PROTOCOL_IN_USE = 10;
     /**
      * Total number of in-memory short variables
      */
-    private static final short NUM_TEMP_SHORTS = 11;
+    private static final byte NUM_TEMP_SHORTS = 11;
 
     /**
      * array of per-reset booleans used internally
@@ -69,35 +69,39 @@ public class TransientStorage {
     /**
      * set when authenticator key initialized
      */
-    private static final short BOOL_IDX_RESET_PLATFORM_KEY_SET = 0;
+    private static final byte BOOL_IDX_RESET_PLATFORM_KEY_SET = 0;
     /**
      * set if platform supports authenticator-compatible key
      */
-    private static final short BOOL_IDX_RESET_FOUND_KEY_MATCH = 1;
+    private static final byte BOOL_IDX_RESET_FOUND_KEY_MATCH = 1;
     /**
      * set if the "up" (User Presence) option is enabled
      */
-    private static final short BOOL_IDX_OPTION_UP = 2;
+    private static final byte BOOL_IDX_OPTION_UP = 2;
     /**
      * set if the "uv" (User Validation) option is enabled
      */
-    private static final short BOOL_IDX_OPTION_UV = 3;
+    private static final byte BOOL_IDX_OPTION_UV = 3;
     /**
      * set if the "rk" (Resident Key) option is enabled
      */
-    private static final short BOOL_IDX_OPTION_RK = 4;
+    private static final byte BOOL_IDX_OPTION_RK = 4;
     /**
      * set if chaining responses should come from the getNextAssertion buffer
      */
-    private static final short BOOL_IDX_RESPONSE_FROM_SCRATCH = 5;
+    private static final byte BOOL_IDX_RESPONSE_FROM_SCRATCH = 5;
     /**
      * For reset "protection" feature, checks if a reset request has been received since the last authenticator powerup
      */
-    private static final short BOOL_IDX_RESET_RECEIVED_SINCE_POWERON = 6;
+    private static final byte BOOL_IDX_RESET_RECEIVED_SINCE_POWERON = 6;
+    /**
+     * Set to true when the authenticator app is fully disabled until next reselect
+     */
+    private static final byte BOOL_IDX_AUTHENTICATOR_DISABLED = 7;
     /**
      * number of booleans total in array
      */
-    private static final short NUM_RESET_BOOLS = 7;
+    private static final byte NUM_RESET_BOOLS = 8;
 
     /**
      * Pin-retries-since-reset counter, which must be cleared on RESET, not on deselect
@@ -117,7 +121,14 @@ public class TransientStorage {
         for (short s = 0; s < tempBools.length; s++) {
             tempBools[s] = false;
         }
+    }
 
+    public boolean authenticatorDisabled() {
+        return tempBools[BOOL_IDX_AUTHENTICATOR_DISABLED];
+    }
+
+    public void disableAuthenticator() {
+        tempBools[BOOL_IDX_AUTHENTICATOR_DISABLED] = true;
     }
 
     public void clearIterationPointers() {

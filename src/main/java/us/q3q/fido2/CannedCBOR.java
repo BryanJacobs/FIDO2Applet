@@ -103,4 +103,9 @@ public abstract class CannedCBOR {
                 0x62, // string - two bytes long
                     0x69, 0x64, // id
     };
+
+    static final byte[] PUBLIC_KEY_TYPE = {
+            0x70, 0x75, 0x62, 0x6C, 0x69, 0x63, 0x2D, 0x6B, 0x65, 0x79
+          //   p     u     b     l     i     c     -     k     e     y
+    };
 }
