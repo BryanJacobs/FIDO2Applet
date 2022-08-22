@@ -1467,7 +1467,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         short allowListIdx = -1;
 
         short paramsRead = 2;
-        if (bufferMem[readIdx] == 0x03) { // allowList
+        if (numParams > 2 && bufferMem[readIdx] == 0x03) { // allowList
             readIdx++;
             if (readIdx >= lc) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
