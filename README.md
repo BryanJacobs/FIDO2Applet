@@ -59,7 +59,7 @@ I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/s
 |--------------------------------|---------------------------------------------------------|
 | CTAP1/U2F                      | Not implemented                                         |
 | CTAP2.0 core                   | Implemented, many caveats                               |
-| CTAP2.1 core                   | Implemented, many caveats                               |
+| CTAP2.1 core                   | Implemented, many caveats                               | 
 | Resident keys                  | Implemented, default 50 slots                           |
 | User Presence                  | User always considered present: not standards compliant |
 | Self attestation               | Implemented                                             |

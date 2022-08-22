@@ -1700,13 +1700,13 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         // credential
         if (rkMatch > -1) {
             // Resident keys need CBOR wrapping...
-            outputIdx = Util.arrayCopyNonAtomic(CannedCBOR.SINGLE_ID_MAP_PREAMBLE, (short) 0,
-                    outBuf, outputIdx, (short) CannedCBOR.SINGLE_ID_MAP_PREAMBLE.length);
-            outBuf[outputIdx++] = 0x58; // byte array with one-byte length
-            outBuf[outputIdx++] = (byte) matchingPubKeyCredDataLen;
+            outputIdx = packCredentialId(matchingPubKeyBuffer, startOfMatchingPubKeyCredData,
+                    outBuf, outputIdx);
+        } else {
+            // Copy straight from input to output
+            outputIdx = Util.arrayCopyNonAtomic(matchingPubKeyBuffer, startOfMatchingPubKeyCredData,
+                    outBuf, outputIdx, matchingPubKeyCredDataLen);
         }
-        outputIdx = Util.arrayCopyNonAtomic(matchingPubKeyBuffer, startOfMatchingPubKeyCredData,
-                outBuf, outputIdx, matchingPubKeyCredDataLen);
 
         outBuf[outputIdx++] = 0x02; // map key: authData
 
@@ -3124,11 +3124,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 scratchRelease(MAX_USER_ID_LENGTH);
 
                 bufferMem[writeOffset++] = 0x07; // map key: credentialId
-                writeOffset = Util.arrayCopyNonAtomic(CannedCBOR.SINGLE_ID_MAP_PREAMBLE, (short) 0,
-                        bufferMem, writeOffset, (short) CannedCBOR.SINGLE_ID_MAP_PREAMBLE.length);
-                writeOffset = encodeIntLen(writeOffset, CREDENTIAL_ID_LEN, true);
-                writeOffset = Util.arrayCopyNonAtomic(residentKeyData, (short)(CREDENTIAL_ID_LEN * rkIndex),
-                        bufferMem, writeOffset, CREDENTIAL_ID_LEN);
+                writeOffset = packCredentialId(residentKeyData, (short)(CREDENTIAL_ID_LEN * rkIndex),
+                        bufferMem, writeOffset);
 
                 bufferMem[writeOffset++] = 0x08; // map key: publicKey
                 writeOffset = Util.arrayCopyNonAtomic(CannedCBOR.PUBLIC_KEY_ALG_PREAMBLE, (short) 0,
@@ -3154,6 +3151,29 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         // If we fall through to here, we didn't find a cred
         sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NO_CREDENTIALS);
+    }
+
+    private short packCredentialId(byte[] credBuffer, short credOffset, byte[] writeBuffer, short writeOffset) {
+        writeBuffer[writeOffset++] = (byte) 0xA2; // map: two entries
+
+        writeBuffer[writeOffset++] = 0x62; // string - two bytes long
+        writeBuffer[writeOffset++] = 0x69; // i
+        writeBuffer[writeOffset++] = 0x64; // d
+        writeOffset = encodeIntLenTo(writeBuffer, writeOffset, CREDENTIAL_ID_LEN, true);
+        writeOffset = Util.arrayCopyNonAtomic(credBuffer, credOffset,
+                writeBuffer, writeOffset, CREDENTIAL_ID_LEN);
+
+
+        writeBuffer[writeOffset++] = 0x64; // string - four bytes long
+        writeBuffer[writeOffset++] = 0x74; // t
+        writeBuffer[writeOffset++] = 0x79; // y
+        writeBuffer[writeOffset++] = 0x70; // p
+        writeBuffer[writeOffset++] = 0x65; // e
+        writeOffset = encodeIntLenTo(writeBuffer, writeOffset, (short) CannedCBOR.PUBLIC_KEY_TYPE.length, false);
+        writeOffset = Util.arrayCopyNonAtomic(CannedCBOR.PUBLIC_KEY_TYPE, (short) 0,
+                writeBuffer, writeOffset, (short) CannedCBOR.PUBLIC_KEY_TYPE.length);
+
+        return writeOffset;
     }
 
     /**
