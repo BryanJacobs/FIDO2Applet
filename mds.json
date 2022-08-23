@@ -1,0 +1,59 @@
+{
+  "legalHeader": "https://fidoalliance.org/metadata/metadata-statement-legal-header/",
+  "description": "FIDO2 Javacard Applet",
+  "aaguid": "00000000-0000-0000-0000-000000000000",
+  "alternativeDescriptions": {
+  },
+  "protocolFamily": "fido2",
+  "schema": 3,
+  "authenticatorVersion": 1,
+  "upv": [
+    { "major": 1, "minor": 1 },
+    { "major": 1, "minor": 0 }
+  ],
+  "authenticationAlgorithms": ["secp256r1_ecdsa_sha256_raw"],
+  "publicKeyAlgAndEncodings": ["cose"],
+  "attestationTypes": ["basic_surrogate"],
+  "userVerificationDetails": [
+    [
+      {"userVerificationMethod": "none"}
+    ],
+    [
+      {"userVerificationMethod": "presence_internal"}
+    ],
+    [{
+      "userVerificationMethod": "passcode_external",
+      "caDesc": {
+        "base": 10,
+        "minLength": 4
+      }
+    }]
+  ],
+  "keyProtection": ["hardware", "secure_element"],
+  "matcherProtection": ["on_chip"],
+  "cryptoStrength": 128,
+  "attachmentHint": ["nfc"],
+  "tcDisplay": [],
+  "attestationRootCertificates": [],
+  "authenticatorGetInfo": {
+      "versions": [ "FIDO_2_0", "FIDO_2_1" ],
+      "extensions": [ "credProtect", "hmac-secret" ],
+      "aaguid": "00000000000000000000000000000000",
+      "options": {
+        "rk": true,
+        "clientPin": false,
+        "up": true,
+        "alwaysUv": true,
+        "credMgmt": true,
+        "makeCredUvNotRqd": false,
+        "pinUvAuthToken": true
+      },
+      "maxMsgSize": 1024,
+      "pinUvAuthProtocols": [1, 2],
+      "maxCredentialCountInList": 10,
+      "maxCredentialIdLength": 64,
+      "defaultCredProtect": 3,
+      "firmwareVersion": 1,
+      "remainingDiscoverableCredentials": 50
+  }
+}
