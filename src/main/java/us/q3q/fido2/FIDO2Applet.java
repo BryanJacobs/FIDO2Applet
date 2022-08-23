@@ -34,12 +34,6 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private static final boolean PROTECT_AGAINST_MALICIOUS_RESETS = false;
     /**
-     * If true, the behavior of the getAssertion command with a given allowList will comply with CTAP2.1 instead of
-     * CTAP2.0. In CTAP2.1, the authenticator returns one assertion from a cred in the allowList; in CTAP2.0, the
-     * authenticator iterates over the allowList creds just like it would with resident credentials.
-     */
-    private static final boolean CTAP_2_1_GETASSERTION_WITH_ALLOW_LIST = true;
-    /**
      * Size of buffer used for receiving incoming data and sending responses.
      * To be standards-compliant, must be at least 1024 bytes, but can be larger.
      */
@@ -530,7 +524,6 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         // We only support one algorithm, so let's find that one.
         boolean foundES256 = false;
-        transientStorage.resetFoundKeyMatch();
         short numPubKeys = (short)(pubKeyCredParamsType & 0x0F);
         for (short i = 0; i < numPubKeys; i++) {
             readIdx = checkIfPubKeyBlockSupported(apdu, readIdx, lc);
@@ -636,7 +629,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         if (pinAuthIdx != -1) {
             // Come back and verify PIN auth
-            verifyPinAuth(apdu, pinAuthIdx, clientDataHashIdx, pinProtocol);
+            verifyPinAuth(apdu, pinAuthIdx, bufferMem, clientDataHashIdx, pinProtocol);
 
             if ((transientStorage.getPinPermissions() & FIDOConstants.PERM_MAKE_CREDENTIAL) == 0) {
                 // PIN token doesn't have permission for the MC operation
@@ -1061,14 +1054,16 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * Consumes an incoming pinAuth block and checks it matches our set pinToken.
      *
-     * @param apdu              Request/response object
-     * @param readIdx           Read index into bufferMem pointing to a 16-byte array (pinAuth)
-     * @param clientDataHashIdx Index in bufferMem of the hash of the clientData object, as given by the platform
-     * @param pinProtocol       Integer PIN protocol number
+     * @param apdu                 Request/response object
+     * @param readIdx              Read index into bufferMem pointing to a 16-byte array (pinAuth)
+     * @param clientDataHashBuffer Buffer containing client data hash
+     * @param clientDataHashIdx    Index of the hash of the clientData object, as given by the platform
+     * @param pinProtocol          Integer PIN protocol number
      *
      * @return New read index into bufferMem after consuming the pinAuth options block
      */
-    private short verifyPinAuth(APDU apdu, short readIdx, short clientDataHashIdx, byte pinProtocol) {
+    private short verifyPinAuth(APDU apdu, short readIdx, byte[] clientDataHashBuffer, short clientDataHashIdx,
+                                byte pinProtocol) {
         byte desiredLength = 16;
         if (pinProtocol == 2) {
             desiredLength = 32;
@@ -1087,7 +1082,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             }
         }
 
-        checkPinToken(apdu, bufferMem, clientDataHashIdx, CLIENT_DATA_HASH_LEN,
+        checkPinToken(apdu, clientDataHashBuffer, clientDataHashIdx, CLIENT_DATA_HASH_LEN,
                 bufferMem, readIdx, false, pinProtocol);
 
         readIdx += desiredLength;
@@ -1097,8 +1092,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
     /**
      * Consumes a CBOR block of public key data, and checks if it represents a supported algorithm.
-     * After call, tempShorts[IDX_RESET_FOUND_KEY_MATCH] will be true if the key is compatible. It should be set
-     * to false prior to call
+     * After call, transientStorage foundKeyMatch will be true if the key is compatible.
      *
      * @param apdu Request/response object
      * @param readIdx Read index into bufferMem
@@ -1107,6 +1101,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @return New read index into bufferMem after consuming public key block
      */
     private short checkIfPubKeyBlockSupported(APDU apdu, short readIdx, short lc) {
+        transientStorage.resetFoundKeyMatch();
+
         byte mapDef = bufferMem[readIdx++];
         if ((mapDef & 0xF0) != 0xA0) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
@@ -1187,20 +1183,10 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @return New write index into bufferMem after serializing AD block
      */
     private short writeADBasic(byte[] outBuf, short adLen, short writeIdx, byte flags, byte[] rpIdBuffer, short rpIdOffset) {
-        short adAddlBytes;
+        short ow = writeIdx;
+        writeIdx = encodeIntLenTo(outBuf, writeIdx, adLen, true);
 
-        if (adLen < 24) {
-            outBuf[writeIdx++] = (byte)(0x50 + adLen);
-            adAddlBytes = 1;
-        } else if (adLen < 256) {
-            outBuf[writeIdx++] = 0x58; // byte string, with one-byte length
-            outBuf[writeIdx++] = (byte) adLen;
-            adAddlBytes = 2;
-        } else {
-            outBuf[writeIdx++] = 0x59; // byte string, with two-byte length
-            writeIdx = Util.setShort(outBuf, writeIdx, adLen);
-            adAddlBytes = 3;
-        }
+        short adAddlBytes = (short)(writeIdx - ow);
 
         // RPID hash
         writeIdx = Util.arrayCopyNonAtomic(rpIdBuffer, rpIdOffset, outBuf, writeIdx, RP_HASH_LEN);
@@ -1382,269 +1368,275 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
     /**
      * Handles a CTAP2 getAssertion or getNextAssertion API call.
-     * Note that this method is called a second time for getNextAssertion, so it *needs to preserve bufferMem*.
-     * To do that, responses are written to the APDU buffer first, with overflow going to scratch space for use
-     * chaining larger replies back to the platform.
+     * Note that this method is called a second time for getNextAssertion, so it needs to preserve (and restore) state
+     * in scratch.
      *
      * @param apdu The request/response object
      * @param lc The declared request length
      * @param readIdx The current read offset into buffer memory
-     * @param firstCredIdx The first credential to consider, in either the allowList or the resident key storage
-     *                     (whichever is appropriate based on the presence of an allowList)
+     * @param firstCredIdx The first credential to consider in resident key storage
      */
     private void getAssertion(APDU apdu, short lc, short readIdx, short firstCredIdx) {
-        if (lc == 0) {
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
-        }
+        short scratchRPIDHashIdx = scratchAlloc(RP_HASH_LEN);
+        short clientDataHashIdx = scratchAlloc((short) 32);
+        short pinInfoIdx = scratchAlloc((short) 2); // first byte, PIN protocol. Second byte, 1 if PIN auth success
+        short hmacSaltIdx = scratchAlloc((short) 65); // first byte length, remaining bytes HMAC salt
+        short hmacSecretBytes = 0;
+
+        byte numMatchesThisRP = 0;
+        short rkMatch = -1;
+        short allowListLength = 0;
+        byte[] matchingPubKeyBuffer = bufferMem;
+        short matchingPubKeyCredDataLen = 0;
+        short startOfMatchingPubKeyCredData = (short) -1;
 
         if (resetRequested) {
             resetRequested = false;
         }
 
-        if ((bufferMem[readIdx] & 0xF0) != 0xA0) { // map with relatively few entries
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
-        }
+        if (firstCredIdx == 0) { // Start of iteration: actually parse request
+            scratch[pinInfoIdx] = 1; // default to PIN protocol one
+            scratch[(short)(pinInfoIdx + 1)] = 0;
+            scratch[hmacSaltIdx] = 0;
 
-        short numParams = (short) (bufferMem[readIdx++] & 0x0F);
-        if (numParams < 2) {
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
-        }
-        if (readIdx >= lc) {
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
-        }
-
-        if (bufferMem[readIdx++] != 0x01) { // rpId
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
-        }
-        if (readIdx >= lc) {
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
-        }
-
-        short rpIdLen = 0;
-        if (bufferMem[readIdx] == 0x78) { // one-byte length
-            readIdx++;
-            if (readIdx >= lc) {
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
+            if (lc == 0) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
             }
-            rpIdLen = bufferMem[readIdx++];
-        } else if (bufferMem[readIdx] >= 0x61 && bufferMem[readIdx] < 0x78) { // zero-byte packed length
-            rpIdLen = (short)(bufferMem[readIdx] - 0x60);
-            readIdx++;
-        } else {
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
-        }
-        short rpIdIdx = readIdx;
-        readIdx += rpIdLen;
-        if (readIdx >= lc) {
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
-        }
 
-        if (bufferMem[readIdx++] != 0x02) { // clientDataHash
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
-        }
-        short clientDataHashLen = 0;
-        if (bufferMem[readIdx] == 0x58) {
-            readIdx++;
-            if (readIdx >= lc) {
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
+            if ((bufferMem[readIdx] & 0xF0) != 0xA0) { // map with relatively few entries
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
             }
-            clientDataHashLen = bufferMem[readIdx++];
-        } else if (bufferMem[readIdx] >= 0x51 && bufferMem[readIdx] < 0x58) {
-            clientDataHashLen = (short)(bufferMem[readIdx] - 0x60);
-            readIdx++;
-        }
-        short clientDataHashIdx = readIdx;
-        readIdx += clientDataHashLen;
-        if (readIdx >= lc) {
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
-        }
 
-        short scratchRPIDHashIdx = scratchAlloc(RP_HASH_LEN);
-
-        short digested = sha256.doFinal(bufferMem, rpIdIdx, rpIdLen, scratch, scratchRPIDHashIdx);
-        if (digested != RP_HASH_LEN) {
-            throwException(ISO7816.SW_UNKNOWN);
-        }
-
-        short startOfMatchingPubKeyCredData = (short) -1;
-        byte[] matchingPubKeyBuffer = bufferMem;
-        short matchingPubKeyCredDataLen = 0;
-        short rkMatch = -1;
-        short allowListIdx = -1;
-
-        short paramsRead = 2;
-        if (numParams > 2 && bufferMem[readIdx] == 0x03) { // allowList
-            readIdx++;
+            short numParams = (short) (bufferMem[readIdx++] & 0x0F);
+            if (numParams < 2) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
+            }
             if (readIdx >= lc) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
             }
 
-            // We need to defer this until after we do PIN processing
-            allowListIdx = readIdx;
-            paramsRead++;
-            readIdx = consumeAnyEntity(apdu, readIdx, lc);
-        }
-
-        short hmacSecretBytes = 0;
-        short hmacSecretDataIdx = -1;
-
-        defaultOptions();
-        boolean pinAuthSuccess = false;
-        short allowListLength = 0;
-        byte pinProtocol = 0x01;
-        short pinAuthIdx = -1;
-
-        // Consume any remaining parameters
-        byte lastMapKey = 0x03; // Doesn't matter if it's actually 0x02 or whatever, we just need them in order
-        for (short i = paramsRead; i < numParams; i++) {
-            byte mapKey = bufferMem[readIdx++];
-            if (mapKey <= lastMapKey) {
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
+            if (bufferMem[readIdx++] != 0x01) { // rpId
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
             }
-            lastMapKey = mapKey;
             if (readIdx >= lc) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
             }
 
-            if (mapKey == 0x04) { // extensions
-                if ((bufferMem[readIdx] & 0xA0) != 0xA0) {
-                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+            short rpIdLen = 0;
+            if (bufferMem[readIdx] == 0x78) { // one-byte length
+                readIdx++;
+                if (readIdx >= lc) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
+                }
+                rpIdLen = bufferMem[readIdx++];
+            } else if (bufferMem[readIdx] >= 0x61 && bufferMem[readIdx] < 0x78) { // zero-byte packed length
+                rpIdLen = (short) (bufferMem[readIdx] - 0x60);
+                readIdx++;
+            } else {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+            }
+            short rpIdIdx = readIdx;
+            readIdx += rpIdLen;
+            if (readIdx >= lc) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
+            }
+
+            if (bufferMem[readIdx++] != 0x02) { // clientDataHash
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
+            }
+            short clientDataHashLen = 0;
+            if (bufferMem[readIdx++] == 0x58) {
+                if (readIdx >= lc) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
+                }
+                clientDataHashLen = bufferMem[readIdx++];
+            }
+            if (clientDataHashLen != 32) {
+                sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
+            }
+            Util.arrayCopyNonAtomic(bufferMem, readIdx,
+                    scratch, clientDataHashIdx, (short) 32);
+            readIdx += 32;
+            if (readIdx >= lc) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
+            }
+
+            short digested = sha256.doFinal(bufferMem, rpIdIdx, rpIdLen, scratch, scratchRPIDHashIdx);
+            if (digested != RP_HASH_LEN) {
+                throwException(ISO7816.SW_UNKNOWN);
+            }
+
+            short allowListIdx = -1;
+
+            short paramsRead = 2;
+            if (numParams > 2 && bufferMem[readIdx] == 0x03) { // allowList
+                readIdx++;
+                if (readIdx >= lc) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
                 }
 
-                short mapEntries = (short) (bufferMem[readIdx++] & 0x0F);
-                for (short j = 0; j < mapEntries; j++) {
-                    if ((bufferMem[readIdx] & 0x60) != 0x60) {
+                // We need to defer this until after we do PIN processing
+                allowListIdx = readIdx;
+                paramsRead++;
+                readIdx = consumeAnyEntity(apdu, readIdx, lc);
+            }
+
+            defaultOptions();
+            short pinAuthIdx = -1;
+            short hmacSecretReadIdx = -1;
+
+            // Consume any remaining parameters
+            byte lastMapKey = 0x03; // Doesn't matter if it's actually 0x02 or whatever, we just need them in order
+            for (short i = paramsRead; i < numParams; i++) {
+                byte mapKey = bufferMem[readIdx++];
+                if (mapKey <= lastMapKey) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
+                }
+                lastMapKey = mapKey;
+                if (readIdx >= lc) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
+                }
+
+                if (mapKey == 0x04) { // extensions
+                    if ((bufferMem[readIdx] & 0xA0) != 0xA0) {
                         sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                     }
-                    short keyLength = (short)(bufferMem[readIdx++] & 0x0F);
-                    if (keyLength != CannedCBOR.HMAC_SECRET_EXTENSION_ID.length || Util.arrayCompare(bufferMem, readIdx,
-                            CannedCBOR.HMAC_SECRET_EXTENSION_ID, (short) 0, (short) CannedCBOR.HMAC_SECRET_EXTENSION_ID.length) != 0) {
-                        // Extension that is NOT hmac-secret: ignore it
-                        readIdx = consumeAnyEntity(apdu, (short)(readIdx + keyLength), lc);
-                        continue;
+
+                    short mapEntries = (short) (bufferMem[readIdx++] & 0x0F);
+                    for (short j = 0; j < mapEntries; j++) {
+                        if ((bufferMem[readIdx] & 0x60) != 0x60) {
+                            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                        }
+                        short keyLength = (short) (bufferMem[readIdx++] & 0x0F);
+                        if (keyLength != CannedCBOR.HMAC_SECRET_EXTENSION_ID.length || Util.arrayCompare(bufferMem, readIdx,
+                                CannedCBOR.HMAC_SECRET_EXTENSION_ID, (short) 0, (short) CannedCBOR.HMAC_SECRET_EXTENSION_ID.length) != 0) {
+                            // Extension that is NOT hmac-secret: ignore it
+                            readIdx = consumeAnyEntity(apdu, (short) (readIdx + keyLength), lc);
+                            continue;
+                        }
+
+                        readIdx += keyLength;
+
+                        // We've got a case of hmac-secret extension params!
+                        // store the index and revisit it later, when we've handled the PIN protocol
+                        hmacSecretReadIdx = readIdx;
+                        readIdx = consumeAnyEntity(apdu, readIdx, lc);
                     }
 
-                    readIdx += keyLength;
-
-                    // We've got a case of hmac-secret extension params!
-                    // store the index and revisit it later, when we've decoded the keys
-                    hmacSecretDataIdx = readIdx;
+                    continue;
+                } else if (mapKey == 0x05) { // options
+                    readIdx = processOptionsMap(apdu, readIdx, lc);
+                    continue;
+                } else if (mapKey == 0x06) { // pinAuth
+                    pinAuthIdx = readIdx;
+                    // Read past this and come back later, when pinProtocol is set correctly
                     readIdx = consumeAnyEntity(apdu, readIdx, lc);
+                    continue;
+                } else if (mapKey == 0x07) { // pinProtocol
+                    scratch[pinInfoIdx] = bufferMem[readIdx++];
+                    checkPinProtocolSupported(apdu, scratch[pinInfoIdx]);
+                    continue;
                 }
 
-                continue;
-            } else if (mapKey == 0x05) { // options
-                readIdx = processOptionsMap(apdu, readIdx, lc);
-                continue;
-            } else if (mapKey == 0x06) { // pinAuth
-                pinAuthIdx = readIdx;
-                // Read past this and come back later, when pinProtocol is set correctly
                 readIdx = consumeAnyEntity(apdu, readIdx, lc);
-                continue;
-            } else if (mapKey == 0x07) { // pinProtocol
-                pinProtocol = bufferMem[readIdx++];
-                checkPinProtocolSupported(apdu, pinProtocol);
-                continue;
             }
 
-            readIdx = consumeAnyEntity(apdu, readIdx, lc);
-        }
+            if (pinAuthIdx != -1) {
+                verifyPinAuth(apdu, pinAuthIdx, scratch, clientDataHashIdx, scratch[pinInfoIdx]);
 
-        if (pinAuthIdx != -1) {
-            verifyPinAuth(apdu, pinAuthIdx, clientDataHashIdx, pinProtocol);
+                if ((transientStorage.getPinPermissions() & FIDOConstants.PERM_GET_ASSERTION) == 0) {
+                    // PIN token doesn't have permission for the GA operation
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+                }
 
-            if ((transientStorage.getPinPermissions() & FIDOConstants.PERM_GET_ASSERTION) == 0) {
-                // PIN token doesn't have permission for the GA operation
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+                scratch[(short)(pinInfoIdx + 1)] = 1;
             }
 
-            pinAuthSuccess = true;
-        }
-
-        if (pinSet && pinAuthSuccess && transientStorage.hasUVOption()) {
-            // When a PIN is set and provided, the "uv" input option MUST NOT be set.
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_OPTION);
-        }
-
-        // Report PIN-validation failures before we report lack of matching creds
-        if (pinSet) {
-            if (transientStorage.getPinProtocolInUse() == 0 || !pinAuthSuccess) {
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
+            if (pinSet && scratch[(short)(pinInfoIdx + 1)] == 1 && transientStorage.hasUVOption()) {
+                // When a PIN is set and provided, the "uv" input option MUST NOT be set.
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_OPTION);
             }
-            if (transientStorage.getPinProtocolInUse() != pinProtocol) {
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
-            }
-        }
 
-        if (pinAuthSuccess) {
-            if (permissionsRpId[0] == 0x00) {
-                // getting an assertion with a PIN token created with default perms binds it to this RP ID
-                permissionsRpId[0] = 0x01;
-                Util.arrayCopyNonAtomic(scratch, scratchRPIDHashIdx,
-                        permissionsRpId, (short) 1, RP_HASH_LEN);
-            } else {
-                // Permissions RP ID is set - check it
-                if (Util.arrayCompare(scratch, scratchRPIDHashIdx,
-                        permissionsRpId, (short) 1, RP_HASH_LEN) != 0) {
+            // Report PIN-validation failures before we report lack of matching creds
+            if (pinSet) {
+                if (transientStorage.getPinProtocolInUse() == 0 || scratch[(short)(pinInfoIdx + 1)] != 1) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
+                }
+                if (transientStorage.getPinProtocolInUse() != scratch[pinInfoIdx]) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
                 }
             }
-        }
 
-        loadWrappingKeyIfNoPIN();
-
-        byte numMatchesThisRP = 0;
-        short potentialAssertionIterationPointer = 0;
-
-        if (allowListIdx != -1) {
-            short blockReadIdx = allowListIdx;
-            if (((byte)(bufferMem[blockReadIdx] & 0xF0)) != (byte)0x80) {
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+            if (scratch[(short)(pinInfoIdx + 1)] == 1) {
+                if (permissionsRpId[0] == 0x00) {
+                    // getting an assertion with a PIN token created with default perms binds it to this RP ID
+                    permissionsRpId[0] = 0x01;
+                    Util.arrayCopyNonAtomic(scratch, scratchRPIDHashIdx,
+                            permissionsRpId, (short) 1, RP_HASH_LEN);
+                } else {
+                    // Permissions RP ID is set - check it
+                    if (Util.arrayCompare(scratch, scratchRPIDHashIdx,
+                            permissionsRpId, (short) 1, RP_HASH_LEN) != 0) {
+                        sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+                    }
+                }
             }
-            allowListLength = (short) (bufferMem[blockReadIdx++] & 0x0F);
-            if (blockReadIdx >= lc) {
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
-            }
 
-            for (short i = 0; i < allowListLength; i++) {
-                short beforeReadIdx = blockReadIdx;
-                blockReadIdx = consumeMapAndGetID(apdu, blockReadIdx, lc, true, true);
-                short pubKeyIdx = transientStorage.getStoredIdx();
-                short pubKeyLen = transientStorage.getStoredLen();
-                if (pubKeyLen == -1) {
-                    // Invalid allow list entry - ignore
-                    continue;
+            loadWrappingKeyIfNoPIN();
+
+            if (allowListIdx != -1) {
+                short blockReadIdx = allowListIdx;
+                if (((byte) (bufferMem[blockReadIdx] & 0xF0)) != (byte) 0x80) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                }
+                allowListLength = (short) (bufferMem[blockReadIdx++] & 0x0F);
+                if (blockReadIdx >= lc) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
                 }
 
-                if (i < firstCredIdx) {
-                    // Don't check credentials that are before our iteration point, just skip them
-                    continue;
-                }
+                for (short i = 0; i < allowListLength; i++) {
+                    short beforeReadIdx = blockReadIdx;
+                    blockReadIdx = consumeMapAndGetID(apdu, blockReadIdx, lc, true, true);
+                    short pubKeyIdx = transientStorage.getStoredIdx();
+                    short pubKeyLen = transientStorage.getStoredLen();
+                    if (pubKeyLen == -1) {
+                        // Invalid allow list entry - ignore
+                        continue;
+                    }
 
-                if (CTAP_2_1_GETASSERTION_WITH_ALLOW_LIST && startOfMatchingPubKeyCredData != -1) {
-                    // In CTAP2.1, we are done, as we're supposed to treat the match we already made as the only match
-                    // we're just continuing iteration to throw exceptions when we encounter invalid allowList entries
-                    // AFTER the valid one
-                    continue;
-                }
+                    if (i < firstCredIdx) {
+                        // Don't check credentials that are before our iteration point, just skip them
+                        continue;
+                    }
 
-                if (startOfMatchingPubKeyCredData == (short) -1 || firstCredIdx == 0) {
-                    // We need to check all the creds in the list if we're starting iteration...
-                    // ... in order to count the number of matches (for CTAP2.0 only!)
+                    if (startOfMatchingPubKeyCredData != -1) {
+                        // In CTAP2.1, we are done, as we're supposed to treat the match we already made as the only match
+                        // we're just continuing iteration to throw exceptions when we encounter invalid allowList entries
+                        // AFTER the valid one
+                        continue;
+                    }
+
+                    // We need to check all the creds in the list since we're starting iteration
                     boolean matches = checkCredential(bufferMem, pubKeyIdx, pubKeyLen, scratch, scratchRPIDHashIdx,
                             privateScratch, (short) 0);
                     if (matches) {
                         numMatchesThisRP++;
-                        if (startOfMatchingPubKeyCredData == (short) -1) {
-                            potentialAssertionIterationPointer = (short)(i + 1);
-                            startOfMatchingPubKeyCredData = beforeReadIdx;
-                            matchingPubKeyCredDataLen = (short) (blockReadIdx - startOfMatchingPubKeyCredData);
-                            loadPrivateScratchIntoAttester();
-                        }
+                        startOfMatchingPubKeyCredData = beforeReadIdx;
+                        matchingPubKeyCredDataLen = (short) (blockReadIdx - startOfMatchingPubKeyCredData);
+                        loadPrivateScratchIntoAttester();
                     }
                 }
             }
+
+            if (hmacSecretReadIdx != -1) {
+                // Come back and load HMAC salts into scratch space
+                byte saltLen = extractHMACSalt(apdu, hmacSecretReadIdx, lc,
+                        scratch, (short)(hmacSaltIdx + 1), scratch[pinInfoIdx]);
+                scratch[hmacSaltIdx] = saltLen;
+            }
         }
+
+        short potentialAssertionIterationPointer = 0;
 
         if (allowListLength == 0) {
             // Scan resident keys for match
@@ -1680,20 +1672,15 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         // HMAC will clobber privateScratch, so it needs to be below the private key setup above
         short hmacScratchOffset = scratchAlloc((short) 64);
-        if (hmacSecretDataIdx > -1) {
-            hmacSecretBytes = computeHMACSecret(apdu, ecPrivateKey, hmacSecretDataIdx, lc, scratch, hmacScratchOffset,
-                    pinProtocol);
+        if (scratch[hmacSaltIdx] != 0) {
+            hmacSecretBytes = computeHMACSecret(apdu, ecPrivateKey,
+                    scratch, (short)(hmacSaltIdx + 1), scratch[hmacSaltIdx],
+                    scratch, hmacScratchOffset,
+                    scratch[pinInfoIdx]);
         }
 
         // RESPONSE BELOW HERE
-        // Note: because we might have to iterate again with getNextAssertion,
-        // and we need considerable state from the input request (at very least we need the clientDataHashIdx,
-        // which is not re-sent with getNextAssertion), we're going to encode the (first part of the)
-        // response directly into the APDU buffer and leave bufferMem set to contain the previous getAssertion request
-        // ... so we can re-use it.
-
-        apdu.setOutgoing();
-        byte[] outBuf = apdu.getBuffer();
+        byte[] outBuf = bufferMem;
         short outputIdx = (short) 0;
 
         outBuf[outputIdx++] = FIDOConstants.CTAP2_OK;
@@ -1723,7 +1710,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         outBuf[outputIdx++] = 0x02; // map key: authData
 
         byte flags = transientStorage.hasUPOption() ? (byte) 0x01 : 0x00;
-        if (pinAuthSuccess) {
+        if (scratch[(short)(pinInfoIdx + 1)] == 1) {
             flags = (byte)(flags | 0x04);
         }
 
@@ -1759,52 +1746,27 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             throwException(ISO7816.SW_UNKNOWN);
         }
 
-        // When we get here, we should be under 256 bytes - the APDU buffer limit.
-        short maxAPDUBufferSize = 256;
-        short scratchRemainingDataOffset = scratchAlloc((short) 110);
-
-        // Pack contiguous buffer for signing
-        short remainingTempIdx = Util.arrayCopyNonAtomic(outBuf, startOfAD,
-                scratch, scratchRemainingDataOffset, (short) (adLen + extensionDataLen));
-        Util.arrayCopyNonAtomic(bufferMem, clientDataHashIdx,
-                scratch, remainingTempIdx, clientDataHashLen);
+        // TODO: pack this for a contiguous signing call?
+        attester.update(outBuf, startOfAD, (short)(adLen + extensionDataLen));
 
         // signature
         outBuf[outputIdx++] = 0x03; // map key: signature
         outBuf[outputIdx++] = 0x58; // one-byte length
-        short sigLength = attester.sign(scratch, scratchRemainingDataOffset, (short)(adLen + extensionDataLen + clientDataHashLen),
-                scratch, scratchRemainingDataOffset);
+        short sigLength = attester.sign(scratch, clientDataHashIdx, (short) 32,
+                outBuf, (short)(outputIdx + 1));
+        // After the signature, we are done with the credential private key we loaded.
+        // It might be stored in flash, so let's clear that out.
+        ecPrivateKey.clearKey();
         if (sigLength > 255 || sigLength < 24) { // would not require exactly one byte to encode the length...
             throwException(ISO7816.SW_UNKNOWN);
         }
         outBuf[outputIdx++] = (byte) sigLength;
-        // After the signature, we are done with the credential private key we loaded.
-        // It might be stored in flash, so let's clear that out.
-        ecPrivateKey.clearKey();
-
-        boolean overLength = false;
-
-        short remainingAPDUSpace = (short)(maxAPDUBufferSize - outputIdx);
-        if (sigLength > remainingAPDUSpace) {
-            // With the signature, we aren't going to fit into the APDU buffer directly.
-            overLength = true;
-            Util.arrayCopyNonAtomic(scratch, scratchRemainingDataOffset,
-                    outBuf, outputIdx, remainingAPDUSpace
-            );
-            // Slide data down to start of scratch alloc
-            Util.arrayCopyNonAtomic(scratch, (short)(scratchRemainingDataOffset + remainingAPDUSpace),
-                    scratch, scratchRemainingDataOffset, (short)(sigLength - remainingAPDUSpace));
-            outputIdx = (short)(scratchRemainingDataOffset + sigLength - remainingAPDUSpace);
-            outBuf = scratch;
-        } else {
-            outputIdx = Util.arrayCopyNonAtomic(scratch, scratchRemainingDataOffset,
-                    outBuf, outputIdx, sigLength);
-        }
+        outputIdx += sigLength;
 
         short rkUIDOffset = scratchAlloc((short)(MAX_USER_ID_LENGTH + 1));
 
         if (rkMatch > -1) {
-            // Pack the user ID from the resident key into a buffer, after decrypting it
+            // Pack the user ID from the resident key into the buffer, after decrypting it
             symmetricUnwrapper.doFinal(residentKeyUserIds, (short) (rkMatch * MAX_USER_ID_LENGTH), MAX_USER_ID_LENGTH,
                     scratch, rkUIDOffset);
             short uidLen = ub(residentKeyUserIdLengths[rkMatch]);
@@ -1823,18 +1785,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         transientStorage.setAssertIterationPointer(potentialAssertionIterationPointer);
-        if (overLength) {
-            // We filled the APDU buffer to max capacity, and left the rest in scratch space
-            transientStorage.setResponseFromScratch();
-            apdu.setOutgoingLength(maxAPDUBufferSize);
-            apdu.sendBytes((short) 0, maxAPDUBufferSize);
-            setupChainedResponse(scratchRemainingDataOffset, (short)(outputIdx - scratchRemainingDataOffset));
-        } else {
-            // we wrote directly into the APDU buffer, and we fit - send it.
-            scratchRelease();
-            apdu.setOutgoingLength(outputIdx);
-            apdu.sendBytes((short) 0, outputIdx);
-        }
+        doSendResponse(apdu, outputIdx);
     }
 
     /**
@@ -1884,9 +1835,12 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     private short encodeIntLenTo(byte[] outBuf, short writeIdx, short v, boolean byteString) {
         if (v < 24) {
             outBuf[writeIdx++] = (byte)((byteString ? 0x40 : 0x60) + v); // string with inline length
-        } else {
+        } else if (v < 256) {
             outBuf[writeIdx++] = (byte)(byteString ? 0x58 : 0x78); // string: one byte length
             outBuf[writeIdx++] = (byte) v;
+        } else {
+            outBuf[writeIdx++] = (byte)(byteString ? 0x59 : 0x79); // string: two-byte length
+            writeIdx = Util.setShort(outBuf, writeIdx, v);
         }
         return writeIdx;
     }
@@ -2043,25 +1997,19 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     }
 
     /**
-     * Does the math for the FIDO2 hmac-secret extension. After call, the output
-     * buffer contains a blob appropriate to send back to the platform as the value
-     * produced by the hmac-secret extension.
-     *
-     * Note that this function overwrites privateScratch!
+     * Pulls decrypted HMAC secret salts out of input CBOR message and places them in an output buffer
      *
      * @param apdu Request/response object
-     * @param privateKey Private key from which to get HMAC secret material
-     * @param readIdx Index into bufferMem pointing to the start of the hmac-secret extension input CBOR
-     *                map. Must contain the platform key agreement key...
+     * @param readIdx Read index into bufferMem
      * @param lc Length of incoming request, as sent by the platform
-     * @param outBuffer Buffer into which to pack the HMAC secret result
-     * @param outOffset Write index into output buffer
-     * @param pinProtocol Integer PIN protocol version in use
+     * @param outBuffer Output buffer into which to pack salt - needs at least 64 bytes of space
+     * @param outOffset Offset into output buffer for writing salt
+     * @param pinProtocol Integer PIN protocol in use
      *
-     * @return Length of HMAC secret data in output buffer
+     * @return Length of decrypted salt written to output buffer (32 or 64 bytes)
      */
-    private short computeHMACSecret(APDU apdu, ECPrivateKey privateKey, short readIdx, short lc,
-                                    byte[] outBuffer, short outOffset, byte pinProtocol) {
+    private byte extractHMACSalt(APDU apdu, short readIdx, short lc,
+                                 byte[] outBuffer, short outOffset, byte pinProtocol) {
         short mapType = bufferMem[readIdx++];
         if (mapType != (byte) 0xA3 && mapType != (byte) 0xA4) { // map, three or four entries
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
@@ -2083,8 +2031,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
         }
 
-        short saltLenWithIV = ub(bufferMem[readIdx++]);
-        short saltLen = saltLenWithIV;
+        byte saltLenWithIV = bufferMem[readIdx++];
+        byte saltLen = saltLenWithIV;
         short expectedBaseLen = 32;
         if (pinProtocol == 2) {
             expectedBaseLen += 16; // 16-byte IV for decryption
@@ -2101,13 +2049,10 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             saltLen -= 16; // "real" salt length shouldn't include the IV
         }
 
-        short scratchAllocAmt = 80;
-        short scratchFOff = scratchAlloc((short) 32);
-        short scratchSOff = scratchAlloc((short) 32);
-        short scratchTOff = scratchAlloc((short) 16);
-        readIdx = sharedSecretDecrypt(apdu, bufferMem, readIdx, lc, (byte) saltLen,
-                scratch, scratchFOff, pinProtocol, false);
-        // NB: we either just wrote into scratchFOff, or both scratchFOff and scratchSOff, depending on saltLen
+        final short scratchAmt = 32;
+        short scratchOff = scratchAlloc(scratchAmt);
+        readIdx = sharedSecretDecrypt(apdu, bufferMem, readIdx, lc, saltLen,
+                outBuffer, outOffset, pinProtocol, false);
 
         if (bufferMem[readIdx++] != 0x03) { // map key: saltAuth
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
@@ -2132,21 +2077,46 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         hmacSha256(apdu, sharedSecretVerifyKey, (short) 0,
                 bufferMem, saltIdx, saltLenWithIV,
-                scratch, scratchTOff, false
+                scratch, scratchOff, true
         );
 
-        if (Util.arrayCompare(scratch, scratchTOff,
+        if (Util.arrayCompare(scratch, scratchOff,
                 bufferMem, readIdx, expectedSaltAuthLen
         ) != 0) {
             // We must have gotten the crypto wrong somehow... (or the platform sent incorrect vals)
             // our computed HMAC didn't match the input
             sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
         }
+
+        scratchRelease(scratchAmt);
+
         readIdx += expectedSaltAuthLen;
 
-        // If we're here, we've correctly validated that we have the right sharedSecret
-        // (and the right salt index and length...)
-        // It's time to do some hashing!
+        return saltLen;
+    }
+
+    /**
+     * Does the math for the FIDO2 hmac-secret extension. After call, the output
+     * buffer contains a blob appropriate to send back to the platform as the value
+     * produced by the hmac-secret extension.
+     *
+     * Note that this function overwrites privateScratch!
+     *
+     * @param apdu Request/response object
+     * @param privateKey Private key from which to get HMAC secret material
+     * @param saltBuf Buffer containing HMAC secret salt(s)
+     * @param saltOff Offset in salt buffer for start of salt(s)
+     * @param saltLen Length of salt(s)
+     * @param outBuffer Buffer into which to pack the HMAC secret result
+     * @param outOffset Write index into output buffer
+     * @param pinProtocol Integer PIN protocol version in use
+     *
+     * @return Length of HMAC secret data in output buffer
+     */
+    private short computeHMACSecret(APDU apdu, ECPrivateKey privateKey, byte[] saltBuf, short saltOff, short saltLen,
+                                    byte[] outBuffer, short outOffset, byte pinProtocol) {
+        short scratchAmt = (short) 64;
+        short scratchOff = scratchAlloc(scratchAmt);
 
         // We will derive the HMAC secret key from the credential private key and an on-device key
         // ... by doing an HMAC-SHA256 of the credential private key using the HMAC-specific on-device key
@@ -2158,20 +2128,20 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         // HMAC the first salt
         hmacSha256(apdu, privateScratch, (short) 0,
-                scratch, scratchFOff, (short) 32,
-                scratch, scratchFOff, false);
+                saltBuf, saltOff, (short) 32,
+                scratch, scratchOff, true);
         if (saltLen == 64) {
             // if there's a second salt, HMAC that too
             hmacSha256(apdu, privateScratch, (short) 0,
-                    scratch, scratchSOff, (short) 32,
-                    scratch, scratchSOff, false);
+                    saltBuf, (short)(saltOff + 32), (short) 32,
+                    scratch, (short)(scratchOff + 32), true);
         }
 
         // encrypt the salted hashes using the shared secret, and that's our result
-        short newOutOffset = sharedSecretEncrypt(scratch, scratchFOff, saltLen, outBuffer, outOffset, pinProtocol,
-                false);
+        short newOutOffset = sharedSecretEncrypt(scratch, scratchOff, saltLen,
+                outBuffer, outOffset, pinProtocol, false);
 
-        scratchRelease(scratchAllocAmt);
+        scratchRelease(scratchAmt);
 
         return (short)(newOutOffset - outOffset);
     }
@@ -2191,7 +2161,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                                                 byte[] output, short outputOffset) {
         hmacSha256(apdu, hmacWrapperBytes, (short) 0,
                 privKeyForDerivation, privKeyOffset, (short) 32,
-                output, outputOffset, false);
+                output, outputOffset, true);
     }
 
     /**
@@ -2599,15 +2569,13 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 throwException(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
             }
 
-            byte[] sourceBuffer = transientStorage.isResponseFromScratch() ? scratch : bufferMem;
-
             short outgoingOffset = transientStorage.getOutgoingContinuationOffset();
             short outgoingRemaining = transientStorage.getOutgoingContinuationRemaining();
 
             short writeSize = 256 <= outgoingRemaining ? 256 : outgoingRemaining;
             apdu.setOutgoing();
             apdu.setOutgoingLength(writeSize);
-            Util.arrayCopyNonAtomic(sourceBuffer, outgoingOffset,
+            Util.arrayCopyNonAtomic(bufferMem, outgoingOffset,
                     apdu.getBuffer(), (short) 0, writeSize);
             apdu.sendBytes((short) 0, writeSize);
             outgoingOffset += writeSize;
@@ -2622,7 +2590,6 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             return;
         } else {
             transientStorage.clearOutgoingContinuation();
-            transientStorage.clearResponseFromScratch();
         }
 
         if (apdu.isCommandChainingCLA()) {
@@ -3518,6 +3485,14 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     private void throwException(short swCode) {
         throwException(swCode, true);
     }
+
+    /**
+     * As throwException, but optionally preserves iteration state
+     *
+     * @param swCode Two-byte status code - possibly SW_NO_ERROR
+     * @param clearIteration If true, clears iteration state variables as per an exception. If false, leaves them,
+     *                       allowing iteration calls like enumerateNextRP despite the "exception"
+     */
     private void throwException(short swCode, boolean clearIteration) {
         if (clearIteration) {
             transientStorage.clearIterationPointers();

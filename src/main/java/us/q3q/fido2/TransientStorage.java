@@ -87,21 +87,17 @@ public class TransientStorage {
      */
     private static final byte BOOL_IDX_OPTION_RK = 4;
     /**
-     * set if chaining responses should come from the getNextAssertion buffer
-     */
-    private static final byte BOOL_IDX_RESPONSE_FROM_SCRATCH = 5;
-    /**
      * For reset "protection" feature, checks if a reset request has been received since the last authenticator powerup
      */
-    private static final byte BOOL_IDX_RESET_RECEIVED_SINCE_POWERON = 6;
+    private static final byte BOOL_IDX_RESET_RECEIVED_SINCE_POWERON = 5;
     /**
      * Set to true when the authenticator app is fully disabled until next reselect
      */
-    private static final byte BOOL_IDX_AUTHENTICATOR_DISABLED = 7;
+    private static final byte BOOL_IDX_AUTHENTICATOR_DISABLED = 6;
     /**
      * number of booleans total in array
      */
-    private static final byte NUM_RESET_BOOLS = 8;
+    private static final byte NUM_RESET_BOOLS = 7;
 
     /**
      * Pin-retries-since-reset counter, which must be cleared on RESET, not on deselect
@@ -262,18 +258,6 @@ public class TransientStorage {
 
     public void setAssertIterationPointer(short val) {
         tempShorts[IDX_ASSERT_ITERATION_POINTER] = val;
-    }
-
-    public void setResponseFromScratch() {
-        tempBools[BOOL_IDX_RESPONSE_FROM_SCRATCH] = true;
-    }
-
-    public boolean isResponseFromScratch() {
-        return tempBools[BOOL_IDX_RESPONSE_FROM_SCRATCH];
-    }
-
-    public void clearResponseFromScratch() {
-        tempBools[BOOL_IDX_RESPONSE_FROM_SCRATCH] = false;
     }
 
     public void setOutgoingContinuation(short offset, short remaining) {

@@ -76,9 +76,8 @@ credentials from the allowlist. CTAP2.1 says the authenticator should pick one
 matching credential, return an assertion generated with it, and ignore any
 other matches. 
 
-This implementation allows toggling either behavior by flipping a boolean in the
-code, but because one or the other must be chosen, it can't be both fully CTAP2.0
-compatible and CTAP2.1 compatible at the same time.
+This implementation uses the CTAP2.1 behavior. Because one or the other must be
+chosen, it can't be both fully CTAP2.0 compatible and CTAP2.1 compatible at the same time.
 
 Another more minor difference is that CTAP2.0 allows PINs of 64  bytes or longer.
 This authenticator and CTAP2.1 cap PINs at 63 bytes long.
