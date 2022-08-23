@@ -571,6 +571,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
                 numExcludeListEntries = (short)(excludeListTypeVal - 0x80);
                 excludeListStartIdx = (short)(readIdx + 2);
+                readIdx++;
             } else if (bufferMem[readIdx] == 0x06) { // extensions
                 if ((bufferMem[++readIdx] & 0xA0) != 0xA0) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
@@ -694,7 +695,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                     continue;
                 }
 
-                if (checkCredential(bufferMem, credIdIdx, credIdLen,
+                if (checkCredential(bufferMem, credIdIdx, CREDENTIAL_ID_LEN,
                         scratch, scratchRPIDHashOffset,
                         scratch, excludeListCredSpace)) {
                     // This cred decodes valid and is for the given RPID - fail early.
@@ -1620,6 +1621,13 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                     continue;
                 }
 
+                if (CTAP_2_1_GETASSERTION_WITH_ALLOW_LIST && startOfMatchingPubKeyCredData != -1) {
+                    // In CTAP2.1, we are done, as we're supposed to treat the match we already made as the only match
+                    // we're just continuing iteration to throw exceptions when we encounter invalid allowList entries
+                    // AFTER the valid one
+                    continue;
+                }
+
                 if (startOfMatchingPubKeyCredData == (short) -1 || firstCredIdx == 0) {
                     // We need to check all the creds in the list if we're starting iteration...
                     // ... in order to count the number of matches (for CTAP2.0 only!)
@@ -1632,11 +1640,6 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                             startOfMatchingPubKeyCredData = beforeReadIdx;
                             matchingPubKeyCredDataLen = (short) (blockReadIdx - startOfMatchingPubKeyCredData);
                             loadPrivateScratchIntoAttester();
-
-                            if (CTAP_2_1_GETASSERTION_WITH_ALLOW_LIST) {
-                                // In CTAP2.1, we are done, as we're supposed to treat this match as the only match
-                                break;
-                            }
                         }
                     }
                 }
@@ -2265,10 +2268,10 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         transientStorage.setOutgoingContinuation(offset, remaining);
         if (remaining >= 256) {
             // at least ANOTHER full chunk remains
-            throwException(ISO7816.SW_BYTES_REMAINING_00);
+            throwException(ISO7816.SW_BYTES_REMAINING_00, false);
         } else {
             // exactly one more chunk remains
-            throwException((short) (ISO7816.SW_BYTES_REMAINING_00 + remaining));
+            throwException((short) (ISO7816.SW_BYTES_REMAINING_00 + remaining), false);
         }
     }
 
@@ -2417,14 +2420,14 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         boolean foundType = false;
         boolean correctType = false;
         transientStorage.readyStoredVars();
-        short mapDef = bufferMem[readIdx++];
+        short mapDef = ub(bufferMem[readIdx++]);
         if (readIdx >= lc) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
         }
         short mapEntryCount = 0;
         if ((mapDef & 0xF0) == 0xA0) {
             mapEntryCount = (short) (mapDef & 0x0F);
-        } else if ((mapDef & 0xF0) == 0xB0) {
+        } else if ((mapDef & 0xF0) == 0xB0 && mapDef < ub((byte) 0xB8)) {
             mapEntryCount = (short) ((mapDef & 0x0F) + 16);
         } else if (mapDef == (byte) 0xB8) {
             mapEntryCount = ub(bufferMem[readIdx++]);
@@ -2436,7 +2439,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         for (short i = 0; i < mapEntryCount; i++) {
-            short keyDef = bufferMem[readIdx++];
+            short keyDef = ub(bufferMem[readIdx++]);
             short keyLen = 0;
             if (readIdx >= lc) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
@@ -2447,7 +2450,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 if (readIdx >= lc) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
                 }
-            } else if (keyDef >= 0x61 && keyDef < 0x78) {
+            } else if (keyDef >= 0x60 && keyDef < 0x78) {
                 keyLen = (short)(keyDef - 0x60);
             } else {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
@@ -2484,7 +2487,9 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 }
                 if (isType && valDef == 0x58) {
                     // heh, literally "unexpected type" here
-                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                    // don't throw an exception, since the spec allows all sorts of "types", we just ignore them
+                    foundType = true;
+                    correctType = false;
                 }
                 valLen = ub(bufferMem[readIdx++]);
                 if (isId) {
@@ -2493,14 +2498,19 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 if (readIdx >= lc) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
                 }
-            } else if (valDef >= 0x61 && valDef < 0x78) {
+            } else if (valDef >= 0x60 && valDef < 0x78) {
                 if (isId && byteString) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                 }
                 valLen = (short) (valDef - 0x60);
-            } else if (valDef >= 0x41 && valDef < 0x58) {
-                if ((isId && !byteString) || isType) {
+            } else if (valDef >= 0x40 && valDef < 0x58) {
+                if (isId && !byteString) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                }
+                if (isType) {
+                    // byte strings aren't valid for public-key types...
+                    foundType = true;
+                    correctType = false;
                 }
                 valLen = (short) (valDef - 0x40);
             } else {
@@ -2512,11 +2522,11 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 transientStorage.setStoredVars(idPos, valLen);
             }
 
-            if (isType && checkTypePublicKey) {
+            if (!foundType && isType && checkTypePublicKey) {
                 foundType = true;
                 correctType = valLen == (short) CannedCBOR.PUBLIC_KEY_TYPE.length
-                  || Util.arrayCompare(bufferMem, readIdx,
-                        CannedCBOR.PUBLIC_KEY_TYPE, (short) 0, (short) CannedCBOR.PUBLIC_KEY_TYPE.length) == 0;
+                  && Util.arrayCompare(bufferMem, readIdx,
+                        CannedCBOR.PUBLIC_KEY_TYPE, (short) 0, valLen) == 0;
             }
 
             readIdx += valLen;
@@ -2529,15 +2539,18 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
         }
 
-        if (checkTypePublicKey && !foundType) {
-            // entirely missing "type" field
-            sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
+        if (checkTypePublicKey) {
+            if (!foundType) {
+                // entirely missing "type" field
+                sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
+            }
+
+            if (!correctType) {
+                // We found an ID entry, but it's not of type "public-key" - treat it as if we found nothing
+                transientStorage.readyStoredVars();
+            }
         }
 
-        if (checkTypePublicKey && foundType && !correctType) {
-            // We found an ID entry, but it's not of type "public-key" - treat it as if we found nothing
-            transientStorage.readyStoredVars();
-        }
 
         return readIdx;
     }
@@ -3007,7 +3020,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                             // we want ANOTHER RK, not this one...
                             continue;
                         }
-                        if (!residentKeyValidity[i]) {
+                        if (!residentKeyValidity[otherRKIdx]) {
                             // deleted keys need not apply
                             continue;
                         }
@@ -3503,7 +3516,12 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param swCode Two-byte status code - may be SW_NO_ERROR if desired
      */
     private void throwException(short swCode) {
-        transientStorage.clearIterationPointers();
+        throwException(swCode, true);
+    }
+    private void throwException(short swCode, boolean clearIteration) {
+        if (clearIteration) {
+            transientStorage.clearIterationPointers();
+        }
         scratchRelease();
         ecPrivateKey.clearKey();
         ecKeyPair.getPrivate().clearKey();
@@ -3586,12 +3604,16 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_NOT_SET);
         }
 
-        short scratchOff = scratchAlloc((short) (PIN_PAD_LENGTH + 16)); // 16 bytes for PIN partial hash
+        // 32 bytes for PIN hash (for PIN protocol 2) and 16 for IV on padded PIN
+        short scratchOff = scratchAlloc((short) (PIN_PAD_LENGTH + 48));
 
         readIdx = handlePinSetPreamble(apdu, readIdx, lc, scratch, scratchOff, true, pinProtocol);
 
         short wrappedPinLocation = readIdx;
         readIdx += PIN_PAD_LENGTH;
+        if (pinProtocol == 2) {
+            readIdx += 16; // IV for PIN pad
+        }
 
         if (bufferMem[readIdx++] != 0x06) { // pinHashEnc
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
@@ -3639,6 +3661,12 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         if (!pinSet) {
             // duh
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_NOT_SET);
+        }
+
+        if (transientStorage.getPinTriesSinceReset() == PIN_TRIES_PER_RESET) {
+            // Proceed no further: PIN is blocked until authenticator is powered off and on again
+            // NO TOKEN FOR YOU. NEXT!
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_BLOCKED);
         }
 
         if (bufferMem[readIdx++] != 0x03) { // map key: keyAgreement
@@ -3897,6 +3925,10 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
 
         // BAD PIN
         forceInitKeyAgreementKey();
+        if (transientStorage.getPinTriesSinceReset() == PIN_TRIES_PER_RESET) {
+            // You've gone and done it now. Need to power the authenticator off and on again to try again.
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_BLOCKED);
+        }
         sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_INVALID);
     }
 
@@ -3980,15 +4012,30 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             if (bufferMem[readAheadIdx++] != 0x06) { // pinHashEnc
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
             }
-            if (bufferMem[readAheadIdx++] != 0x50) { // byte array, 16 bytes long
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
-            }
-            Util.arrayCopyNonAtomic(bufferMem, readAheadIdx,
-                    outBuf, (short)(outOffset + bLen), (short) 16);
+            if (pinProtocol == 1) {
+                if (bufferMem[readAheadIdx++] != 0x50) { // byte array, 16 bytes long
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                }
+                Util.arrayCopyNonAtomic(bufferMem, readAheadIdx,
+                        outBuf, (short)(outOffset + bLen), (short) 16);
 
-            hmacSha256(apdu, sharedSecretVerifyKey, (short) 0,
-                    outBuf, outOffset, (short)(bLen + 16),
-                    outBuf, outOffset, false);
+                hmacSha256(apdu, sharedSecretVerifyKey, (short) 0,
+                        outBuf, outOffset, (short)(bLen + 16),
+                        outBuf, outOffset, false);
+            } else {
+                if (bufferMem[readAheadIdx++] != 0x58) { // byte string, one-byte length
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                }
+                if (bufferMem[readAheadIdx++] != 0x20) { // 32: sixteen bytes of IV and 16 bytes of hash
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                }
+                Util.arrayCopyNonAtomic(bufferMem, readAheadIdx,
+                        outBuf, (short)(outOffset + bLen), (short) 32);
+
+                hmacSha256(apdu, sharedSecretVerifyKey, (short) 0,
+                        outBuf, outOffset, (short)(bLen + 32),
+                        outBuf, outOffset, false);
+            }
         } else {
             hmacSha256(apdu, sharedSecretVerifyKey, (short) 0,
                     bufferMem, readIdx, bLen,
@@ -4032,7 +4079,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 break;
             }
         }
-        if (realPinLength < 4) {
+        if (realPinLength < 4 || realPinLength > 63) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_POLICY_VIOLATION);
         }
 

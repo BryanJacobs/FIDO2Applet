@@ -38,9 +38,12 @@ public abstract class CannedCBOR {
                         0x50, // byte string, 16 bytes long
                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // aaguid
                 0x04, // map key: options
-                    (byte) 0xA6, // map: six entries
+                    (byte) 0xA7, // map: seven entries
                         0x62, // string: two bytes long
                             0x72, 0x6B, // rk
+                            (byte) 0xF5, // true
+                        0x62, // string: two bytes long
+                            0x75, 0x70, // up
                             (byte) 0xF5, // true
                         0x68, // string - eight bytes long
                             0x61, 0x6c, 0x77, 0x61, 0x79, 0x73, 0x55, 0x76, // alwaysUv
