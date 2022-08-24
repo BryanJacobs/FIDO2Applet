@@ -191,6 +191,9 @@ Overall, this applet is pretty great at keeping everything in RAM, and you're mu
 to be given trouble by software bugs than by your flash write endurance. Flash is never used as
 writable buffer space.
 
+There is an optional boolean in the code which throws this all out the window, and instead minimizes
+memory usage - cutting it from around 2k to around 128 bytes by using flash for everything.
+
 ## Can I update the app and maintain the validity of my previously-issued credentials?
 
 No. Once you start using a certain version of the applet, you're stuck on that version if you

@@ -34,6 +34,11 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private static final boolean PROTECT_AGAINST_MALICIOUS_RESETS = false;
     /**
+     * If true, *really* minimize RAM usage. This will lead to extensive flash wear compared to the default...
+     * all objects and buffers that can be put in flash, ARE put in flash.
+     */
+    private static final boolean MINIMIZE_RAM_USE = false;
+    /**
      * Size of buffer used for receiving incoming data and sending responses.
      * To be standards-compliant, must be at least 1024 bytes, but can be larger.
      */
@@ -104,15 +109,15 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * Request/response buffer
      */
-    private final byte[] bufferMem;
+    private byte[] bufferMem;
     /**
      * General working memory
      */
-    private final byte[] scratch;
+    private byte[] scratch;
     /**
      * Decrypted credential ID holder
      */
-    private final byte[] privateScratch;
+    private byte[] privateScratch;
     /**
      * True if the device has been locked with a PIN; false in initial boot state before PIN set
      */
@@ -120,7 +125,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * AESKey.setKey doesn't take a byte array length param, so we use this temp space to store key bytes
      */
-    private final byte[] privateKeySpace;
+    private byte[] privateKeySpace;
     /**
      * Random key for deriving keys for the hmac-secret extension from regular credential private keys
      */
@@ -131,15 +136,15 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * authenticator transient key
      */
-    private final KeyPair authenticatorKeyAgreementKey;
+    private KeyPair authenticatorKeyAgreementKey;
     /**
      * encrypt/decrypt key to be set based on platform<->authenticator shared secret
      */
-    private final AESKey sharedSecretAESKey;
+    private AESKey sharedSecretAESKey;
     /**
      * verify/hash key to be set based on platform<->authenticator shared secret
      */
-    private final byte[] sharedSecretVerifyKey;
+    private byte[] sharedSecretVerifyKey;
     /**
      * DH for platform <-> authenticator secure channel
      */
@@ -178,11 +183,11 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * per-reset random proxy used instead of true user PIN, as proof PIN was obtained
      */
-    private final byte[] pinToken;
+    private byte[] pinToken;
     /**
      * RP ID associated with (restricting) the PIN token, prefixed by a byte which is 0x01 if RP ID set, 0x00 otherwise
      */
-    private final byte[] permissionsRpId;
+    private byte[] permissionsRpId;
     /**
      * Decrypter used to unwrap data by using a key derived from the user's PIN
      */
@@ -195,7 +200,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * key to be set from KDF derivation of PIN
      */
-    private final AESKey pinWrapKey;
+    private AESKey pinWrapKey;
     /**
      * used for signing the authData we send to the platform, to prove it came from us
      */
@@ -249,11 +254,11 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * The actual per-credential key pair
      */
-    private final KeyPair ecKeyPair;
+    private KeyPair ecKeyPair;
     /**
      * A private key for an incoming credential
      */
-    private final ECPrivateKey ecPrivateKey;
+    private ECPrivateKey ecPrivateKey;
     /**
      * General hashing of stuff
      */
@@ -265,7 +270,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * Everything that needs to be hot in RAM instead of stored to the flash. All goes away on deselect or reset!
      */
-    private final TransientStorage transientStorage;
+    private TransientStorage transientStorage;
 
     // Data storage for resident keys
     /**
@@ -852,17 +857,20 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         short offsetForStartOfAuthData = (short) (outputLen + adAddlBytes);
         outputLen += adLen + adAddlBytes;
 
-        // Attestation statement
-        outputLen = Util.arrayCopyNonAtomic(CannedCBOR.ATTESTATION_STATEMENT_PREAMBLE, (short) 0,
-                bufferMem, outputLen, (short) CannedCBOR.ATTESTATION_STATEMENT_PREAMBLE.length);
+        // TEMPORARY copy to build signing buffer
+        Util.arrayCopyNonAtomic(scratch, clientDataHashScratchOffset,
+                bufferMem, outputLen, CLIENT_DATA_HASH_LEN);
 
         attester.init(ecKeyPair.getPrivate(), Signature.MODE_SIGN);
-        attester.update(bufferMem, offsetForStartOfAuthData, adLen);
-        short sigLength = attester.sign(scratch, clientDataHashScratchOffset, CLIENT_DATA_HASH_LEN,
-                bufferMem, (short) (outputLen + 1));
+        short sigLength = attester.sign(bufferMem, offsetForStartOfAuthData, (short)(adLen + CLIENT_DATA_HASH_LEN),
+                bufferMem, (short) (outputLen + 1 + CannedCBOR.ATTESTATION_STATEMENT_PREAMBLE.length));
         if (sigLength > 256 || sigLength < 24) {
             throwException(ISO7816.SW_UNKNOWN);
         }
+
+        // Attestation statement
+        outputLen = Util.arrayCopyNonAtomic(CannedCBOR.ATTESTATION_STATEMENT_PREAMBLE, (short) 0,
+                bufferMem, outputLen, (short) CannedCBOR.ATTESTATION_STATEMENT_PREAMBLE.length);
 
         bufferMem[outputLen++] = (byte) sigLength;
         outputLen += sigLength;
@@ -966,7 +974,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
     private void hmacSha256(APDU apdu, byte[] keyBuff, short keyOff,
                              byte[] content, short contentOff, short contentLen,
                              byte[] outputBuff, short outputOff, boolean useAPDUBuffer) {
-        if (useAPDUBuffer && contentLen > 180) {
+        if (useAPDUBuffer && contentLen > 190) {
             // Too much to safely fit into APDU buffer
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
         }
@@ -1180,7 +1188,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @param rpIdBuffer Buffer containing a hash of the RP ID
      * @param rpIdOffset Offset of the RP ID hash in the given buffer
      *
-     * @return New write index into bufferMem after serializing AD block
+     * @return Additional bytes used for AD basic header beyond the minimum
      */
     private short writeADBasic(byte[] outBuf, short adLen, short writeIdx, byte flags, byte[] rpIdBuffer, short rpIdOffset) {
         short ow = writeIdx;
@@ -1378,7 +1386,7 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private void getAssertion(APDU apdu, short lc, short readIdx, short firstCredIdx) {
         short scratchRPIDHashIdx = scratchAlloc(RP_HASH_LEN);
-        short clientDataHashIdx = scratchAlloc((short) 32);
+        short clientDataHashIdx = scratchAlloc(CLIENT_DATA_HASH_LEN);
         short pinInfoIdx = scratchAlloc((short) 2); // first byte, PIN protocol. Second byte, 1 if PIN auth success
         short hmacSaltIdx = scratchAlloc((short) 65); // first byte length, remaining bytes HMAC salt
         short hmacSecretBytes = 0;
@@ -1455,8 +1463,8 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
             }
             Util.arrayCopyNonAtomic(bufferMem, readIdx,
-                    scratch, clientDataHashIdx, (short) 32);
-            readIdx += 32;
+                    scratch, clientDataHashIdx, CLIENT_DATA_HASH_LEN);
+            readIdx += CLIENT_DATA_HASH_LEN;
             if (readIdx >= lc) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
             }
@@ -1746,20 +1754,22 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             throwException(ISO7816.SW_UNKNOWN);
         }
 
-        // TODO: pack this for a contiguous signing call?
-        attester.update(outBuf, startOfAD, (short)(adLen + extensionDataLen));
-
-        // signature
-        outBuf[outputIdx++] = 0x03; // map key: signature
-        outBuf[outputIdx++] = 0x58; // one-byte length
-        short sigLength = attester.sign(scratch, clientDataHashIdx, (short) 32,
-                outBuf, (short)(outputIdx + 1));
+        // TEMPORARILY copy the clientDataHash into the output buffer so we have a contiguous signing block
+        // We'll overwrite it again in a moment, so don't advance the output write index
+        Util.arrayCopyNonAtomic(scratch, clientDataHashIdx,
+                outBuf, outputIdx, CLIENT_DATA_HASH_LEN);
+        short sigLength = attester.sign(outBuf, startOfAD, (short)(adLen + extensionDataLen + CLIENT_DATA_HASH_LEN),
+                outBuf, (short)(outputIdx + 3)); // 3 byte space: map key, byte array type, byte array length
         // After the signature, we are done with the credential private key we loaded.
         // It might be stored in flash, so let's clear that out.
         ecPrivateKey.clearKey();
         if (sigLength > 255 || sigLength < 24) { // would not require exactly one byte to encode the length...
             throwException(ISO7816.SW_UNKNOWN);
         }
+
+        // advance past the signature we just wrote, which overwrote the clientDataHash in the buffer
+        outBuf[outputIdx++] = 0x03; // map key: signature
+        outBuf[outputIdx++] = 0x58; // one-byte length
         outBuf[outputIdx++] = (byte) sigLength;
         outputIdx += sigLength;
 
@@ -2778,12 +2788,12 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
             }
 
             // Check PIN token
+            if (subCommandParamsLen > 189) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
+            }
             short scratchAmt = (short)(1 + subCommandParamsLen);
             short scratchOff = scratchAlloc(scratchAmt);
             scratch[scratchOff] = bufferMem[subcommandIdx];
-            if (subCommandParamsLen > CREDENTIAL_ID_LEN + MAX_USER_ID_LENGTH + 35) {
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
-            }
             if (subCommandParamsLen > 0) {
                 Util.arrayCopyNonAtomic(bufferMem, subCommandParamsIdx,
                         scratch, (short)(scratchOff + 1), subCommandParamsLen);
@@ -4305,6 +4315,9 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         // for the platformKeyAgreementKey. If we are, it'll disappear into the ether after deselect,
         // so we need to make sure that we re-initialize it when we're selected again.
         transientStorage.clearOnDeselect();
+
+        // Other stuff
+        permissionsRpId[0] = 0x00;
     }
 
     /**
@@ -4322,17 +4335,20 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
      * @return An uninitialized EC private key, ideally in RAM, but in flash if the authenticator doesn't support in-memory
      */
     private ECPrivateKey getECPrivKey() {
-        try {
-            return (ECPrivateKey) KeyBuilder.buildKey(KeyBuilder.TYPE_EC_FP_PRIVATE_TRANSIENT_DESELECT, KeyBuilder.LENGTH_EC_FP_256, false);
-        } catch (CryptoException e) {
-            // Oh well, unsupported, use normal RAM or flash instead
+        if (!MINIMIZE_RAM_USE) {
+            try {
+                return (ECPrivateKey) KeyBuilder.buildKey(KeyBuilder.TYPE_EC_FP_PRIVATE_TRANSIENT_DESELECT, KeyBuilder.LENGTH_EC_FP_256, false);
+            } catch (CryptoException e) {
+                // Oh well, unsupported, use normal RAM or flash instead
+            }
+
+            try {
+                return (ECPrivateKey) KeyBuilder.buildKey(KeyBuilder.TYPE_EC_FP_PRIVATE_TRANSIENT_RESET, KeyBuilder.LENGTH_EC_FP_256, false);
+            } catch (CryptoException e) {
+                // Oh well, unsupported, use flash instead
+            }
         }
 
-        try {
-            return (ECPrivateKey) KeyBuilder.buildKey(KeyBuilder.TYPE_EC_FP_PRIVATE_TRANSIENT_RESET, KeyBuilder.LENGTH_EC_FP_256, false);
-        } catch (CryptoException e) {
-            // Oh well, unsupported, use flash instead
-        }
         return (ECPrivateKey) KeyBuilder.buildKey(KeyBuilder.TYPE_EC_FP_PRIVATE, KeyBuilder.LENGTH_EC_FP_256, false);
     }
 
@@ -4406,13 +4422,38 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         counter = new SigOpCounter();
         pinRetryCounter = new PinRetryCounter((byte) MAX_PIN_RETRIES);
 
+        // Trivial amounts of flash, object allocations without buffers
+        random = RandomData.getInstance(RandomData.ALG_SECURE_RANDOM);
+        keyAgreement = KeyAgreement.getInstance(KeyAgreement.ALG_EC_SVDP_DH_PLAIN, false);
+        pinUnwrapper = getAES();
+        symmetricWrapper = getAES();
+        symmetricUnwrapper = getAES();
+        sharedSecretWrapper = getAES();
+        sharedSecretUnwrapper = getAES();
+        attester = getECSig();
+        sha256 = MessageDigest.getInstance(MessageDigest.ALG_SHA_256, false);
+
+        initTransientStorage();
+
+        // Javacard API requires this call to know we succeeded and set the app up with the platform
+        register();
+    }
+
+    private byte[] getTempOrFlashByteBuffer(short len) {
+        if (MINIMIZE_RAM_USE) {
+            return new byte[len];
+        }
+        return JCSystem.makeTransientByteArray(len, JCSystem.CLEAR_ON_DESELECT);
+    }
+
+    private void initTransientStorage() {
         // RAM usage - direct buffers
-        bufferMem = JCSystem.makeTransientByteArray(BUFFER_MEM_SIZE, JCSystem.CLEAR_ON_DESELECT);
-        scratch = JCSystem.makeTransientByteArray(SCRATCH_SIZE, JCSystem.CLEAR_ON_RESET);
-        privateScratch = JCSystem.makeTransientByteArray(PRIVATE_SCRATCH_SIZE, JCSystem.CLEAR_ON_RESET);
+        bufferMem = getTempOrFlashByteBuffer(BUFFER_MEM_SIZE);
+        scratch = getTempOrFlashByteBuffer(SCRATCH_SIZE);
+        privateScratch = getTempOrFlashByteBuffer(PRIVATE_SCRATCH_SIZE);
         privateKeySpace = JCSystem.makeTransientByteArray((short) 32, JCSystem.CLEAR_ON_DESELECT);
-        pinToken = JCSystem.makeTransientByteArray((short) 32, JCSystem.CLEAR_ON_DESELECT);
-        permissionsRpId = JCSystem.makeTransientByteArray((short) (RP_HASH_LEN + 1), JCSystem.CLEAR_ON_DESELECT);
+        pinToken = getTempOrFlashByteBuffer((short) 32);
+        permissionsRpId = getTempOrFlashByteBuffer((short)(RP_HASH_LEN + 1));
 
         // RAM usage - (ideally) ephemeral keys
         authenticatorKeyAgreementKey = new KeyPair(
@@ -4424,20 +4465,15 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
                 getECPrivKey()
         );
         ecPrivateKey = getECPrivKey();
-        pinWrapKey = getTransientAESKey();
-        sharedSecretAESKey = getTransientAESKey();
-        sharedSecretVerifyKey = JCSystem.makeTransientByteArray((short) 32, JCSystem.CLEAR_ON_DESELECT);
+        if (MINIMIZE_RAM_USE) {
+            pinWrapKey = getPersistentAESKey();
+            sharedSecretAESKey = getPersistentAESKey();
+        } else {
+            pinWrapKey = getTransientAESKey();
+            sharedSecretAESKey = getTransientAESKey();
+        }
+        sharedSecretVerifyKey = getTempOrFlashByteBuffer((short) 32);
 
-        // Trivial amounts of flash, object allocations without buffers
-        random = RandomData.getInstance(RandomData.ALG_SECURE_RANDOM);
-        keyAgreement = KeyAgreement.getInstance(KeyAgreement.ALG_EC_SVDP_DH_PLAIN, false);
-        pinUnwrapper = getAES();
-        symmetricWrapper = getAES();
-        symmetricUnwrapper = getAES();
-        sharedSecretWrapper = getAES();
-        sharedSecretUnwrapper = getAES();
-        attester = getECSig();
-        sha256 = MessageDigest.getInstance(MessageDigest.ALG_SHA_256, false);
         transientStorage = new TransientStorage();
 
         // Actual init work
@@ -4456,9 +4492,6 @@ public class FIDO2Applet extends Applet implements ExtendedLength {
         // Per-credential keypairs are on the P256 curve
         P256Constants.setCurve((ECKey) ecKeyPair.getPrivate());
         P256Constants.setCurve((ECKey) ecKeyPair.getPublic());
-
-        // Javacard API requires this call to know we succeeded and set the app up with the platform
-        register();
     }
 
 }

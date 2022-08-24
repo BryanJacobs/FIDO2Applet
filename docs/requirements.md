@@ -38,8 +38,9 @@ HOWEVER, there do exist cards that support the appropriate algorithms atop Javac
   for the above-mentioned secure channel)
 - RandomData `ALG_SECURE_RANDOM` (used for key generation etc. Note `ALG_KEYGENERATION` is not
   used, that's too new)
-- About 400 bytes `MEMORY_TYPE_TRANSIENT_RESET` (sorry)
-- Almost 2k total memory including the above and `MEMORY_TYPE_TRANSIENT_DESELECT`
+- Almost 2k total memory including a small amount of `MEMORY_TYPE_TRANSIENT_RESET` and a 
+  larger amount of `MEMORY_TYPE_TRANSIENT_DESELECT` (there is an optional boolean to minimize
+  memory usage in the code - this cuts RAM usage down to under 128 bytes at the cost of flash wear)
 - About 200 bytes max commit capacity, used for atomically creating and updating resident
   keys
 - An amount of `MEMORY_TYPE_PERSISTENT` sufficient to hold the app and the resident keys, etc
@@ -61,7 +62,7 @@ So to summarize, let's discuss the full requirements on the authenticator side:
 - Support for ECDH-plain
 - Support for SHA-256 hashing
 - Support for EC with 256-bit keys
-- Approximately 15k of storage by default (very tunable)
+- Approximately 20k of storage by default (very tunable)
 - Ideally, support for EC TRANSIENT_DESELECT keys, as otherwise you'll get flash usage 
   every time the app is selected
 
