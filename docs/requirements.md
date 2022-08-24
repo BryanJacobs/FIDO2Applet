@@ -40,7 +40,7 @@ HOWEVER, there do exist cards that support the appropriate algorithms atop Javac
   used, that's too new)
 - Almost 2k total memory including a small amount of `MEMORY_TYPE_TRANSIENT_RESET` and a 
   larger amount of `MEMORY_TYPE_TRANSIENT_DESELECT` (there is an optional boolean to minimize
-  memory usage in the code - this cuts RAM usage down to under 128 bytes at the cost of flash wear)
+  memory usage in the code - this cuts RAM usage down to around 128 bytes at the cost of flash wear)
 - About 200 bytes max commit capacity, used for atomically creating and updating resident
   keys
 - An amount of `MEMORY_TYPE_PERSISTENT` sufficient to hold the app and the resident keys, etc
@@ -57,7 +57,8 @@ powered up, and the risk of private keys being stored there in the first place:
 So to summarize, let's discuss the full requirements on the authenticator side:
 
 - Javacard Classic 3.0.4 caveatted as above
-- Approximately 2kB of total RAM, of which around 400 bytes will be reserved
+- Approximately 2kB of total RAM OR ~128 bytes plus comparatively more flash wear
+- A 256 byte APDU buffer (most cards have this although the standard only mandates 128 bytes)
 - Support for AES256-CBC
 - Support for ECDH-plain
 - Support for SHA-256 hashing

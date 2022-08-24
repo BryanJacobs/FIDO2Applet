@@ -192,7 +192,10 @@ to be given trouble by software bugs than by your flash write endurance. Flash i
 writable buffer space.
 
 There is an optional boolean in the code which throws this all out the window, and instead minimizes
-memory usage - cutting it from around 2k to around 128 bytes by using flash for everything.
+memory usage - cutting it from around 2k to around 128 bytes by using flash for many things. When you toggle this,
+every incoming getAssertion call will result in some flash usage, every chained request or response will use
+flash, etc etc. Great care is still taken to use RAM where possible, but it's just not possible to serve a 1024-byte
+request in 128 bytes of RAM.
 
 ## Can I update the app and maintain the validity of my previously-issued credentials?
 

@@ -85,4 +85,23 @@ public abstract class FIDOConstants {
     public static final byte CTAP2_ERR_ACTION_TIMEOUT = 0x3A; //	 	The current operation has timed out.
     public static final byte CTAP2_ERR_UP_REQUIRED = 0x3B; //	 	User presence is required for the requested operation.
     public static final byte CTAP1_ERR_OTHER = 0x7F; //	 	Other unspecified error.
+    /**
+     * HKDF "info" for PIN protocol two HMAC key
+     */
+    static final byte[] CTAP2_HMAC_KEY_INFO = {
+            0x43, 0x54, 0x41, 0x50, 0x32, 0x20, 0x48, 0x4D, 0x41, 0x43, 0x20, 0x6B, 0x65, 0x79, 0x01
+          //   C     T     A     P     2           H     M     A     C           k     e     y
+    };
+    /**
+     * HKDF "info" for PIN protocol two AES key
+     */
+    static final byte[] CTAP2_AES_KEY_INFO = {
+            0x43, 0x54, 0x41, 0x50, 0x32, 0x20, 0x41, 0x45, 0x53, 0x20, 0x6B, 0x65, 0x79, 0x01
+          //   C     T     A     P     2           A     E     S           k     e     y
+    };
+    /**
+     * HKDF salt - 32 zeros
+     */
+    static final byte[] ZERO_SALT = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 }
