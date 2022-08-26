@@ -5,7 +5,7 @@ import javacard.framework.JCSystem;
 /**
  * Provides in-memory state in a maximally compact way
  */
-public class TransientStorage {
+public final class TransientStorage {
     /**
      * Set of short variables held in memory for generally avoiding flash use
      */

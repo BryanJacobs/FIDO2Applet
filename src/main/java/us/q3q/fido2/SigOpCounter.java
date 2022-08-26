@@ -8,7 +8,7 @@ import javacard.framework.JCSystem;
  * Uses 67 bytes of flash to provide a 32-bit counter where the most-written byte is written 256
  * times in a row, but only takes 1/64 of the overall write load.
  */
-public class SigOpCounter {
+public final class SigOpCounter {
     private final byte[] firstBytes;
     private final byte[] lastBytes;
 
@@ -67,15 +67,12 @@ public class SigOpCounter {
      *
      * @param outBuf Buffer into which to encode counter
      * @param outOffset Offset at which to start writing counter
-     *
-     * @return Write index into buffer after encoding counter
      */
-    public short pack(byte[] outBuf, short outOffset) {
+    public void pack(byte[] outBuf, short outOffset) {
         outBuf[outOffset++] = firstBytes[0];
         outBuf[outOffset++] = firstBytes[1];
         outBuf[outOffset++] = firstBytes[2];
         outBuf[outOffset++] = lastBytes[(short)(0x3F & firstBytes[2])];
-        return outOffset;
     }
 
     /**

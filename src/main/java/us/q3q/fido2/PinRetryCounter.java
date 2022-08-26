@@ -7,7 +7,7 @@ package us.q3q.fido2;
  * This will be counterproductive (no write amplification, but runtime overhead) on a system with effective
  * wear leveling, but will greatly (up to 32x) extend the lifetime on systems without it.
  */
-public class PinRetryCounter {
+public final class PinRetryCounter {
     private final byte[] counters;
     private final byte defaultValue;
 
