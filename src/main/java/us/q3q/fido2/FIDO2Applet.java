@@ -241,10 +241,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private KeyPair ecKeyPair;
     /**
-     * A private key for an incoming credential
-     */
-    private ECPrivateKey ecPrivateKey;
-    /**
      * General hashing of stuff
      */
     private final MessageDigest sha256;
@@ -358,11 +354,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @return Index of the allocation's start in the scratch buffer
      */
     private short scratchAlloc(short numBytes) {
-        short ret = transientStorage.getScratchFillLevel();
-        if (ret > (short)(SCRATCH_SIZE - numBytes)) {
+        short ret = transientStorage.getAndIncreaseScratchFillLevel(numBytes);
+        if ((short)(ret + numBytes) > SCRATCH_SIZE) {
             throwException(ISO7816.SW_FILE_FULL);
         }
-        transientStorage.increaseScratchFillLevel(numBytes);
         return ret;
     }
 
@@ -550,7 +545,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         final short numPubKeys = (short)(pubKeyCredParamsType & 0x0F);
         for (short i = 0; i < numPubKeys; i++) {
             readIdx = checkIfPubKeyBlockSupported(apdu, buffer, readIdx, lc);
-            if (transientStorage.hasFoundKeyMatch()) {
+            if (transientStorage.getStoredLen() != -1) {
                 foundES256 = true;
                 break;
             }
@@ -767,10 +762,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     // ... but it might not match the user ID we're requesting...
                     if (userIdLen == residentKeyUserIdLengths[i]) {
                         // DECRYPT the encrypted user ID we stored for this RK, so we can compare
-                        symmetricUnwrapper.doFinal(
-                                residentKeyUserIds, (short) (i * MAX_USER_ID_LENGTH), MAX_USER_ID_LENGTH,
-                                scratch, scratchUserIdOffset
-                        );
+                        symmetricUnwrap(residentKeyUserIds, (short) (i * MAX_USER_ID_LENGTH), MAX_USER_ID_LENGTH,
+                                scratch, scratchUserIdOffset);
 
                         if (Util.arrayCompare(
                                 buffer, userIdIdx,
@@ -809,12 +802,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 Util.arrayCopy(privateScratch, (short) 0,
                         residentKeyData, (short) (targetRKSlot * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN);
                 residentKeyUserIdLengths[targetRKSlot] = (byte) userIdLen;
-                symmetricWrapper.doFinal(scratch, scratchUserIdOffset, MAX_USER_ID_LENGTH,
+                symmetricWrap(scratch, scratchUserIdOffset, MAX_USER_ID_LENGTH,
                         residentKeyUserIds, (short) (targetRKSlot * MAX_USER_ID_LENGTH));
                 residentKeyRPIdLengths[targetRKSlot] = (byte) rpIdLen;
-                symmetricWrapper.doFinal(scratch, scratchRpIdOffset, MAX_RESIDENT_RP_ID_LENGTH,
+                symmetricWrap(scratch, scratchRpIdOffset, MAX_RESIDENT_RP_ID_LENGTH,
                         residentKeyRPIds, (short) (targetRKSlot * MAX_RESIDENT_RP_ID_LENGTH));
-                symmetricWrapper.doFinal(scratch, (short)(scratchPublicKeyOffset + 1), (short)(KEY_POINT_LENGTH * 2),
+                symmetricWrap(scratch, (short)(scratchPublicKeyOffset + 1), (short)(KEY_POINT_LENGTH * 2),
                         residentKeyPublicKeys, (short) (targetRKSlot * KEY_POINT_LENGTH * 2));
                 residentKeyValidity[targetRKSlot] = true;
                 if (!foundMatchingRK) {
@@ -837,7 +830,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             scratchRelease(rkSpecificScratchAlloc);
         }
 
-        // OKAY! time to start actually making the credential and sending a response!
+        // OKAY! time to start actually making the credential blob and sending a response!
         final short clientDataHashScratchOffset = scratchAlloc(CLIENT_DATA_HASH_LEN);
         Util.arrayCopyNonAtomic(buffer, clientDataHashIdx,
                 scratch, clientDataHashScratchOffset, CLIENT_DATA_HASH_LEN);
@@ -895,6 +888,26 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         ecKeyPair.getPrivate().clearKey();
 
         doSendResponse(apdu, outputLen);
+    }
+
+    /**
+     * Encrypts data from one buffer to another using the symmetric wrapping key.
+     * Before call, symmetric crypto must be initialized; after call, it still is.
+     *
+     * @param inBuf Buffer containing data to be encrypted
+     * @param inOffset Offset of data in input buffer
+     * @param inLen Length of data to encrypt
+     * @param outBuf Buffer into which to write output
+     * @param outOff Offset at which to write encrypted data
+     */
+    private void symmetricWrap(byte[] inBuf, short inOffset, short inLen, byte[] outBuf, short outOff) {
+        short ret = symmetricWrapper.doFinal(inBuf, inOffset, inLen,
+                outBuf, outOff);
+        if (ret != inLen) {
+            throwException(ISO7816.SW_UNKNOWN);
+        }
+        // Re-init IV after using wrapper
+        initSymmetricCrypto();
     }
 
     /**
@@ -986,8 +999,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param useAPDUBuffer If true, use APDU buffer as scratch
      */
     private void hmacSha256(APDU apdu, byte[] keyBuff, short keyOff,
-                             byte[] content, short contentOff, short contentLen,
-                             byte[] outputBuff, short outputOff, boolean useAPDUBuffer) {
+                            byte[] content, short contentOff, short contentLen,
+                            byte[] outputBuff, short outputOff, boolean useAPDUBuffer) {
         if (useAPDUBuffer && contentLen > 190) {
             // Too much to safely fit into APDU buffer
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
@@ -1120,7 +1133,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
     /**
      * Consumes a CBOR block of public key data, and checks if it represents a supported algorithm.
-     * After call, transientStorage foundKeyMatch will be true if the key is compatible.
+     * After call, transientStorage's idx and len storage will be nonzero if the key is compatible.
      *
      * @param apdu Request/response object
      * @param buffer Buffer containing incoming request
@@ -1130,7 +1143,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @return New read index into bufferMem after consuming public key block
      */
     private short checkIfPubKeyBlockSupported(APDU apdu, byte[] buffer, short readIdx, short lc) {
-        transientStorage.resetFoundKeyMatch();
+        transientStorage.readyStoredVars();
 
         byte mapDef = buffer[readIdx++];
         if ((mapDef & 0xF0) != 0xA0) {
@@ -1155,7 +1168,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         byte algIntType = buffer[readIdx++];
         if (algIntType == 0x26) { // ES256...
-            transientStorage.setFoundKeyMatch();
+            transientStorage.setStoredVars((short) 1, (byte) 1);
         } else if (algIntType == 0x38 || algIntType == 0x18) {
             readIdx++;
         } else if (algIntType == 0x39 || algIntType == 0x19) {
@@ -1181,11 +1194,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         short typeValLen = (short) (buffer[readIdx] & 0x0F);
         if (typeValLen != CannedCBOR.PUBLIC_KEY_TYPE.length) {
             // not the same length as type "public-key": can't be a match
-            transientStorage.resetFoundKeyMatch();
+            transientStorage.readyStoredVars();
         } else if (Util.arrayCompare(buffer, (short)(readIdx + 1),
                 CannedCBOR.PUBLIC_KEY_TYPE, (short) 0, typeValLen) != 0) {
             // Not of type "public-key", although same length
-            transientStorage.resetFoundKeyMatch();
+            transientStorage.readyStoredVars();
         }
         readIdx += typeValLen + 1;
         if (readIdx >= lc) {
@@ -1332,6 +1345,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 privateScratch, (short) 0);
         encryptedBytes += symmetricWrapper.doFinal(rpIdHashBuffer, rpIdHashOffset, RP_HASH_LEN,
                 privateScratch, encryptedBytes);
+        // Using symmetric crypto requires re-initializing the IV
+        initSymmetricCrypto();
         if (encryptedBytes > CREDENTIAL_ID_LEN) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
         }
@@ -1657,7 +1672,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
         }
 
-        short potentialAssertionIterationPointer = 0;
+        byte potentialAssertionIterationPointer = 0;
 
         if (allowListLength == 0) {
             // Scan resident keys for match
@@ -1673,7 +1688,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     // Got a resident key hit!
                     numMatchesThisRP++;
                     if (rkMatch == -1) {
-                        potentialAssertionIterationPointer = (short)(i + 1);
+                        potentialAssertionIterationPointer = (byte)(i + 1);
                         matchingPubKeyBuffer = residentKeyData;
                         startOfMatchingPubKeyCredData = (short)(i * CREDENTIAL_ID_LEN);
                         matchingPubKeyCredDataLen = CREDENTIAL_ID_LEN;
@@ -1699,7 +1714,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         // HMAC will clobber privateScratch, so it needs to be below the private key setup above
         if (scratch[hmacSaltIdx] != 0) {
-            hmacSecretBytes = computeHMACSecret(apdu, ecPrivateKey,
+            hmacSecretBytes = computeHMACSecret(apdu, (ECPrivateKey) ecKeyPair.getPrivate(),
                     scratch, (short)(hmacSaltIdx + 1), scratch[hmacSaltIdx],
                     scratch[pinInfoIdx]
             );
@@ -1783,7 +1798,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 bufferMem, (short)(outputIdx + 3)); // 3 byte space: map key, byte array type, byte array length
         // After the signature, we are done with the credential private key we loaded.
         // It might be stored in flash, so let's clear that out.
-        ecPrivateKey.clearKey();
+        ecKeyPair.getPrivate().clearKey();
         if (sigLength > 255 || sigLength < 24) { // would not require exactly one byte to encode the length...
             throwException(ISO7816.SW_UNKNOWN);
         }
@@ -1802,8 +1817,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     bufferMem, outputIdx, (short) CannedCBOR.SINGLE_ID_MAP_PREAMBLE.length);
             outputIdx = encodeIntLenTo(bufferMem, outputIdx, uidLen, true);
             // Pack the user ID from the resident key into the buffer, after decrypting it
-            symmetricUnwrapper.doFinal(residentKeyUserIds, (short) (rkMatch * MAX_USER_ID_LENGTH), MAX_USER_ID_LENGTH,
-                    bufferMem, outputIdx);
+            symmetricUnwrap(residentKeyUserIds, (short) (rkMatch * MAX_USER_ID_LENGTH), MAX_USER_ID_LENGTH,
+                    buffer, outputIdx);
             outputIdx += uidLen; // only advance by the ACTUAL length of the UID, not the padded size
         }
 
@@ -1832,6 +1847,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * Initializes the attester using the contents of privateScratch for keying. After call, attestations may be made.
      */
     private void loadPrivateScratchIntoAttester() {
+        ECPrivateKey ecPrivateKey = (ECPrivateKey) ecKeyPair.getPrivate();
         P256Constants.setCurve(ecPrivateKey);
         ecPrivateKey.setS(privateScratch, (short) 0, (short) 32);
         attester.init(ecPrivateKey, Signature.MODE_SIGN);
@@ -2113,11 +2129,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             return false;
         }
 
-        short numBytesUnwrapped = symmetricUnwrapper.doFinal(credentialBuffer, credentialIndex,
-                credentialLen, outputBuffer, outputOffset);
-        if (numBytesUnwrapped != CREDENTIAL_ID_LEN) {
-            return false;
-        }
+        symmetricUnwrap(credentialBuffer, credentialIndex, credentialLen,
+                outputBuffer, outputOffset);
 
         return Util.arrayCompare(outputBuffer, (short) (outputOffset + 32), rpIdBuf, rpIdHashIdx, RP_HASH_LEN) == 0;
     }
@@ -2206,7 +2219,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             return (short) (readIdx + 2 + buffer[(short)(readIdx+1)]);
         }
         if (b == 0x59 || b == 0x79) {
-            short len = (short) (buffer[(short)(readIdx + 1)] << 8 + buffer[(short)(readIdx + 2)]);
+            short len = Util.getShort(buffer, (short)(readIdx + 1));
             return (short) (readIdx + 2 + len);
         }
         if (b >= 0x40 && b <= 0x57) {
@@ -2227,7 +2240,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             return readIdx;
         }
         if (b == (byte)0x99) {
-            short l = (short)(buffer[(short)(readIdx + 1)] << 8 + buffer[(short)(readIdx + 2)]);
+            short l = Util.getShort(buffer, (short)(readIdx + 1));
             if (l == Short.MAX_VALUE) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
             }
@@ -2359,7 +2372,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
             short idPos = readIdx;
 
-            short valLen = 0;
+            byte valLen = 0;
             if (valDef == 0x78 || valDef == 0x58) {
                 if (isId) {
                     if (valDef == 0x78 && byteString) {
@@ -2374,7 +2387,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     foundType = true;
                     correctType = false;
                 }
-                valLen = ub(buffer[readIdx++]);
+                valLen = buffer[readIdx++];
                 if (isId) {
                     idPos++;
                 }
@@ -2385,7 +2398,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 if (isId && byteString) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                 }
-                valLen = (short) (valDef - 0x60);
+                valLen = (byte) (valDef - 0x60);
             } else if (valDef >= 0x40 && valDef < 0x58) {
                 if (isId && !byteString) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
@@ -2395,7 +2408,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     foundType = true;
                     correctType = false;
                 }
-                valLen = (short) (valDef - 0x40);
+                valLen = (byte) (valDef - 0x40);
             } else {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
             }
@@ -2412,7 +2425,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         CannedCBOR.PUBLIC_KEY_TYPE, (short) 0, valLen) == 0;
             }
 
-            readIdx += valLen;
+            readIdx += ub(valLen);
             if (readIdx >= lc) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
             }
@@ -2445,6 +2458,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     @Override
     public void process(APDU apdu) throws ISOException {
+        if (privateScratch == null) {
+            // This needs to go after the setCurve calls in initTransientStorage, because believe it or not, they use memory!
+            // There also might not be enough RAM, quite, if we allocate this during install while an app parameters
+            // buffer is held in memory...
+            privateScratch = JCSystem.makeTransientByteArray(PRIVATE_SCRATCH_SIZE, JCSystem.CLEAR_ON_DESELECT);
+        }
+
         if (selectingApplet()) {
             // For U2F compatibility, the CTAP2 standard requires that we respond to select() as if we were a U2F
             // authenticator, and then let the platform figure out we're really CTAP2 by making a getAuthenticatorInfo
@@ -2513,7 +2533,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             fullyReadReq(apdu, apduBytes, lc, amtRead, true);
 
             transientStorage.increaseChainIncomingReadOffset(lc);
-            transientStorage.setStoredCommandByteIfNone(apduBytes[apdu.getOffsetCdata()]);
             return;
         }
 
@@ -2540,9 +2559,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         byte cmdByte = apduBytes[apdu.getOffsetCdata()];
         short chainingReadOffset = transientStorage.getChainIncomingReadOffset();
         if (chainingReadOffset > 0) {
-            cmdByte = transientStorage.getStoredCommandByte();
+            cmdByte = bufferMem[0];
             lcEffective += chainingReadOffset;
-            transientStorage.clearStoredCommandByte();
         }
 
         if (cmdByte != FIDOConstants.CMD_CREDENTIAL_MANAGEMENT
@@ -2800,9 +2818,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 // Matching cred.
                 // We need to extract the credential to check that our PIN token WOULD have permission
                 short scratchExtractedCred = scratchAlloc(CREDENTIAL_ID_LEN);
-                symmetricUnwrapper.doFinal(residentKeyData, (short)(i * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN,
-                        scratch, scratchExtractedCred
-                );
+                symmetricUnwrap(residentKeyData, (short)(i * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN,
+                        scratch, scratchExtractedCred);
                 if (permissionsRpId[0] != 0x00) {
                     if (Util.arrayCompare(scratch, (short)(scratchExtractedCred + 32),
                             permissionsRpId, (short) 1, RP_HASH_LEN) != 0) {
@@ -2812,7 +2829,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 }
 
                 // Now that we have permission, check the user ID
-                symmetricUnwrapper.doFinal(residentKeyUserIds, (short)(i * MAX_USER_ID_LENGTH), MAX_USER_ID_LENGTH,
+                symmetricUnwrap(residentKeyUserIds, (short)(i * MAX_USER_ID_LENGTH), MAX_USER_ID_LENGTH,
                         scratch, uidOffset);
                 if (Util.arrayCompare(scratch, uidOffset,
                         buffer, userIdIdx, userIdLen) == 0) {
@@ -2888,10 +2905,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 // Unpack right into the output buffer, potentially overwriting the encrypted data
                 // (if it's the input buffer)... but we no longer need it
                 byte[] outBuf = apdu.getBuffer();
-                symmetricUnwrapper.doFinal(
-                        buffer, credIdIdx, CREDENTIAL_ID_LEN,
-                        outBuf, (short) 0
-                );
+                symmetricUnwrap(buffer, credIdIdx, CREDENTIAL_ID_LEN,
+                        outBuf, (short) 0);
                 short rpIdHashIdx = (short) 32;
 
                 if (permissionsRpId[0] != 0x00) {
@@ -3027,10 +3042,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         } else {
             // Continuing iteration, we get the RP ID hash from the previous credential
             rpIdHashBuf = apdu.getBuffer();
-            symmetricUnwrapper.doFinal(
-                    residentKeyData, (short) ((startCredIdx - 1) * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN,
-                    rpIdHashBuf, (short) 0
-            );
+            symmetricUnwrap(residentKeyData, (short)((startCredIdx - 1) * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN,
+                    rpIdHashBuf, (short) 0);
             rpIdHashIdx = (short) 32; // RP ID hash is the second half of the unwrapped credential
         }
 
@@ -3071,7 +3084,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
                     scratchRelease(CREDENTIAL_ID_LEN);
                 }
-                transientStorage.setCredIterationPointer((short)(rkIndex + 1)); // resume iteration from beyond this one
+                transientStorage.setCredIterationPointer((byte)(rkIndex + 1)); // resume iteration from beyond this one
 
                 short writeOffset = 0;
 
@@ -3084,7 +3097,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 writeOffset = encodeIntLenTo(outBuf, writeOffset, userIdLength, true);
 
                 // The user ID needs to be fully decrypted (MAX_USER_ID_LENGTH bytes)
-                symmetricUnwrapper.doFinal(residentKeyUserIds, (short)(MAX_USER_ID_LENGTH * rkIndex), MAX_USER_ID_LENGTH,
+                symmetricUnwrap(residentKeyUserIds, (short)(MAX_USER_ID_LENGTH * rkIndex), MAX_USER_ID_LENGTH,
                         outBuf, writeOffset);
                 // ... but we only advance the write offset by however many bytes of it are really valid
                 writeOffset += userIdLength;
@@ -3098,7 +3111,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         outBuf, writeOffset, (short) CannedCBOR.PUBLIC_KEY_ALG_PREAMBLE.length);
                 // We've written a bit over 128 bytes now (<=64 user, 64 credential, <32 CBOR)
                 // it's safe for us to use the last 64 bytes of the APDU buffer to unpack the public key
-                symmetricUnwrapper.doFinal(residentKeyPublicKeys, (short)(rkIndex * KEY_POINT_LENGTH * 2), (short)(KEY_POINT_LENGTH * 2),
+                symmetricUnwrap(residentKeyPublicKeys, (short)(rkIndex * KEY_POINT_LENGTH * 2), (short)(KEY_POINT_LENGTH * 2),
                         outBuf, (short) 192);
                 writeOffset = writePubKey(outBuf, writeOffset, outBuf, (short) 192);
 
@@ -3198,7 +3211,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         outBuf[writeOffset++] = FIDOConstants.CTAP2_OK;
 
-        transientStorage.setRPIterationPointer((short)(rkIndex + 1));
+        transientStorage.setRPIterationPointer((byte)(rkIndex + 1));
 
         outBuf[writeOffset++] = isContinuation ? (byte) 0xA2 : (byte) 0xA3; // map with two or three keys
         outBuf[writeOffset++] = 0x03; // map key: rp
@@ -3208,11 +3221,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         writeOffset = encodeIntLenTo(outBuf, writeOffset, rpIdLength, false);
 
         // Decrypt the full RP ID, ...
-        short numBytesUnwrapped = symmetricUnwrapper.doFinal(residentKeyRPIds, (short) (MAX_RESIDENT_RP_ID_LENGTH * rkIndex), MAX_RESIDENT_RP_ID_LENGTH,
+        symmetricUnwrap(residentKeyRPIds, (short) (MAX_RESIDENT_RP_ID_LENGTH * rkIndex), MAX_RESIDENT_RP_ID_LENGTH,
                 outBuf, writeOffset);
-        if (numBytesUnwrapped != MAX_RESIDENT_RP_ID_LENGTH) {
-            throwException(ISO7816.SW_UNKNOWN);
-        }
         // ... but only advance the write cursor by as much of it is valid
         writeOffset += rpIdLength;
 
@@ -3220,11 +3230,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         writeOffset = encodeIntLenTo(outBuf, writeOffset, RP_HASH_LEN, true);
 
         // Unwrap the given RK so we can return its decrypted RP hash
-        numBytesUnwrapped = symmetricUnwrapper.doFinal(residentKeyData, (short) (CREDENTIAL_ID_LEN * rkIndex), CREDENTIAL_ID_LEN,
+        symmetricUnwrap(residentKeyData, (short)(CREDENTIAL_ID_LEN * rkIndex), CREDENTIAL_ID_LEN,
                 outBuf, writeOffset);
-        if (numBytesUnwrapped != CREDENTIAL_ID_LEN) {
-            throwException(ISO7816.SW_UNKNOWN);
-        }
         // VERY CAREFULLY slide what we just wrote 32 bytes down, overwriting the private key with the RP ID hash
         writeOffset = Util.arrayCopyNonAtomic(outBuf, (short)(writeOffset + 32),
                 outBuf, writeOffset, RP_HASH_LEN);
@@ -3235,6 +3242,26 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         sendNoCopy(apdu, writeOffset);
+    }
+
+    /**
+     * Uses the symmetric unwrapping key to decrypt stored data from one buffer to another.
+     * Before call, symmetric crypto must be initialized; after call, it still will be.
+     *
+     * @param inBuf Input buffer
+     * @param offset Offset of encrypted data in input buffer
+     * @param len Length of encrypted data
+     * @param outBuf Buffer into which to store output
+     * @param writeOffset Output at which to begin writing data
+     */
+    private void symmetricUnwrap(byte[] inBuf, short offset, short len, byte[] outBuf, short writeOffset) {
+        short ret = symmetricUnwrapper.doFinal(inBuf, offset, len,
+                outBuf, writeOffset);
+        if (ret != len) {
+            throwException(ISO7816.SW_UNKNOWN);
+        }
+        // Re-init symmetric crypto after using it (which resets the IV)
+        initSymmetricCrypto();
     }
 
     /**
@@ -3289,7 +3316,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private void authenticatorReset(APDU apdu) {
         if (PROTECT_AGAINST_MALICIOUS_RESETS) {
-            if (transientStorage.isResetCommandSentSincePoweron()) {
+            if (transientStorage.isResetCommandSentSincePowerOn()) {
                 // Already tried to reset once since power applied, and the protection feature is enabled.
                 // Power off the token before trying again.
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
@@ -3297,7 +3324,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
             if (!resetRequested) {
                 // Reject this request, to require confirmation
-                transientStorage.setResetCommandSentSincePoweron();
+                transientStorage.setResetCommandSentSincePowerOn();
                 resetRequested = true;
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
             }
@@ -3435,7 +3462,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             transientStorage.clearIterationPointers();
         }
         scratchRelease();
-        ecPrivateKey.clearKey();
         ecKeyPair.getPrivate().clearKey();
 
         ISOException.throwIt(swCode);
@@ -3795,6 +3821,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * Checks the SHA-256 hash of a PIN for correctness, and if it is correct, readies the authenticator unwrapping
      * key for use. After a successful call, symmetricWrapper and symmetricUnwrapper may be used.
      *
+     * This function clobbers privateScratch!
+     *
      * @param apdu Request/response object
      * @param buf Buffer potentially containing the first 16 bytes of the SHA-256 hash of the PIN
      * @param off Offset of the putative PIN hash within the given buffer
@@ -3821,12 +3849,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         pinUnwrapper.doFinal(wrappingKeySpace, (short) 0, (short) wrappingKeySpace.length,
                 privateKeySpace, (short) 0);
 
-        short scratchOff = scratchAlloc((short) 32);
-
         // Compute HMAC-SHA256 of first 32 bytes of wrappingKeyValidation
         hmacSha256(apdu, privateKeySpace, (short) 0,
                    wrappingKeyValidation, (short) 0, (short) 32,
-                   scratch, scratchOff, false);
+                   privateScratch, (short) 0, false);
 
         // decrement retry counter *before* checking if it's correct:
         // this will be reset to max if it is correct, and otherwise it's theoretically possible to
@@ -3838,14 +3864,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         // ... and check that the result equals the second 32 bytes. If it does, we have the correct key.
         if (Util.arrayCompare(wrappingKeyValidation, (short) 32,
-                scratch, scratchOff, (short) 32) == 0) {
+                privateScratch, (short) 0, (short) 32) == 0) {
             // Good PIN!
             pinRetryCounter.reset(pinRetryIndex);
             transientStorage.setPinProtocolInUse(pinProtocol, pinPermissions);
             wrappingKey.setKey(privateKeySpace, (short) 0);
             initSymmetricCrypto(); // Need to re-key the wrapper since we messed it up above
             transientStorage.clearPinTriesSinceReset();
-            scratchRelease((short) 32);
             return;
         }
 
@@ -4461,12 +4486,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     }
 
     private void initTransientStorage() {
-        // RAM usage - direct buffers
+        // RAM usage - direct buffers (note: one more, privateScratch, is set up at first applet use)
+        privateKeySpace = JCSystem.makeTransientByteArray((short) 32, JCSystem.CLEAR_ON_DESELECT);
+        transientStorage = new TransientStorage();
+        pinToken = getTempOrFlashByteBuffer((short) 32);
         bufferMem = getTempOrFlashByteBuffer(BUFFER_MEM_SIZE);
         scratch = getTempOrFlashByteBuffer(SCRATCH_SIZE);
-        privateScratch = JCSystem.makeTransientByteArray(PRIVATE_SCRATCH_SIZE, JCSystem.CLEAR_ON_DESELECT);
-        privateKeySpace = JCSystem.makeTransientByteArray((short) 32, JCSystem.CLEAR_ON_DESELECT);
-        pinToken = JCSystem.makeTransientByteArray((short) 32, JCSystem.CLEAR_ON_DESELECT);
         permissionsRpId = getTempOrFlashByteBuffer((short)(RP_HASH_LEN + 1));
 
         // RAM usage - (ideally) ephemeral keys
@@ -4478,7 +4503,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 (ECPublicKey) KeyBuilder.buildKey(KeyBuilder.TYPE_EC_FP_PUBLIC, KeyBuilder.LENGTH_EC_FP_256, false),
                 getECPrivKey(false)
         );
-        ecPrivateKey = getECPrivKey(false);
         if (MINIMIZE_RAM_USE) {
             pinWrapKey = getPersistentAESKey();
             sharedSecretAESKey = getPersistentAESKey();
@@ -4487,8 +4511,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sharedSecretAESKey = getTransientAESKey();
         }
         sharedSecretVerifyKey = getTempOrFlashByteBuffer((short) 32);
-
-        transientStorage = new TransientStorage();
 
         // Actual init work
         // Four things are truly random and persist until we hard-FIDO2-reset the authenticator:

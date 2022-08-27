@@ -1,330 +1,295 @@
 package us.q3q.fido2;
 
 import javacard.framework.JCSystem;
+import javacard.framework.Util;
 
 /**
  * Provides in-memory state in a maximally compact way
  */
 public final class TransientStorage {
     /**
-     * Set of short variables held in memory for generally avoiding flash use
+     * One-byte-long temporary values
      */
-    private final short[] tempShorts;
+    private final byte[] tempBytes;
+    private static final byte IDX_PIN_RETRIES_SINCE_RESET = 0; // 1 byte
     /**
      * Used for storing found indices in searches
      */
-    private static final short IDX_TEMP_BUF_IDX_STORAGE = 0;
+    private static final byte IDX_TEMP_BUF_IDX_STORAGE = 1; // 2 bytes
     /**
      * Used for storing found lengths in searches
      */
-    private static final byte IDX_TEMP_BUF_IDX_LEN = 1;
-    /**
-     * When writing an overlong response using chained APDUs, stores the position we're up to in the outgoing buffer
-     */
-    private static final byte IDX_CONTINUATION_OUTGOING_WRITE_OFFSET = 2;
-    /**
-     * When writing an overlong response using chained APDUs, stores the remaining bytes in the outgoing buffer
-     */
-    private static final byte IDX_CONTINUATION_OUTGOING_REMAINING = 3;
-    /**
-     * When reading an overlong incoming request using chained APDUs, stores the fill level of the incoming buffer
-     */
-    private static final byte IDX_CHAINING_INCOMING_READ_OFFSET = 4;
-    /**
-     * When reading incoming request chains, which FIDO2 command the request represents (pulled from the first packet)
-     */
-    private static final byte IDX_STORED_COMMAND_BYTE = 5;
+    private static final byte IDX_TEMP_BUF_IDX_LEN = 3; // 1 byte
     /**
      * How full the scratch buffer is
      */
-    private static final byte IDX_SCRATCH_ALLOC_SIZE = 6;
+    private static final byte IDX_SCRATCH_ALLOC_SIZE = 4; // 2 bytes
     /**
-     * Index of next credential to consider when iterating through RPs with credManagement commands
+     * A permissions bitfield for the currently set PIN token
+     *
+     * The lower six bits are used for FIDO 2 permissions. The two most significant bits encode the PIN protocol number.
      */
-    private static final byte IDX_RP_ITERATION_POINTER = 7;
+    private static final byte IDX_PIN_PROTOCOL_NUMBER_AND_PERMISSIONS = 6; // 1 byte
     /**
-     * Index of next credential to consider when iterating through creds with credManagement commands
+     * Cred or RP iteration index, used when iterating through creds or RPs with credManagement commands
+     * Disambiguated by the most significant bit: 1 for RPs, 0 for creds
      */
-    private static final byte IDX_CRED_ITERATION_POINTER = 8;
+    private static final byte IDX_CRED_RP_ITERATION_POINTER = 7; // 1 byte
     /**
-     * Index of next credential (in either allowList or resident keys) to consider when iterating through
-     * assertions with getNextAssertion commands
+     * Index of next credential to consider when iterating through assertions with getNextAssertion commands
      */
-    private static final byte IDX_ASSERT_ITERATION_POINTER = 9;
+    private static final byte IDX_ASSERT_ITERATION_POINTER = 8; // 1 byte
     /**
-     * Two vars for the price of one!
-     * In the upper 8 bits, a permissions bitfield for the currently set PIN token
-     * In the lower 8 bits, which PIN protocol is currently in use, as at the time the pinToken was sent to the platform
+     * When writing an overlong response using chained APDUs, stores the position we're up to in the outgoing buffer
      */
-    private static final byte IDX_PIN_PROTOCOL_IN_USE = 10;
+    private static final byte IDX_CONTINUATION_OUTGOING_WRITE_OFFSET = 9; // 2 bytes
     /**
-     * Total number of in-memory short variables
+     * When writing an overlong response using chained APDUs, stores the remaining bytes in the outgoing buffer
      */
-    private static final byte NUM_TEMP_SHORTS = 11;
+    private static final byte IDX_CONTINUATION_OUTGOING_REMAINING = 11; // 2 bytes
+    /**
+     * When reading an overlong incoming request using chained APDUs, stores the fill level of the incoming buffer
+     */
+    private static final byte IDX_CHAINING_INCOMING_READ_OFFSET = 13; // 2 bytes
+    /**
+     * Giant boolean bitfield that holds all the BOOL_IDX variables below
+     */
+    private static final byte IDX_BOOLEAN_OMNIBUS = 15; // 1 byte
+    /**
+     * How many bytes long the temp storage should be
+     */
+    private static final byte NUM_RESET_BYTES = 16;
 
-    /**
-     * array of per-reset booleans used internally
-     */
-    private final boolean[] tempBools;
+    // boolean bit indices held in BOOLEAN_OMNIBUS byte above
     /**
      * set when authenticator key initialized
      */
     private static final byte BOOL_IDX_RESET_PLATFORM_KEY_SET = 0;
     /**
-     * set if platform supports authenticator-compatible key
-     */
-    private static final byte BOOL_IDX_RESET_FOUND_KEY_MATCH = 1;
-    /**
      * set if the "up" (User Presence) option is enabled
      */
-    private static final byte BOOL_IDX_OPTION_UP = 2;
+    private static final byte BOOL_IDX_OPTION_UP = 1;
     /**
      * set if the "uv" (User Validation) option is enabled
      */
-    private static final byte BOOL_IDX_OPTION_UV = 3;
+    private static final byte BOOL_IDX_OPTION_UV = 2;
     /**
      * set if the "rk" (Resident Key) option is enabled
      */
-    private static final byte BOOL_IDX_OPTION_RK = 4;
+    private static final byte BOOL_IDX_OPTION_RK = 3;
     /**
      * For reset "protection" feature, checks if a reset request has been received since the last authenticator powerup
      */
-    private static final byte BOOL_IDX_RESET_RECEIVED_SINCE_POWERON = 5;
+    private static final byte BOOL_IDX_RESET_RECEIVED_SINCE_POWERON = 4;
     /**
      * Set to true when the authenticator app is fully disabled until next reselect
      */
-    private static final byte BOOL_IDX_AUTHENTICATOR_DISABLED = 6;
-    /**
-     * number of booleans total in array
-     */
-    private static final byte NUM_RESET_BOOLS = 7;
-
-    /**
-     * Pin-retries-since-reset counter, which must be cleared on RESET, not on deselect
-     */
-    private final byte[] pinRetrySinceResetStorage;
+    private static final byte BOOL_IDX_AUTHENTICATOR_DISABLED = 5;
 
     public TransientStorage() {
-        tempShorts = JCSystem.makeTransientShortArray(NUM_TEMP_SHORTS, JCSystem.CLEAR_ON_DESELECT);
-        tempBools = JCSystem.makeTransientBooleanArray(NUM_RESET_BOOLS, JCSystem.CLEAR_ON_DESELECT);
-        pinRetrySinceResetStorage = JCSystem.makeTransientByteArray((short) 1, JCSystem.CLEAR_ON_RESET);
+        // Pin-retries-since-reset counter, which must be cleared on RESET, not on deselect, is stored in this array
+        tempBytes = JCSystem.makeTransientByteArray(NUM_RESET_BYTES, JCSystem.CLEAR_ON_RESET);
     }
 
     public void fullyReset() {
-        for (short s = 0; s < tempShorts.length; s++) {
-            tempShorts[s] = 0;
-        }
-        for (short s = 0; s < tempBools.length; s++) {
-            tempBools[s] = false;
+        // FULL reset includes pin-retry-since-reset counter
+        Util.arrayFillNonAtomic(tempBytes, (short) 0, NUM_RESET_BYTES, (byte) 0x00);
+    }
+
+    private boolean getBoolByIdx(byte idx) {
+        return (byte)((tempBytes[IDX_BOOLEAN_OMNIBUS] & (1 << idx))) != 0;
+    }
+
+    private void setBoolByIdx(byte idx, boolean val) {
+        if (val) {
+            tempBytes[IDX_BOOLEAN_OMNIBUS] =
+                    (byte)(tempBytes[IDX_BOOLEAN_OMNIBUS] | (1 << idx));
+        } else {
+            tempBytes[IDX_BOOLEAN_OMNIBUS] =
+                    (byte)(tempBytes[IDX_BOOLEAN_OMNIBUS] & ~(1 << idx));
         }
     }
 
     public boolean authenticatorDisabled() {
-        return tempBools[BOOL_IDX_AUTHENTICATOR_DISABLED];
+        return getBoolByIdx(BOOL_IDX_AUTHENTICATOR_DISABLED);
     }
 
     public void disableAuthenticator() {
-        tempBools[BOOL_IDX_AUTHENTICATOR_DISABLED] = true;
+        setBoolByIdx(BOOL_IDX_AUTHENTICATOR_DISABLED, true);
     }
 
     public void clearIterationPointers() {
-        tempShorts[IDX_CRED_ITERATION_POINTER] = 0;
-        tempShorts[IDX_RP_ITERATION_POINTER] = 0;
+        tempBytes[IDX_CRED_RP_ITERATION_POINTER] = 0;
     }
 
-    public short getScratchFillLevel() {
-        return tempShorts[IDX_SCRATCH_ALLOC_SIZE];
-    }
-
-    public void increaseScratchFillLevel(short numBytes) {
-        tempShorts[IDX_SCRATCH_ALLOC_SIZE] += numBytes;
+    public short getAndIncreaseScratchFillLevel(short numBytes) {
+        short curVal = Util.getShort(tempBytes, IDX_SCRATCH_ALLOC_SIZE);
+        Util.setShort(tempBytes, IDX_SCRATCH_ALLOC_SIZE, (short)(curVal + numBytes));
+        return curVal;
     }
 
     public void decreaseScratchFillLevel(short numBytes) {
-        tempShorts[IDX_SCRATCH_ALLOC_SIZE] -= numBytes;
+        Util.setShort(tempBytes, IDX_SCRATCH_ALLOC_SIZE,
+                (short)(Util.getShort(tempBytes, IDX_SCRATCH_ALLOC_SIZE) - numBytes));
     }
 
     public void clearScratchFillLevel() {
-        tempShorts[IDX_SCRATCH_ALLOC_SIZE] = 0;
+        Util.setShort(tempBytes, IDX_SCRATCH_ALLOC_SIZE, (short) 0);
     }
 
     public void clearAssertIterationPointer() {
-        tempShorts[IDX_ASSERT_ITERATION_POINTER] = 0;
+        tempBytes[IDX_ASSERT_ITERATION_POINTER] = 0;
     }
 
     public short getChainIncomingReadOffset() {
-        return tempShorts[IDX_CHAINING_INCOMING_READ_OFFSET];
+        return Util.getShort(tempBytes, IDX_CHAINING_INCOMING_READ_OFFSET);
     }
 
     public void resetChainIncomingReadOffset() {
-        tempShorts[IDX_CHAINING_INCOMING_READ_OFFSET] = 0;
+        Util.setShort(tempBytes, IDX_CHAINING_INCOMING_READ_OFFSET, (short) 0);
     }
 
-    public void increaseChainIncomingReadOffset(short amt) {
-        tempShorts[IDX_CHAINING_INCOMING_READ_OFFSET] += amt;
+    public void increaseChainIncomingReadOffset(short numBytes) {
+        Util.setShort(tempBytes, IDX_CHAINING_INCOMING_READ_OFFSET,
+                (short)(Util.getShort(tempBytes, IDX_CHAINING_INCOMING_READ_OFFSET) + numBytes));
     }
 
     public byte getPinTriesSinceReset() {
-        return pinRetrySinceResetStorage[0];
+        return tempBytes[IDX_PIN_RETRIES_SINCE_RESET];
     }
 
     public void clearPinTriesSinceReset() {
-        pinRetrySinceResetStorage[0] = 0;
+        tempBytes[IDX_PIN_RETRIES_SINCE_RESET] = 0;
     }
 
     public void incrementPinTriesSinceReset() {
-        pinRetrySinceResetStorage[0]++;
+        tempBytes[IDX_PIN_RETRIES_SINCE_RESET]++;
     }
 
     public void setPlatformKeySet() {
-        tempBools[BOOL_IDX_RESET_PLATFORM_KEY_SET] = true;
+        setBoolByIdx(BOOL_IDX_RESET_PLATFORM_KEY_SET, true);
     }
 
     public boolean isPlatformKeySet() {
-        return tempBools[BOOL_IDX_RESET_PLATFORM_KEY_SET];
+        return getBoolByIdx(BOOL_IDX_RESET_PLATFORM_KEY_SET);
     }
 
     public void clearOnDeselect() {
-        clearIterationPointers();
-
-        tempBools[BOOL_IDX_RESET_PLATFORM_KEY_SET] = false;
-        tempShorts[IDX_CONTINUATION_OUTGOING_WRITE_OFFSET] = 0;
-        tempShorts[IDX_PIN_PROTOCOL_IN_USE] = 0;
+        // Note: fill starts from index 1, skipping the pin-retries-since-reset counter
+        Util.arrayFillNonAtomic(tempBytes, (short) 1, NUM_RESET_BYTES, (byte) 0x00);
     }
 
     public void readyStoredVars() {
-        tempShorts[IDX_TEMP_BUF_IDX_STORAGE] = 0;
-        tempShorts[IDX_TEMP_BUF_IDX_LEN] = -1;
+        setStoredVars((short) 0, (byte) -1);
     }
 
-    public void setStoredVars(short idx, short len) {
-        tempShorts[IDX_TEMP_BUF_IDX_STORAGE] = idx;
-        tempShorts[IDX_TEMP_BUF_IDX_LEN] = len;
+    public void setStoredVars(short idx, byte len) {
+        Util.setShort(tempBytes, IDX_TEMP_BUF_IDX_STORAGE, idx);
+        tempBytes[IDX_TEMP_BUF_IDX_LEN] = len;
     }
 
     public short getStoredIdx() {
-        return tempShorts[IDX_TEMP_BUF_IDX_STORAGE];
+        return Util.getShort(tempBytes, IDX_TEMP_BUF_IDX_STORAGE);
     }
 
-    public short getStoredLen() {
-        return tempShorts[IDX_TEMP_BUF_IDX_LEN];
-    }
-
-    public void resetFoundKeyMatch() {
-        tempBools[BOOL_IDX_RESET_FOUND_KEY_MATCH] = false;
-    }
-
-    public boolean hasFoundKeyMatch() {
-        return tempBools[BOOL_IDX_RESET_FOUND_KEY_MATCH];
-    }
-
-    public void setFoundKeyMatch() {
-        tempBools[BOOL_IDX_RESET_FOUND_KEY_MATCH] = true;
+    public byte getStoredLen() {
+        return tempBytes[IDX_TEMP_BUF_IDX_LEN];
     }
 
     public void defaultOptions() {
-        tempBools[BOOL_IDX_OPTION_UP] = true;
-        tempBools[BOOL_IDX_OPTION_UV] = false;
-        tempBools[BOOL_IDX_OPTION_RK] = false;
+        setBoolByIdx(BOOL_IDX_OPTION_UP, true);
+        setBoolByIdx(BOOL_IDX_OPTION_UV, false);
+        setBoolByIdx(BOOL_IDX_OPTION_RK, false);
     }
 
     public boolean hasRKOption() {
-        return tempBools[BOOL_IDX_OPTION_RK];
+        return getBoolByIdx(BOOL_IDX_OPTION_RK);
     }
 
     public void setRKOption(boolean val) {
-        tempBools[BOOL_IDX_OPTION_RK] = val;
+        setBoolByIdx(BOOL_IDX_OPTION_RK, val);
     }
 
     public boolean hasUPOption() {
-        return tempBools[BOOL_IDX_OPTION_UP];
+        return getBoolByIdx(BOOL_IDX_OPTION_UP);
     }
 
     public void setUPOption(boolean val) {
-        tempBools[BOOL_IDX_OPTION_UP] = val;
+        setBoolByIdx(BOOL_IDX_OPTION_UP, val);
     }
 
     public boolean hasUVOption() {
-        return tempBools[BOOL_IDX_OPTION_UV];
+        return getBoolByIdx(BOOL_IDX_OPTION_UV);
     }
 
     public void setUVOption(boolean val) {
-        tempBools[BOOL_IDX_OPTION_UV] = val;
+        setBoolByIdx(BOOL_IDX_OPTION_UV, val);
     }
 
-    public short getAssertIterationPointer() {
-        return tempShorts[IDX_ASSERT_ITERATION_POINTER];
+    public byte getAssertIterationPointer() {
+        return tempBytes[IDX_ASSERT_ITERATION_POINTER];
     }
 
-    public void setAssertIterationPointer(short val) {
-        tempShorts[IDX_ASSERT_ITERATION_POINTER] = val;
+    public void setAssertIterationPointer(byte val) {
+        tempBytes[IDX_ASSERT_ITERATION_POINTER] = val;
     }
 
     public void setOutgoingContinuation(short offset, short remaining) {
-        tempShorts[IDX_CONTINUATION_OUTGOING_WRITE_OFFSET] = offset;
-        tempShorts[IDX_CONTINUATION_OUTGOING_REMAINING] = remaining;
+        Util.setShort(tempBytes, IDX_CONTINUATION_OUTGOING_WRITE_OFFSET, offset);
+        Util.setShort(tempBytes, IDX_CONTINUATION_OUTGOING_REMAINING, remaining);
     }
 
     public void clearOutgoingContinuation() {
-        tempShorts[IDX_CONTINUATION_OUTGOING_WRITE_OFFSET] = 0;
-        tempShorts[IDX_CONTINUATION_OUTGOING_REMAINING] = 0;
+        setOutgoingContinuation((short) 0, (short) 0);
     }
 
     public short getOutgoingContinuationOffset() {
-        return tempShorts[IDX_CONTINUATION_OUTGOING_WRITE_OFFSET];
+        return Util.getShort(tempBytes, IDX_CONTINUATION_OUTGOING_WRITE_OFFSET);
     }
 
     public short getOutgoingContinuationRemaining() {
-        return tempShorts[IDX_CONTINUATION_OUTGOING_REMAINING];
+        return Util.getShort(tempBytes, IDX_CONTINUATION_OUTGOING_REMAINING);
     }
 
-    public byte getStoredCommandByte() {
-        return (byte) tempShorts[IDX_STORED_COMMAND_BYTE];
+    public boolean isResetCommandSentSincePowerOn() {
+        return getBoolByIdx(BOOL_IDX_RESET_RECEIVED_SINCE_POWERON);
     }
 
-    public void setStoredCommandByteIfNone(byte v) {
-        if (tempShorts[IDX_STORED_COMMAND_BYTE] == 0x00) {
-            tempShorts[IDX_STORED_COMMAND_BYTE] = (short)(0xFF & v);
+    public void setResetCommandSentSincePowerOn() {
+        setBoolByIdx(BOOL_IDX_RESET_RECEIVED_SINCE_POWERON, true);
+    }
+
+    public byte getRPIterationPointer() {
+        if ((tempBytes[IDX_CRED_RP_ITERATION_POINTER] & 0x80) == 0) {
+            return 0x00;
         }
+        return (byte)(tempBytes[IDX_CRED_RP_ITERATION_POINTER] & 0x7F);
     }
 
-    public void clearStoredCommandByte() {
-        tempShorts[IDX_STORED_COMMAND_BYTE] = 0x00;
+    public void setRPIterationPointer(byte val) {
+        tempBytes[IDX_CRED_RP_ITERATION_POINTER] = (byte)(val | 0x80);
     }
 
-    public boolean isResetCommandSentSincePoweron() {
-        return tempBools[BOOL_IDX_RESET_RECEIVED_SINCE_POWERON];
+    public byte getCredIterationPointer() {
+        if ((tempBytes[IDX_CRED_RP_ITERATION_POINTER] & 0x80) != 0) {
+            return 0x00;
+        }
+        return tempBytes[IDX_CRED_RP_ITERATION_POINTER];
     }
 
-    public void setResetCommandSentSincePoweron() {
-        tempBools[BOOL_IDX_RESET_RECEIVED_SINCE_POWERON] = true;
-    }
-
-    public short getRPIterationPointer() {
-        return tempShorts[IDX_RP_ITERATION_POINTER];
-    }
-
-    public void setRPIterationPointer(short val) {
-        tempShorts[IDX_RP_ITERATION_POINTER] = val;
-    }
-
-    public short getCredIterationPointer() {
-        return tempShorts[IDX_CRED_ITERATION_POINTER];
-    }
-
-    public void setCredIterationPointer(short val) {
-        tempShorts[IDX_CRED_ITERATION_POINTER] = val;
+    public void setCredIterationPointer(byte val) {
+        tempBytes[IDX_CRED_RP_ITERATION_POINTER] = val;
     }
 
     public void setPinProtocolInUse(byte pinProtocol, byte pinPermissions) {
-        tempShorts[IDX_PIN_PROTOCOL_IN_USE] = (short)(pinPermissions << 8 | pinProtocol);
+        tempBytes[IDX_PIN_PROTOCOL_NUMBER_AND_PERMISSIONS] = (byte)((pinProtocol << 6) | (pinPermissions & 0x3F));
     }
 
     public byte getPinProtocolInUse() {
-        return (byte)(tempShorts[IDX_PIN_PROTOCOL_IN_USE] & 0xFF);
+        return (byte)((tempBytes[IDX_PIN_PROTOCOL_NUMBER_AND_PERMISSIONS] & 0xC0) >> 6);
     }
 
     public byte getPinPermissions() {
-        return (byte)(tempShorts[IDX_PIN_PROTOCOL_IN_USE] >> 8);
+        return (byte)(tempBytes[IDX_PIN_PROTOCOL_NUMBER_AND_PERMISSIONS] & 0x3F);
     }
 }

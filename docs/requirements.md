@@ -38,7 +38,7 @@ HOWEVER, there do exist cards that support the appropriate algorithms atop Javac
   for the above-mentioned secure channel)
 - RandomData `ALG_SECURE_RANDOM` (used for key generation etc. Note `ALG_KEYGENERATION` is not
   used, that's too new)
-- Almost 2k total memory including a small amount of `MEMORY_TYPE_TRANSIENT_RESET` and a 
+- Almost 2k total memory including ~16 bytes of `MEMORY_TYPE_TRANSIENT_RESET` and a
   larger amount of `MEMORY_TYPE_TRANSIENT_DESELECT` (there is an optional boolean to minimize
   memory usage in the code - this cuts RAM usage down to around 128 bytes at the cost of flash wear)
 - About 200 bytes max commit capacity, used for atomically creating and updating resident
