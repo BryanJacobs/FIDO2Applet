@@ -52,6 +52,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private static final short NUM_RESIDENT_KEY_SLOTS = 50;
     /**
+     * Length of initialization vector for resident key encryption/decryption
+     */
+    private static final short RESIDENT_KEY_IV_LEN = 16;
+    /**
      * How long an RP identifier is allowed to be for a resident key. Values longer than this are truncated.
      * The CTAP2.1 standard says the minimum value for this is 32.
      */
@@ -254,6 +258,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     private TransientStorage transientStorage;
 
     // Data storage for resident keys
+    /**
+     * Initialization vectors (random) used for encrypting resident key data
+     */
+    private final byte[] residentKeyIVs;
     /**
      * Encrypted-as-usual credential ID fields for resident keys, just like we'd receive in incoming blocks
      * from the platform if they were non-resident
@@ -762,6 +770,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     // ... but it might not match the user ID we're requesting...
                     if (userIdLen == residentKeyUserIdLengths[i]) {
                         // DECRYPT the encrypted user ID we stored for this RK, so we can compare
+                        initSymmetricCryptoForRK(i);
                         symmetricUnwrap(residentKeyUserIds, (short) (i * MAX_USER_ID_LENGTH), MAX_USER_ID_LENGTH,
                                 scratch, scratchUserIdOffset);
 
@@ -799,14 +808,18 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             JCSystem.beginTransaction();
             boolean ok = false;
             try {
+                random.generateData(residentKeyIVs, (short) (targetRKSlot * RESIDENT_KEY_IV_LEN), RESIDENT_KEY_IV_LEN);
                 Util.arrayCopy(privateScratch, (short) 0,
                         residentKeyData, (short) (targetRKSlot * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN);
                 residentKeyUserIdLengths[targetRKSlot] = (byte) userIdLen;
+                initSymmetricCryptoForRK(targetRKSlot);
                 symmetricWrap(scratch, scratchUserIdOffset, MAX_USER_ID_LENGTH,
                         residentKeyUserIds, (short) (targetRKSlot * MAX_USER_ID_LENGTH));
                 residentKeyRPIdLengths[targetRKSlot] = (byte) rpIdLen;
+                initSymmetricCryptoForRK(targetRKSlot);
                 symmetricWrap(scratch, scratchRpIdOffset, MAX_RESIDENT_RP_ID_LENGTH,
                         residentKeyRPIds, (short) (targetRKSlot * MAX_RESIDENT_RP_ID_LENGTH));
+                initSymmetricCryptoForRK(targetRKSlot);
                 symmetricWrap(scratch, (short)(scratchPublicKeyOffset + 1), (short)(KEY_POINT_LENGTH * 2),
                         residentKeyPublicKeys, (short) (targetRKSlot * KEY_POINT_LENGTH * 2));
                 residentKeyValidity[targetRKSlot] = true;
@@ -1817,8 +1830,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     bufferMem, outputIdx, (short) CannedCBOR.SINGLE_ID_MAP_PREAMBLE.length);
             outputIdx = encodeIntLenTo(bufferMem, outputIdx, uidLen, true);
             // Pack the user ID from the resident key into the buffer, after decrypting it
+            initSymmetricCryptoForRK(rkMatch);
             symmetricUnwrap(residentKeyUserIds, (short) (rkMatch * MAX_USER_ID_LENGTH), MAX_USER_ID_LENGTH,
-                    buffer, outputIdx);
+                    bufferMem, outputIdx);
             outputIdx += uidLen; // only advance by the ACTUAL length of the UID, not the padded size
         }
 
@@ -2829,6 +2843,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 }
 
                 // Now that we have permission, check the user ID
+                initSymmetricCryptoForRK(i);
                 symmetricUnwrap(residentKeyUserIds, (short)(i * MAX_USER_ID_LENGTH), MAX_USER_ID_LENGTH,
                         scratch, uidOffset);
                 if (Util.arrayCompare(scratch, uidOffset,
@@ -3097,6 +3112,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 writeOffset = encodeIntLenTo(outBuf, writeOffset, userIdLength, true);
 
                 // The user ID needs to be fully decrypted (MAX_USER_ID_LENGTH bytes)
+                initSymmetricCryptoForRK(rkIndex);
                 symmetricUnwrap(residentKeyUserIds, (short)(MAX_USER_ID_LENGTH * rkIndex), MAX_USER_ID_LENGTH,
                         outBuf, writeOffset);
                 // ... but we only advance the write offset by however many bytes of it are really valid
@@ -3111,6 +3127,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         outBuf, writeOffset, (short) CannedCBOR.PUBLIC_KEY_ALG_PREAMBLE.length);
                 // We've written a bit over 128 bytes now (<=64 user, 64 credential, <32 CBOR)
                 // it's safe for us to use the last 64 bytes of the APDU buffer to unpack the public key
+                initSymmetricCryptoForRK(rkIndex);
                 symmetricUnwrap(residentKeyPublicKeys, (short)(rkIndex * KEY_POINT_LENGTH * 2), (short)(KEY_POINT_LENGTH * 2),
                         outBuf, (short) 192);
                 writeOffset = writePubKey(outBuf, writeOffset, outBuf, (short) 192);
@@ -3221,6 +3238,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         writeOffset = encodeIntLenTo(outBuf, writeOffset, rpIdLength, false);
 
         // Decrypt the full RP ID, ...
+        initSymmetricCryptoForRK(rkIndex);
         symmetricUnwrap(residentKeyRPIds, (short) (MAX_RESIDENT_RP_ID_LENGTH * rkIndex), MAX_RESIDENT_RP_ID_LENGTH,
                 outBuf, writeOffset);
         // ... but only advance the write cursor by as much of it is valid
@@ -3242,6 +3260,16 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         sendNoCopy(apdu, writeOffset);
+    }
+
+    /**
+     * Initializes symmetric cryptography using the IV appropriate to the given resident key
+     */
+    private void initSymmetricCryptoForRK(short rkIndex) {
+        symmetricWrapper.init(wrappingKey, Cipher.MODE_ENCRYPT,
+                residentKeyIVs, (short) (rkIndex * RESIDENT_KEY_IV_LEN), RESIDENT_KEY_IV_LEN);
+        symmetricUnwrapper.init(wrappingKey, Cipher.MODE_DECRYPT,
+                residentKeyIVs, (short) (rkIndex * RESIDENT_KEY_IV_LEN), RESIDENT_KEY_IV_LEN);
     }
 
     /**
@@ -4449,6 +4477,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         wrappingIV = new byte[16];
         wrappingKey = getTransientAESKey(); // Our most important treasure, from which all other crypto is born...
         // Resident key data, of course, must all be in flash. Losing that on reset would be Bad
+        residentKeyIVs = new byte[NUM_RESIDENT_KEY_SLOTS * RESIDENT_KEY_IV_LEN];
         residentKeyData = new byte[NUM_RESIDENT_KEY_SLOTS * CREDENTIAL_ID_LEN];
         residentKeyValidity = new boolean[NUM_RESIDENT_KEY_SLOTS];
         for (short i = 0; i < NUM_RESIDENT_KEY_SLOTS; i++) {
