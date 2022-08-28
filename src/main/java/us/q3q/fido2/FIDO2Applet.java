@@ -3877,8 +3877,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         // BAD PIN
         wrappingKey.clearKey();
         forceInitKeyAgreementKey();
+        if (pinRetryCounter.getRetryCount(pinRetryIndex) == 0) {
+            // You've gone and done it now. You've failed so many times that the authenticator will permanently lock itself.
+            resetWrappingKey(); // there won't be a situation where we can use this again, so clear it for safety
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_BLOCKED);
+        }
         if (transientStorage.getPinTriesSinceReset() == PIN_TRIES_PER_RESET) {
-            // You've gone and done it now. Need to power the authenticator off and on again to try again.
+            // The authenticator isn't permanently blocked, but it will need to be powered off before trying again
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_BLOCKED);
         }
         sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_INVALID);
