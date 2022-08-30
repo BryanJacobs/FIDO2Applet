@@ -142,6 +142,10 @@ The code I wrote may look ugly, and it's certainly not perfect, but it is
 reasonably efficient in execution on in-order processors with very limited
 stacks.
 
+A perfect example of this is the BufferManager class. It looks like a mess, but
+it makes it possible to use both sides of the APDU buffer as transient memory,
+avoiding flash wear on very memory-constrained devices.
+
 ## Why is the smartcard giving me OPERATION_DENIED when I try to create a resident key?
 
 You haven't set a PIN. You can turn off this feature in the code, or you can
@@ -176,8 +180,8 @@ On every makeCred or getAssertion operation, the app will:
 - Set an elliptic curve private key object
 
 The applet will try to allocate the EC private key object in RAM, but will fall back to flash if
-the smartcard doesn't support RAM-backed allocations. The flash-stored counter is wear-leveled
-across 67 bytes.
+the smartcard doesn't support RAM-backed allocations or doesn't have enough RAM. The flash-stored
+counter is wear-leveled across 67 bytes.
 
 On every powerup or unsuccessful PIN attempt, the app will set an elliptic curve private key object.
 
@@ -190,13 +194,10 @@ initial flash writes when installing or resetting the applet.
 
 Overall, this applet is pretty great at keeping everything in RAM, and you're much more likely
 to be given trouble by software bugs than by your flash write endurance. Flash is never used as
-writable buffer space.
-
-There is an optional boolean in the code which throws this all out the window, and instead minimizes
-memory usage - cutting it from around 2k to around 128 bytes by using flash for many things. When you toggle this,
-every incoming getAssertion call will result in some flash usage, every chained request or response will use
-flash, etc etc. Great care is still taken to use RAM where possible, but it's just not possible to serve a 1024-byte
-request in 128 bytes of RAM.
+writable buffer space if your smartcard has at least 2k of RAM, is only used for long request
+chaining if your smartcard has 1k of RAM, and is only used for "ordinary" requests if you're under
+around 200 bytes of RAM. Great care has been taken to make sure the most common operations like
+getPinToken and getKeyAgreement don't write to flash.
 
 ## Can I update the app and maintain the validity of my previously-issued credentials?
 

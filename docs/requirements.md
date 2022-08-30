@@ -21,8 +21,9 @@ operation. But these processors don't even have 32-bit integers, much less the
 not feasible, sorry.
 
 HOWEVER, there do exist cards that support the appropriate algorithms atop Javacard
-3.0.1. Those will work. In fact, the OMNI Ring itself is one of those! Check
-[JCAlgTest](https://github.com/crocs-muni/JCAlgTest) on your target card. You need:
+3.0.1. Those will work. In fact, the OMNI Ring itself is one of those, and the app works
+there! Check [JCAlgTest](https://github.com/crocs-muni/JCAlgTest) on your target card.
+You need:
 
 - KeyBuilder `LENGTH_AES_256` (symmetric crypto for credential ID wrapping BUT also used
   for communication between the card and the platform)
@@ -38,9 +39,9 @@ HOWEVER, there do exist cards that support the appropriate algorithms atop Javac
   for the above-mentioned secure channel)
 - RandomData `ALG_SECURE_RANDOM` (used for key generation etc. Note `ALG_KEYGENERATION` is not
   used, that's too new)
-- Almost 2k total memory including ~16 bytes of `MEMORY_TYPE_TRANSIENT_RESET` and a
-  larger amount of `MEMORY_TYPE_TRANSIENT_DESELECT` (there is an optional boolean to minimize
-  memory usage in the code - this cuts RAM usage down to around 128 bytes at the cost of flash wear)
+- Some memory, including ~14 bytes (yes, bytes) of `MEMORY_TYPE_TRANSIENT_RESET` and a
+  larger amount of `MEMORY_TYPE_TRANSIENT_DESELECT` (ideally at least 134 bytes). The less RAM
+  you have, the more flash wear will ensue.
 - About 200 bytes max commit capacity, used for atomically creating and updating resident
   keys
 - An amount of `MEMORY_TYPE_PERSISTENT` sufficient to hold the app and the resident keys, etc
@@ -67,8 +68,9 @@ So to summarize, let's discuss the full requirements on the authenticator side:
 - Ideally, support for EC TRANSIENT_DESELECT keys, as otherwise you'll get flash usage 
   every time the app is selected
 
-An example of a card I've tested working is the NXP J3H145, but many
-others should work fine too.
+Examples of cards I've tested working are the NXP J3H145 (tons of RAM, nice card)
+and the Mclear OMNI (advertises 8k RAM but only makes 276 bytes available for the app!).
+Many other cards should work fine too.
 
 # Platform-side requirements
 

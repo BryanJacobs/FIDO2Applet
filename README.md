@@ -6,10 +6,10 @@ This repository contains sources for a FIDO2 CTAP2.1 compatible(-ish)
 applet targeting the Javacard Classic system, version 3.0.4. In a
 nutshell, this lets you take a smartcard, install an app onto it,
 and have it work as a FIDO2 authenticator device with a variety of
-features. You can generate and use OpenSSH `ecdsa-sk` type keys. You
-can securely unlock a LUKS encrypted disk with `systemd-cryptenroll`.
-You can log in to a Linux system locally with
-[pam-u2f](https://github.com/Yubico/pam-u2f).
+features. You can generate and use OpenSSH `ecdsa-sk` type keys, including
+ones you carry with you on the key (`-O resident`). You can securely unlock
+a LUKS encrypted disk with `systemd-cryptenroll`. You can log in to a Linux
+system locally with [pam-u2f](https://github.com/Yubico/pam-u2f).
 
 This applet does **not** presently implement U2F support, for
 [valid reasons](docs/FAQ.md). Note that `pam-u2f`, despite its name,
@@ -79,6 +79,6 @@ I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/s
 | APDU chaining                  | Supported                                               |
 | Extended APDUs                 | Supported                                               |
 | Performance                    | Adequate                                                |
-| Resource consumption           | Constant, but unoptimized                               |
+| Resource consumption           | Partial optimization avoiding flash wear                |
 | Bugs                           | Yes                                                     |
 | Code quality                   | No                                                      |

@@ -21,44 +21,40 @@ public final class TransientStorage {
      */
     private static final byte IDX_TEMP_BUF_IDX_LEN = 3; // 1 byte
     /**
-     * How full the scratch buffer is
-     */
-    private static final byte IDX_SCRATCH_ALLOC_SIZE = 4; // 2 bytes
-    /**
      * A permissions bitfield for the currently set PIN token
      *
      * The lower six bits are used for FIDO 2 permissions. The two most significant bits encode the PIN protocol number.
      */
-    private static final byte IDX_PIN_PROTOCOL_NUMBER_AND_PERMISSIONS = 6; // 1 byte
+    private static final byte IDX_PIN_PROTOCOL_NUMBER_AND_PERMISSIONS = 4; // 1 byte
     /**
      * Cred or RP iteration index, used when iterating through creds or RPs with credManagement commands
      * Disambiguated by the most significant bit: 1 for RPs, 0 for creds
      */
-    private static final byte IDX_CRED_RP_ITERATION_POINTER = 7; // 1 byte
+    private static final byte IDX_CRED_RP_ITERATION_POINTER = 5; // 1 byte
     /**
      * Index of next credential to consider when iterating through assertions with getNextAssertion commands
      */
-    private static final byte IDX_ASSERT_ITERATION_POINTER = 8; // 1 byte
+    private static final byte IDX_ASSERT_ITERATION_POINTER = 6; // 1 byte
     /**
      * When writing an overlong response using chained APDUs, stores the position we're up to in the outgoing buffer
      */
-    private static final byte IDX_CONTINUATION_OUTGOING_WRITE_OFFSET = 9; // 2 bytes
+    private static final byte IDX_CONTINUATION_OUTGOING_WRITE_OFFSET = 7; // 2 bytes
     /**
      * When writing an overlong response using chained APDUs, stores the remaining bytes in the outgoing buffer
      */
-    private static final byte IDX_CONTINUATION_OUTGOING_REMAINING = 11; // 2 bytes
+    private static final byte IDX_CONTINUATION_OUTGOING_REMAINING = 9; // 2 bytes
     /**
      * When reading an overlong incoming request using chained APDUs, stores the fill level of the incoming buffer
      */
-    private static final byte IDX_CHAINING_INCOMING_READ_OFFSET = 13; // 2 bytes
+    private static final byte IDX_CHAINING_INCOMING_READ_OFFSET = 11; // 2 bytes
     /**
      * Giant boolean bitfield that holds all the BOOL_IDX variables below
      */
-    private static final byte IDX_BOOLEAN_OMNIBUS = 15; // 1 byte
+    private static final byte IDX_BOOLEAN_OMNIBUS = 13; // 1 byte
     /**
      * How many bytes long the temp storage should be
      */
-    private static final byte NUM_RESET_BYTES = 16;
+    private static final byte NUM_RESET_BYTES = 14;
 
     // boolean bit indices held in BOOLEAN_OMNIBUS byte above
     /**
@@ -120,21 +116,6 @@ public final class TransientStorage {
 
     public void clearIterationPointers() {
         tempBytes[IDX_CRED_RP_ITERATION_POINTER] = 0;
-    }
-
-    public short getAndIncreaseScratchFillLevel(short numBytes) {
-        short curVal = Util.getShort(tempBytes, IDX_SCRATCH_ALLOC_SIZE);
-        Util.setShort(tempBytes, IDX_SCRATCH_ALLOC_SIZE, (short)(curVal + numBytes));
-        return curVal;
-    }
-
-    public void decreaseScratchFillLevel(short numBytes) {
-        Util.setShort(tempBytes, IDX_SCRATCH_ALLOC_SIZE,
-                (short)(Util.getShort(tempBytes, IDX_SCRATCH_ALLOC_SIZE) - numBytes));
-    }
-
-    public void clearScratchFillLevel() {
-        Util.setShort(tempBytes, IDX_SCRATCH_ALLOC_SIZE, (short) 0);
     }
 
     public void clearAssertIterationPointer() {
