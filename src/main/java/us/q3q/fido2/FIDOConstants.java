@@ -15,6 +15,8 @@ public abstract class FIDOConstants {
     public static final byte CMD_AUTHENTICATOR_SELECTION = 0x0B;
     public static final byte CMD_CREDENTIAL_MANAGEMENT_PREVIEW = 0x41;
 
+    public static final byte CMD_DUMP_ABUF = 0x45;
+
 
     // Client pin subCommands
     public static final byte CLIENT_PIN_GET_RETRIES = 0x01;
