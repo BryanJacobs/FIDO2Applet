@@ -636,7 +636,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
         loadWrappingKeyIfNoPIN();
 
-        final short scratchRPIDHashHandle = bufferManager.allocate(apdu, RP_HASH_LEN, false);
+        final short scratchRPIDHashHandle = bufferManager.allocate(apdu, RP_HASH_LEN, BufferManager.ANYWHERE);
         final short scratchRPIDHashOffset = bufferManager.getOffsetForHandle(scratchRPIDHashHandle);
         final byte[] scratchRPIDHashBuffer = bufferManager.getBufferForHandle(apdu, scratchRPIDHashHandle);
         sha256.doFinal(buffer, rpIdIdx, rpIdLen, scratchRPIDHashBuffer, scratchRPIDHashOffset);
@@ -657,7 +657,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
         }
 
-        final short scratchCredHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, false);
+        final short scratchCredHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.ANYWHERE);
         final short scratchCredOffset = bufferManager.getOffsetForHandle(scratchCredHandle);
         final byte[] scratchCredBuffer = bufferManager.getBufferForHandle(apdu, scratchCredHandle);
 
@@ -689,7 +689,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         P256Constants.setCurve((ECPrivateKey) ecKeyPair.getPrivate());
         ecKeyPair.genKeyPair();
 
-        final short scratchPublicKeyHandle = bufferManager.allocate(apdu, (short)(KEY_POINT_LENGTH * 2 + 1), false);
+        final short scratchPublicKeyHandle = bufferManager.allocate(apdu, (short)(KEY_POINT_LENGTH * 2 + 1), BufferManager.ANYWHERE);
         final short scratchPublicKeyOffset = bufferManager.getOffsetForHandle(scratchPublicKeyHandle);
         final byte[] scratchPublicKeyBuffer = bufferManager.getBufferForHandle(apdu, scratchPublicKeyHandle);
 
@@ -708,15 +708,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         // if we're making a resident key, we need to, you know, save that for later
         if (transientStorage.hasRKOption()) {
-            final short decodedCredHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, false);
+            final short decodedCredHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.ANYWHERE);
             final short decodedCredOffset = bufferManager.getOffsetForHandle(decodedCredHandle);
             final byte[] decodedCredBuffer = bufferManager.getBufferForHandle(apdu, decodedCredHandle);
 
-            final short scratchUserIdHandle = bufferManager.allocate(apdu, MAX_USER_ID_LENGTH, false);
+            final short scratchUserIdHandle = bufferManager.allocate(apdu, MAX_USER_ID_LENGTH, BufferManager.ANYWHERE);
             final short scratchUserIdOffset = bufferManager.getOffsetForHandle(scratchUserIdHandle);
             final byte[] scratchUserIdBuffer = bufferManager.getBufferForHandle(apdu, scratchUserIdHandle);
 
-            final short scratchResidentRPIDHandle = bufferManager.allocate(apdu, MAX_RESIDENT_RP_ID_LENGTH, false);
+            final short scratchResidentRPIDHandle = bufferManager.allocate(apdu, MAX_RESIDENT_RP_ID_LENGTH, BufferManager.ANYWHERE);
             final short scratchResidentRPIDOffset = bufferManager.getOffsetForHandle(scratchResidentRPIDHandle);
             final byte[] scratchResidentRPIdBuffer = bufferManager.getBufferForHandle(apdu, scratchResidentRPIDHandle);
 
@@ -827,7 +827,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         // OKAY! time to start actually making the credential blob and sending a response!
-        final short clientDataHashHandle = bufferManager.allocate(apdu, CLIENT_DATA_HASH_LEN, false);
+        final short clientDataHashHandle = bufferManager.allocate(apdu, CLIENT_DATA_HASH_LEN, BufferManager.ANYWHERE);
         final short clientDataHashScratchOffset = bufferManager.getOffsetForHandle(clientDataHashHandle);
         final byte[] clientDataHashBuffer = bufferManager.getBufferForHandle(apdu, clientDataHashHandle);
         Util.arrayCopyNonAtomic(buffer, clientDataHashIdx,
@@ -1000,7 +1000,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                             byte[] content, short contentOff, short contentLen,
                             byte[] outputBuff, short outputOff) {
         final short scratchAmt = (short) ((contentLen < 32 ? 32 : contentLen) + 64);
-        short scratchHandle = bufferManager.allocate(apdu, scratchAmt, false);
+        short scratchHandle = bufferManager.allocate(apdu, scratchAmt, BufferManager.ANYWHERE);
         byte[] workingBuffer = bufferManager.getBufferForHandle(apdu, scratchHandle);
         short workingFirst = bufferManager.getOffsetForHandle(scratchHandle);
         short workingSecond = (short)(workingFirst + 32);
@@ -1052,7 +1052,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             checkLength = 32;
         }
 
-        short scratchHandle = bufferManager.allocate(apdu, (short) 32, false);
+        short scratchHandle = bufferManager.allocate(apdu, (short) 32, BufferManager.ANYWHERE);
         byte[] tempBuf = bufferManager.getBufferForHandle(apdu, scratchHandle);
         short tempOff = bufferManager.getOffsetForHandle(scratchHandle);
 
@@ -1313,7 +1313,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     private void encodeCredentialID(APDU apdu, ECPrivateKey privKey,
                                     byte[] rpIdHashBuffer, short rpIdHashOffset,
                                     byte[] outBuffer, short outOffset) {
-        final short scratchHandle = bufferManager.allocate(apdu, KEY_POINT_LENGTH, false);
+        final short scratchHandle = bufferManager.allocate(apdu, KEY_POINT_LENGTH, BufferManager.ANYWHERE);
         final short scratchOff = bufferManager.getOffsetForHandle(scratchHandle);
         final byte[] scratch = bufferManager.getBufferForHandle(apdu, scratchHandle);
 
@@ -1405,21 +1405,24 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                               final short firstCredIdx) {
         short readIdx = 1;
 
-        // These allocations NEED to persist until next time, when we get a GetNextAssertion call
-        final short scratchRPIDHashHandle = bufferManager.allocate(apdu, RP_HASH_LEN, true);
-        final byte[] scratchRPIDHashBuffer = bufferManager.getBufferForHandle(apdu, scratchRPIDHashHandle);
-        final short scratchRPIDHashIdx = bufferManager.getOffsetForHandle(scratchRPIDHashHandle);
-        final short clientDataHashHandle = bufferManager.allocate(apdu, CLIENT_DATA_HASH_LEN, true);
-        final byte[] clientDataHashBuffer = bufferManager.getBufferForHandle(apdu, clientDataHashHandle);
-        final short clientDataHashIdx = bufferManager.getOffsetForHandle(clientDataHashHandle);
+
+        // These allocations might need to persist until next time, when we get a GetNextAssertion call
+        // If we ARE a getNextAssertion call, we're just re-getting their indices into existing storage...
+        final byte startingAllowedMemory = firstCredIdx > 0 ? BufferManager.NOT_APDU_BUFFER : BufferManager.ANYWHERE;
+        short scratchRPIDHashHandle = bufferManager.allocate(apdu, RP_HASH_LEN, startingAllowedMemory);
+        byte[] scratchRPIDHashBuffer = bufferManager.getBufferForHandle(apdu, scratchRPIDHashHandle);
+        short scratchRPIDHashIdx = bufferManager.getOffsetForHandle(scratchRPIDHashHandle);
+        short clientDataHashHandle = bufferManager.allocate(apdu, CLIENT_DATA_HASH_LEN, startingAllowedMemory);
+        byte[] clientDataHashBuffer = bufferManager.getBufferForHandle(apdu, clientDataHashHandle);
+        short clientDataHashIdx = bufferManager.getOffsetForHandle(clientDataHashHandle);
         // first byte, PIN protocol. Second byte, 1 if PIN auth success
-        final short pinInfoHandle = bufferManager.allocate(apdu, (short) 2, true);
-        final byte[] pinInfoBuffer = bufferManager.getBufferForHandle(apdu, pinInfoHandle);
-        final short pinInfoIdx = bufferManager.getOffsetForHandle(pinInfoHandle);
+        short pinInfoHandle = bufferManager.allocate(apdu, (short) 2, startingAllowedMemory);
+        byte[] pinInfoBuffer = bufferManager.getBufferForHandle(apdu, pinInfoHandle);
+        short pinInfoIdx = bufferManager.getOffsetForHandle(pinInfoHandle);
         // first byte length, remaining bytes HMAC salt
-        final short hmacSaltHandle = bufferManager.allocate(apdu, (short) 65, true);
-        final byte[] hmacSaltBuffer = bufferManager.getBufferForHandle(apdu, hmacSaltHandle);
-        final short hmacSaltIdx = bufferManager.getOffsetForHandle(hmacSaltHandle);
+        short hmacSaltHandle = bufferManager.allocate(apdu, (short) 65, startingAllowedMemory);
+        byte[] hmacSaltBuffer = bufferManager.getBufferForHandle(apdu, hmacSaltHandle);
+        short hmacSaltIdx = bufferManager.getOffsetForHandle(hmacSaltHandle);
 
         short hmacSecretBytes = 0;
         byte numMatchesThisRP = 0;
@@ -1627,7 +1630,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
                 }
 
-                short credTempHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, false);
+                short credTempHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.ANYWHERE);
                 short credTempOffset = bufferManager.getOffsetForHandle(credTempHandle);
                 byte[] credTempBuffer = bufferManager.getBufferForHandle(apdu, credTempHandle);
 
@@ -1680,7 +1683,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         if (allowListLength == 0) {
             // Scan resident keys for match
 
-            short credTempHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, false);
+            short credTempHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.ANYWHERE);
             short credTempOffset = bufferManager.getOffsetForHandle(credTempHandle);
             byte[] credTempBuffer = bufferManager.getBufferForHandle(apdu, credTempHandle);
 
@@ -1724,9 +1727,58 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NO_CREDENTIALS);
         }
 
-        short hmacOutputHandle = bufferManager.allocate(apdu, (short) 80, false);
-        short hmacOutputOffset = bufferManager.getOffsetForHandle(hmacOutputHandle);
-        byte[] hmacOutputBuffer = bufferManager.getBufferForHandle(apdu, hmacOutputHandle);
+        boolean lastSend = numMatchesThisRP == 1 && firstCredIdx == 0;
+
+        // If the APDU buffer is big enough, use it, confident our response won't overlap the written space
+        final boolean apduBufferIsLarge = apdu.getBuffer().length >= 2048;
+        final byte memPositioning = apduBufferIsLarge ? BufferManager.UPPER_APDU : BufferManager.NOT_APDU_BUFFER;
+
+        if (!lastSend && (startingAllowedMemory & BufferManager.LOWER_APDU) != 0) {
+            // Tricky situation: MOVE the allocations we already made into non-APDU storage,
+            // since we'll need them again for a getNextAssertion call
+            // We'll do this by freeing the allocations, immediately re-making them in the same order,
+            // then copying data from their old to new location. This is okay because the buffer allocator
+            // is deterministic and doesn't mangle contents...
+            // This complexity is all just to minimize flash writes in the common one-assertion case with
+            // limited non-APDU-buffer memory
+            bufferManager.release(apdu, hmacSaltHandle, (short) 65);
+            bufferManager.release(apdu, pinInfoHandle, (short) 2);
+            bufferManager.release(apdu, clientDataHashHandle, CLIENT_DATA_HASH_LEN);
+            bufferManager.release(apdu, scratchRPIDHashHandle, RP_HASH_LEN);
+
+            final short newscratchRPIDHashHandle = bufferManager.allocate(apdu, RP_HASH_LEN, memPositioning);
+            final byte[] newscratchRPIDHashBuffer = bufferManager.getBufferForHandle(apdu, newscratchRPIDHashHandle);
+            final short newscratchRPIDHashIdx = bufferManager.getOffsetForHandle(newscratchRPIDHashHandle);
+            Util.arrayCopyNonAtomic(scratchRPIDHashBuffer, scratchRPIDHashIdx,
+                    newscratchRPIDHashBuffer, newscratchRPIDHashIdx, RP_HASH_LEN);
+            scratchRPIDHashBuffer = newscratchRPIDHashBuffer;
+            scratchRPIDHashIdx = newscratchRPIDHashIdx;
+            final short newclientDataHashHandle = bufferManager.allocate(apdu, CLIENT_DATA_HASH_LEN, memPositioning);
+            final byte[] newclientDataHashBuffer = bufferManager.getBufferForHandle(apdu, newclientDataHashHandle);
+            final short newclientDataHashIdx = bufferManager.getOffsetForHandle(newclientDataHashHandle);
+            Util.arrayCopyNonAtomic(clientDataHashBuffer, clientDataHashIdx,
+                    newclientDataHashBuffer, newclientDataHashIdx, CLIENT_DATA_HASH_LEN);
+            clientDataHashBuffer = newclientDataHashBuffer;
+            clientDataHashIdx = newclientDataHashIdx;
+            final short newpinInfoHandle = bufferManager.allocate(apdu, (short) 2, memPositioning);
+            final byte[] newpinInfoBuffer = bufferManager.getBufferForHandle(apdu, newpinInfoHandle);
+            final short newpinInfoIdx = bufferManager.getOffsetForHandle(newpinInfoHandle);
+            Util.arrayCopyNonAtomic(pinInfoBuffer, pinInfoIdx,
+                    newpinInfoBuffer, newpinInfoIdx, (short) 2);
+            pinInfoBuffer = newpinInfoBuffer;
+            pinInfoIdx = newpinInfoIdx;
+            final short newhmacSaltHandle = bufferManager.allocate(apdu, (short) 65, memPositioning);
+            final byte[] newhmacSaltBuffer = bufferManager.getBufferForHandle(apdu, newhmacSaltHandle);
+            final short newhmacSaltIdx = bufferManager.getOffsetForHandle(newhmacSaltHandle);
+            Util.arrayCopyNonAtomic(hmacSaltBuffer, hmacSaltIdx,
+                    newhmacSaltBuffer, newhmacSaltIdx, (short) 65);
+            hmacSaltBuffer = newhmacSaltBuffer;
+            hmacSaltIdx = newhmacSaltIdx;
+        }
+
+        final short hmacOutputHandle = bufferManager.allocate(apdu, (short) 80, memPositioning);
+        final short hmacOutputOffset = bufferManager.getOffsetForHandle(hmacOutputHandle);
+        final byte[] hmacOutputBuffer = bufferManager.getBufferForHandle(apdu, hmacOutputHandle);
 
         if (hmacSaltBuffer[hmacSaltIdx] != 0) {
             hmacSecretBytes = computeHMACSecret(apdu, (ECPrivateKey) ecKeyPair.getPrivate(),
@@ -2034,7 +2086,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         final short scratchAmt = 32;
-        final short scratchHandle = bufferManager.allocate(apdu, scratchAmt, false);
+        final short scratchHandle = bufferManager.allocate(apdu, scratchAmt, BufferManager.ANYWHERE);
         final short scratchOff = bufferManager.getOffsetForHandle(scratchHandle);
         byte[] scratch = bufferManager.getBufferForHandle(apdu, scratchHandle);
         readIdx = sharedSecretDecrypt(apdu, buffer, readIdx, lc, saltLen,
@@ -2887,7 +2939,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         boolean foundHit = false;
         short scannedRKs = 0;
-        short uidHandle = bufferManager.allocate(apdu, MAX_USER_ID_LENGTH, false);
+        short uidHandle = bufferManager.allocate(apdu, MAX_USER_ID_LENGTH, BufferManager.ANYWHERE);
         short uidOffset = bufferManager.getOffsetForHandle(uidHandle);
         byte[] uidBuffer = bufferManager.getBufferForHandle(apdu, uidHandle);
         for (short i = 0; i < NUM_RESIDENT_KEY_SLOTS; i++) {
@@ -2904,7 +2956,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     buffer, credIdIdx, CREDENTIAL_ID_LEN) == 0) {
                 // Matching cred.
                 // We need to extract the credential to check that our PIN token WOULD have permission
-                short scratchExtractedCredHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, false);
+                short scratchExtractedCredHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.ANYWHERE);
                 short scratchExtractedCredOffset = bufferManager.getOffsetForHandle(scratchExtractedCredHandle);
                 byte[] scratchExtractedCredBuffer = bufferManager.getBufferForHandle(apdu, scratchExtractedCredHandle);
                 symmetricUnwrap(residentKeyData, (short)(i * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN,
@@ -3107,7 +3159,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         // if our scratch allocation comes from it
         bufferManager.informAPDUBufferAvailability(apdu, (short) 0xFF);
 
-        final short rpIdHashHandle = bufferManager.allocate(apdu, (short)(CREDENTIAL_ID_LEN + RP_HASH_LEN), false);
+        final short rpIdHashHandle = bufferManager.allocate(apdu, (short)(CREDENTIAL_ID_LEN + RP_HASH_LEN), BufferManager.ANYWHERE);
         final byte[] rpIdHashBuf = bufferManager.getBufferForHandle(apdu, rpIdHashHandle);
         short rpIdHashIdx = bufferManager.getOffsetForHandle(rpIdHashHandle);
         short credIdIdx = (short)(rpIdHashIdx + RP_HASH_LEN);
@@ -3657,7 +3709,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         // 32 bytes for PIN hash (for PIN protocol 2) and 16 for IV on padded PIN
-        short scratchHandle = bufferManager.allocate(apdu, (short)(PIN_PAD_LENGTH + 48), false);
+        short scratchHandle = bufferManager.allocate(apdu, (short)(PIN_PAD_LENGTH + 48), BufferManager.ANYWHERE);
         short scratchOff = bufferManager.getOffsetForHandle(scratchHandle);
         byte[] scratch = bufferManager.getBufferForHandle(apdu, scratchHandle);
 
@@ -3741,7 +3793,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         bufferManager.informAPDUBufferAvailability(apdu, readIdx);
 
-        final short pinBufferHandle = bufferManager.allocate(apdu, (short) 16, false);
+        final short pinBufferHandle = bufferManager.allocate(apdu, (short) 16, BufferManager.ANYWHERE);
         final short pinBufferOffset = bufferManager.getOffsetForHandle(pinBufferHandle);
         final byte[] pinBuffer = bufferManager.getBufferForHandle(apdu, pinBufferHandle);
 
@@ -3754,7 +3806,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         bufferManager.informAPDUBufferAvailability(apdu, readIdx);
 
-        final short permRpIdHandle = bufferManager.allocate(apdu, RP_HASH_LEN, false);
+        final short permRpIdHandle = bufferManager.allocate(apdu, RP_HASH_LEN, BufferManager.ANYWHERE);
         final short permRpIdOffset = bufferManager.getOffsetForHandle(permRpIdHandle);
         final byte[] permRpIdBuffer = bufferManager.getBufferForHandle(apdu, permRpIdHandle);
         short permRpIdLen = -1;
@@ -3966,7 +4018,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         final short bufLen = (short) 96;
-        final short keyBufHandle = bufferManager.allocate(apdu, bufLen, false);
+        final short keyBufHandle = bufferManager.allocate(apdu, bufLen, BufferManager.ANYWHERE);
         final byte[] keyBuf = bufferManager.getBufferForHandle(apdu, keyBufHandle);
         final short keyOff = bufferManager.getOffsetForHandle(keyBufHandle);
         final short validationOff = (short)(keyOff + 32);
@@ -4161,7 +4213,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
         }
 
-        final short scratchHandle = bufferManager.allocate(apdu, (short) 80, false);
+        final short scratchHandle = bufferManager.allocate(apdu, (short) 80, BufferManager.ANYWHERE);
         final short scratchOff = bufferManager.getOffsetForHandle(scratchHandle);
         final byte[] scratch = bufferManager.getBufferForHandle(apdu, scratchHandle);
 
@@ -4308,7 +4360,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 pinBuf, offset);
 
         final short bufLen = (short) 96;
-        final short keyBufHandle = bufferManager.allocate(apdu, bufLen, false);
+        final short keyBufHandle = bufferManager.allocate(apdu, bufLen, BufferManager.ANYWHERE);
         final short keyOff = bufferManager.getOffsetForHandle(keyBufHandle);
         final byte[] keyBuf = bufferManager.getBufferForHandle(apdu, keyBufHandle);
 
