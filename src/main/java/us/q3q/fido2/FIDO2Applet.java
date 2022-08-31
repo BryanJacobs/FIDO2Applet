@@ -286,6 +286,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private final boolean[] residentKeyUniqueRP;
     /**
+     * For each resident key, contains the four-byte signature counter at the time of creation.
+     * This allows tracking which credential was most recently created.
+     */
+    private final byte[] residentKeyCounters;
+    /**
      * How many resident key slots are filled
      */
     private byte numResidentCredentials;
@@ -812,6 +817,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 if (!foundRPMatchInRKs) {
                     numResidentRPs++;
                 }
+                counter.pack(residentKeyCounters, (short)(4 * targetRKSlot));
                 ok = true;
             } finally {
                 if (ok) {
@@ -1687,30 +1693,59 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             short credTempOffset = bufferManager.getOffsetForHandle(credTempHandle);
             byte[] credTempBuffer = bufferManager.getBufferForHandle(apdu, credTempHandle);
 
-            // TODO: rework this to use a per-RK counter and order assertion results from last created to first
-            // ... that's what the spec says to do!
+            short credCounterHandle = bufferManager.allocate(apdu, (short) 4, BufferManager.ANYWHERE);
+            short credCounterOffset = bufferManager.getOffsetForHandle(credCounterHandle);
+            byte[] credCounterBuffer = bufferManager.getBufferForHandle(apdu, credCounterHandle);
+
+            Util.arrayFillNonAtomic(credCounterBuffer, credCounterOffset, (short) 4, (byte) 0x00);
+
+            final byte[] origCredCounterBuffer = residentKeyCounters;
+            final short origCredCounterOffset = (short)(firstCredIdx * 4 - 4);
+
             short scannedRKs = 0;
-            for (short i = firstCredIdx; i < NUM_RESIDENT_KEY_SLOTS; i++) {
+            for (short i = 0; i < NUM_RESIDENT_KEY_SLOTS; i++) {
                 if (!residentKeyValidity[i]) {
                     continue;
                 }
 
-                if (checkCredential(residentKeyData, (short) (i * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN,
-                        scratchRPIDHashBuffer, scratchRPIDHashIdx,
-                        credTempBuffer, credTempOffset)) {
-                    // Got a resident key hit!
-                    numMatchesThisRP++;
-                    if (rkMatch == -1) {
-                        potentialAssertionIterationPointer = (byte)(i + 1);
+                if (i != (short)(firstCredIdx - 1)) {
+                    if (checkCredential(residentKeyData, (short) (i * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN,
+                            scratchRPIDHashBuffer, scratchRPIDHashIdx,
+                            credTempBuffer, credTempOffset)) {
+                        // Got a resident key hit!
+                        numMatchesThisRP++;
+
+                        boolean counterSmallerThanOrig;
+                        if (firstCredIdx == 0) {
+                            counterSmallerThanOrig = true;
+                        } else {
+                            counterSmallerThanOrig = Util.arrayCompare(origCredCounterBuffer, origCredCounterOffset,
+                                    residentKeyCounters, (short)(i * 4), (short) 4) > 0;
+                        }
+
+                        if (!counterSmallerThanOrig) {
+                            // This cred has a higher counter than where we started iteration, so ignore it
+                            continue;
+                        }
+
+                        if (Util.arrayCompare(credCounterBuffer, credCounterOffset,
+                                residentKeyCounters, (short)(i * 4), (short) 4) > 0) {
+                            // This cred has a lower counter than where we started, but we found one that
+                            // has a higher counter value elsewhere - that one comes first
+                            continue;
+                        }
+
+                        Util.arrayCopyNonAtomic(residentKeyCounters, (short)(i * 4),
+                                credCounterBuffer, credCounterOffset, (short) 4);
+
+                        // The counter for this cred is smaller than the original, and higher than any relevant
+                        // other we've found so far - it's next in iteration order
+                        potentialAssertionIterationPointer = (byte) (i + 1);
                         matchingPubKeyBuffer = residentKeyData;
-                        startOfMatchingPubKeyCredData = (short)(i * CREDENTIAL_ID_LEN);
+                        startOfMatchingPubKeyCredData = (short) (i * CREDENTIAL_ID_LEN);
                         matchingPubKeyCredDataLen = CREDENTIAL_ID_LEN;
                         rkMatch = i;
                         loadScratchIntoAttester(credTempBuffer, credTempOffset);
-                    }
-                    if (firstCredIdx > 0) {
-                        // If we're on a getNextAssertion, we don't need to count the number of matches, so break early
-                        break;
                     }
                 }
 
@@ -1720,6 +1755,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 }
             }
 
+            bufferManager.release(apdu, credCounterHandle, (short) 4);
             bufferManager.release(apdu, credTempHandle, CREDENTIAL_ID_LEN);
         }
 
@@ -4657,6 +4693,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         residentKeyRPIdLengths = new byte[NUM_RESIDENT_KEY_SLOTS];
         residentKeyPublicKeys = new byte[NUM_RESIDENT_KEY_SLOTS * KEY_POINT_LENGTH * 2];
         residentKeyUniqueRP = new boolean[NUM_RESIDENT_KEY_SLOTS];
+        residentKeyCounters = new byte[NUM_RESIDENT_KEY_SLOTS * 4];
         numResidentCredentials = 0;
         numResidentRPs = 0;
         resetRequested = false;

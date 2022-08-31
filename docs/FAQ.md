@@ -65,10 +65,6 @@ clear CTAP2.1 PIN token permissions on use.
 
 So set a PIN, and unplug your card when you're not using it.
 
-Fourthly, the CTAP2.1 standard says that credential matches should be performed
-in most-recent order, but to save implementation complexity and runtime performance,
-this implementation does them in arbitrary order instead.
-
 Finally, the CTAP2.0 and CTAP2.1 standards are actually mutually incompatible. When
 a getAssertion call is made with an `allowList` given, CTAP2.0 says that the
 authenticator should iterate through assertions generated with the matching
@@ -116,6 +112,7 @@ It will store:
 - the length of the user ID, unencrypted
 - a boolean set to true on the first credential from a given RP ID, used
   to save state when enumerating and counting on-device RPs
+- a four-byte counter value tracking which credential was most recently created
 - how many distinct RPs have valid keys on the device, unencrypted
 - how many total RPs are on the device, unencrypted
 
