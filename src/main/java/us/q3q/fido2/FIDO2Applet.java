@@ -346,13 +346,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * be set appropriately if the request is part of a chained sequence.
      *
      * @param apdu Request/response object
-     * @param buffer APDU data buffer (not bufferMem)
      * @param lc Length of request received from the platform
      * @param amtRead Amount of the request already read into the APDU buffer
      *
      * @return Buffer which contains the request data (bufferMem or given APDU buffer object)
      */
-    private byte[] fullyReadReq(APDU apdu, byte[] buffer, short lc, short amtRead, boolean forceBuffering) {
+    private byte[] fullyReadReq(APDU apdu, short lc, short amtRead, boolean forceBuffering) {
+        byte[] buffer = apdu.getBuffer();
+
         transientStorage.clearAssertIterationPointer();
         final short chainOff = transientStorage.getChainIncomingReadOffset();
 
@@ -361,8 +362,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             // Shift down so meaningful data start at offset 0
             Util.arrayCopyNonAtomic(buffer, apdu.getOffsetCdata(),
                     buffer, (short) 0, amtRead);
-            short read = apdu.receiveBytes(amtRead);
-            if (((short)(read + amtRead) != lc)) {
+            while (amtRead < lc) {
+                short read = apdu.receiveBytes(amtRead);
+                if (read == 0) {
+                    throwException(ISO7816.SW_WRONG_LENGTH);
+                }
+                amtRead += read;
+            }
+            if (amtRead != lc) {
                 throwException(ISO7816.SW_WRONG_LENGTH);
             }
             transientStorage.resetChainIncomingReadOffset();
@@ -378,7 +385,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             short read = apdu.receiveBytes((short) 0);
 
             if (read == 0) {
-                throwException(ISO7816.SW_UNKNOWN);
+                throwException(ISO7816.SW_WRONG_LENGTH);
             }
 
             if (curRead > (short) (bufferMem.length - read)) {
@@ -2183,7 +2190,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     private void doSendResponse(APDU apdu, short outputLen) {
         bufferManager.clear();
 
-        final short bufferChunkSize = 256;
+        final short bufferChunkSize = (short)(APDU.getOutBlockSize() - 2);
 
         if (outputLen < bufferChunkSize || apdu.getOffsetCdata() == ISO7816.OFFSET_EXT_CDATA) {
             // If we're under one chunk or okay to use extended length APDUs, send in one go
@@ -2534,7 +2541,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             short outgoingOffset = transientStorage.getOutgoingContinuationOffset();
             short outgoingRemaining = transientStorage.getOutgoingContinuationRemaining();
 
-            final short writeSize = 256 <= outgoingRemaining ? 256 : outgoingRemaining;
+            final short chunkSize = (short)(APDU.getOutBlockSize() - 2);
+
+            final short writeSize = chunkSize <= outgoingRemaining ? chunkSize : outgoingRemaining;
             apdu.setOutgoing();
             apdu.setOutgoingLength(writeSize);
             Util.arrayCopyNonAtomic(bufferMem, outgoingOffset,
@@ -2562,7 +2571,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             if (lc == 0) {
                 ISOException.throwIt(ISO7816.SW_DATA_INVALID);
             }
-            fullyReadReq(apdu, apduBytes, lc, amtRead, true);
+            fullyReadReq(apdu, lc, amtRead, true);
 
             transientStorage.increaseChainIncomingReadOffset(lc);
             return;
@@ -2610,7 +2619,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         switch (cmdByte) {
             case FIDOConstants.CMD_MAKE_CREDENTIAL:
-                reqBuffer = fullyReadReq(apdu, apduBytes, lc, amtRead, false);
+                reqBuffer = fullyReadReq(apdu, lc, amtRead, false);
 
                 makeCredential(apdu, lcEffective, reqBuffer);
                 break;
@@ -2619,7 +2628,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 break;
             case FIDOConstants.CMD_GET_ASSERTION:
                 // getAssertion extensively uses the APDU buffer, so needs incoming requests to be buffered
-                reqBuffer = fullyReadReq(apdu, apduBytes, lc, amtRead, false);
+                reqBuffer = fullyReadReq(apdu, lc, amtRead, false);
 
                 getAssertion(apdu, lcEffective, reqBuffer, (short) 0);
                 break;
@@ -2634,7 +2643,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 getAssertion(apdu, (short) 16000, null, transientStorage.getAssertIterationPointer());
                 break;
             case FIDOConstants.CMD_CLIENT_PIN:
-                reqBuffer = fullyReadReq(apdu, apduBytes, lc, amtRead, false);
+                reqBuffer = fullyReadReq(apdu, lc, amtRead, false);
 
                 clientPINSubcommand(apdu, reqBuffer, lcEffective);
                 break;
@@ -2643,7 +2652,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 break;
             case FIDOConstants.CMD_CREDENTIAL_MANAGEMENT: // intentional fallthrough, for backwards compat
             case FIDOConstants.CMD_CREDENTIAL_MANAGEMENT_PREVIEW:
-                reqBuffer = fullyReadReq(apdu, apduBytes, lc, amtRead, false);
+                reqBuffer = fullyReadReq(apdu, lc, amtRead, false);
 
                 credManagementSubcommand(apdu, reqBuffer, lcEffective);
                 break;
