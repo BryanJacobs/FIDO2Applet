@@ -17,19 +17,56 @@ import javacard.framework.*;
  */
 public final class BufferManager {
 
+    /**
+     * Location in in-memory buffer of byte describing how much of the in-memory buffer is used
+     */
     private static final byte OFFSET_MEMBUF_USED_SPACE = 0; // 1 byte
+    /**
+     * Location in in-memory buffer of short describing how much flash is used
+     */
     private static final byte OFFSET_FLASH_USED_SPACE = 1; // 2 bytes
+    /**
+     * Total in-memory buffer overhead of state keeping variables
+     */
     private static final byte STATE_KEEPING_OVERHEAD = 3;
 
+    /**
+     * In-RAM buffer which is OUTSIDE the APDU buffer. Great to have for minimizing flash wear.
+     */
     private final byte[] inMemoryBuffer;
+    /**
+     * Flash scratch buffer. A last resort for when there just isn't enough memory elsewhere.
+     */
     private final byte[] flashBuffer;
 
+    /**
+     * Allow allocations in the portion of the APDU buffer behind the known read cursor (growing upwards)
+     */
     public static final byte LOWER_APDU = (byte) 0x01;
+    /**
+     * Allow allocations in the portion of the APDU buffer beyond the end of the incoming request (growing downwards)
+     */
     public static final byte UPPER_APDU = (byte) 0x02;
+    /**
+     * Allow allocations in the non-APDU buffer in memory
+     */
     public static final byte MEMORY_BUFFER = (byte) 0x04;
+    /**
+     * Allow allocations in flash
+     */
     public static final byte FLASH = (byte) 0x08;
+    /**
+     * Allow allocations in any location
+     */
     public static final byte ANYWHERE = (byte) 0xFF;
+    /**
+     * Allow allocations anywhere that will not be clobbered by APDU writes
+     */
     public static final byte NOT_APDU_BUFFER = (byte)(MEMORY_BUFFER | FLASH);
+    /**
+     * Allow allocations anywhere EXCEPT in the lower reaches of the APDU. This ensures that large APDU buffers with
+     * small writes won't get clobbered.
+     */
     public static final byte NOT_LOWER_APDU = (byte)(UPPER_APDU | MEMORY_BUFFER | FLASH);
 
     public BufferManager(byte transientLen, short persistentLen) {
@@ -38,6 +75,11 @@ public final class BufferManager {
         clear();
     }
 
+    /**
+     * Report on in-memory buffer sizing
+     *
+     * @return The number of bytes allocated to the in-memory non-APDU buffer
+     */
     public short getTransientBufferSize() {
         return (short) inMemoryBuffer.length;
     }
@@ -62,6 +104,14 @@ public final class BufferManager {
         return offset;
     }
 
+    /**
+     * Allows the state manager to use APDU lower byte ranges by telling it where the read cursor is.
+     * Note that the write cursor may not be moved backwards: once the lower APDU buffer is expanded, it cannot shrink
+     * until the APDU is entirely cleared and the buffer manager reset.
+     *
+     * @param apdu Request/response object
+     * @param amt The position of the read cursor - all bytes below this will be made available for scratch memory
+     */
     public void informAPDUBufferAvailability(APDU apdu, short amt) {
         if (amt > 0xFF) {
             amt = 0xFF;
@@ -73,6 +123,11 @@ public final class BufferManager {
         }
     }
 
+    /**
+     * Sets up the state manager to use upper+lower APDU ranges. Must be called prior to APDU memory allocations.
+     *
+     * @param apdu Request/response object
+     */
     public void initializeAPDU(APDU apdu) {
         final byte[] apduBuf = apdu.getBuffer();
         final short apduBufferLength = (short) apduBuf.length;
@@ -89,6 +144,15 @@ public final class BufferManager {
         apduBuf[(short)(apduBuf.length - 4)] = 0x00;
     }
 
+    /**
+     * Gets an opaque memory allocation handle. Throws an exception is sufficient space is not available.
+     *
+     * @param apdu Request/response object
+     * @param amt Number of bytes to allocate in a contiguous region
+     * @param allowedLocations Bitfield representing where the memory may be placed
+     *
+     * @return Opaque handle which may be passed to other functions to get useful information or free
+     */
     public short allocate(APDU apdu, short amt, byte allowedLocations) {
         final short lc = apdu.getIncomingLength();
         final byte[] apduBuf = apdu.getBuffer();
@@ -145,6 +209,13 @@ public final class BufferManager {
         return 0; // unreachable, but javac doesn't realize that...
     }
 
+    /**
+     * Release a previous allocation
+     *
+     * @param apdu Request/response object
+     * @param handle Handle returned from allocate call
+     * @param amt Size of allocation in bytes - must match what was passed to allocate call
+     */
     public void release(APDU apdu, short handle, short amt) {
         if (handle < 0) {
             if (handle <= -12288) {
@@ -164,6 +235,14 @@ public final class BufferManager {
                 (short)(Util.getShort(inMemoryBuffer, OFFSET_FLASH_USED_SPACE) - amt));
     }
 
+    /**
+     * Gets the buffer which contains the memory for a particular allocation handle
+     *
+     * @param apdu Request/response object
+     * @param handle Result of a previous allocate call
+     *
+     * @return Byte array housing the allocated region
+     */
     public byte[] getBufferForHandle(APDU apdu, short handle) {
         if (handle < 0) {
             if (handle <= -12288) {
@@ -176,6 +255,14 @@ public final class BufferManager {
         return flashBuffer;
     }
 
+    /**
+     * Gets the offset within a buffer for a particular allocation handle
+     *
+     * @param apdu Request/response object
+     * @param handle Result of a previous allocate call
+     *
+     * @return Offset within the byte array returned by getBufferForHandle at which the allocated memory begins
+     */
     public short getOffsetForHandle(short handle) {
         if (handle < 0) {
             if (handle <= -12288) {
@@ -189,6 +276,10 @@ public final class BufferManager {
         return handle;
     }
 
+    /**
+     * Wipes internal state of the buffer manager, releasing all non-APDU objects. It's assumed the APDU will be cleared
+     * between when this call is made and the next memory allocation is requested.
+     */
     public void clear() {
         Util.setShort(inMemoryBuffer, OFFSET_FLASH_USED_SPACE, (short) 0);
         // We still keep our state variables in memory, so don't reset the used amount to zero...
