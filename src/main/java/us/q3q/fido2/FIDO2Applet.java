@@ -124,7 +124,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * authenticator transient key
      */
-    private final KeyPair authenticatorKeyAgreementKey;
+    private KeyPair authenticatorKeyAgreementKey;
     /**
      * encrypt/decrypt key to be set based on platform<->authenticator shared secret
      */
@@ -227,7 +227,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * The actual per-credential key pair
      */
-    private final KeyPair ecKeyPair;
+    private KeyPair ecKeyPair;
     /**
      * General hashing of stuff
      */
@@ -2601,13 +2601,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
                 // There also might not be enough RAM, quite, if we allocate this during install while the app install
                 // parameters array is held in memory...
-                initTransientStorage();
+                initTransientStorage(apdu);
 
                 short availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT);
                 if (availableMem > 0xFF) {
                     availableMem = 0xFF;
                 }
-                final byte transientMem = (byte)(availableMem > (0xFF & MAX_RAM_SCRATCH_SIZE) ? MAX_RAM_SCRATCH_SIZE : availableMem);
+                final byte transientMem = (byte)(availableMem >= (0xFF & MAX_RAM_SCRATCH_SIZE) ? MAX_RAM_SCRATCH_SIZE : availableMem);
                 bufferManager = new BufferManager(transientMem, SCRATCH_SIZE);
 
                 bufferManager.initializeAPDU(apdu);
@@ -2845,7 +2845,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         outBuf[wpos++] = JCSystem.isTransient(permissionsRpId);
         outBuf[wpos++] = (byte)(sharedSecretAESKey.getType() == KeyBuilder.TYPE_AES ? 0x00 : 0x02);
         outBuf[wpos++] = (byte)(pinWrapKey.getType() == KeyBuilder.TYPE_AES ? 0x00 : 0x02);
-        outBuf[wpos++] = JCSystem.isTransient(outBuf);
+        outBuf[wpos++] = JCSystem.isTransient(bufferMem);
 
         wpos = Util.setShort(outBuf, wpos, bufferManager.getTransientBufferSize());
 
@@ -4783,20 +4783,28 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         final short availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT);
 
-        // RAM usage - (ideally) ephemeral keys
         boolean authenticatorKeyInRam = availableMem >= 148; // 96 (desired scratch)+6 (overhead)+32 (key)+16 (params)
+        boolean ecPairInRam = availableMem >= 180; // 148 + 32 (key)
+
+        initAuthenticatorKey(authenticatorKeyInRam);
+        initCredKey(ecPairInRam);
+    }
+
+    private void initAuthenticatorKey(boolean authenticatorKeyInRam) {
         authenticatorKeyAgreementKey = new KeyPair(
                 (ECPublicKey) KeyBuilder.buildKey(KeyBuilder.TYPE_EC_FP_PUBLIC, KeyBuilder.LENGTH_EC_FP_256, false),
                 getECPrivKey(authenticatorKeyInRam)
         );
-        boolean ecPairInRam = availableMem >= 180; // 148 + 32 (key)
+        P256Constants.setCurve((ECKey) authenticatorKeyAgreementKey.getPrivate());
+        P256Constants.setCurve((ECKey) authenticatorKeyAgreementKey.getPublic());
+    }
+
+    private void initCredKey(boolean ecPairInRam) {
+        // RAM usage - (ideally) ephemeral keys
         ecKeyPair = new KeyPair(
                 (ECPublicKey) KeyBuilder.buildKey(KeyBuilder.TYPE_EC_FP_PUBLIC, KeyBuilder.LENGTH_EC_FP_256, false),
                 getECPrivKey(ecPairInRam)
         );
-        // Keypairs are on the P256 curve
-        P256Constants.setCurve((ECKey) authenticatorKeyAgreementKey.getPrivate());
-        P256Constants.setCurve((ECKey) authenticatorKeyAgreementKey.getPublic());
         P256Constants.setCurve((ECKey) ecKeyPair.getPrivate());
         P256Constants.setCurve((ECKey) ecKeyPair.getPublic());
     }
@@ -4810,36 +4818,85 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         return new byte[len];
     }
 
-    private void initTransientStorage() {
-        // RAM usage - direct buffers
+    /**
+     * Second-phase initialize state-keeping objects for the application.
+     *
+     * This cannot be called on initial install because the smartcard will generally have some memory reserved
+     * for app-install-specific data structures, leading to wasted memory!
+     *
+     * @param apdu Request/response object, used for determining APDU buffer sizes
+     */
+    private void initTransientStorage(APDU apdu) {
+        final boolean apduBufferIsLarge = apdu.getBuffer().length >= 2048;
 
-        // Refresh available count because setting EC point parameters actually uses some RAM!
-        final short availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT);
+        short availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT);
+
+        if (apduBufferIsLarge && availableMem > 64) {
+            // Attempt to re-initialize EC key pairs into RAM, since the large APDU buffer means they're more
+            // important than our in-memory general scratch buffer!
+            if (authenticatorKeyAgreementKey.getPrivate().getType() == KeyBuilder.TYPE_EC_FP_PRIVATE) {
+                initAuthenticatorKey(true);
+                P256Constants.setCurve((ECPrivateKey) authenticatorKeyAgreementKey.getPrivate());
+                P256Constants.setCurve((ECPrivateKey) authenticatorKeyAgreementKey.getPublic());
+            }
+
+            if (ecKeyPair.getPrivate().getType() == KeyBuilder.TYPE_EC_FP_PRIVATE) {
+                initCredKey(true);
+                P256Constants.setCurve((ECPrivateKey) ecKeyPair.getPrivate());
+                P256Constants.setCurve((ECPrivateKey) ecKeyPair.getPublic());
+            }
+
+            availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT);
+
+            try {
+                JCSystem.requestObjectDeletion();
+            } catch (Exception e) {
+                // Whoops. Wasted some flash, I guess.
+            }
+        }
+
+        short targetMemAmount = 99; // 96+3=99 bytes desired RAM buffer left over, enough room for one 32-byte HMAC
+        if (apduBufferIsLarge) {
+            targetMemAmount = 3; // Down to the bone
+        }
 
         // Prioritize putting more frequently written things into RAM
-        final boolean pinTokenInRam = availableMem >= 134; // 96+6=102 bytes desired RAM buffer left over; 102+32=134
+        final boolean pinTokenInRam = availableMem >= (short)(targetMemAmount + 32);
+        if (pinTokenInRam) {
+            targetMemAmount += 32;
+        }
         pinToken = getTempOrFlashByteBuffer((short) 32, pinTokenInRam);
-        final boolean sharedSecretVerifyInRam = availableMem >= 166; // 134+32=166
+        final boolean sharedSecretVerifyInRam = availableMem >= (short)(targetMemAmount + 32);
+        if (sharedSecretVerifyInRam) {
+            targetMemAmount += 32;
+        }
         sharedSecretVerifyKey = getTempOrFlashByteBuffer((short) 32, sharedSecretVerifyInRam);
-        final boolean permRpIdInRam = availableMem >= 199; // 166+33=199
+        final boolean permRpIdInRam = availableMem >= (short)(targetMemAmount + RP_HASH_LEN + 1);
+        if (permRpIdInRam) {
+            targetMemAmount += RP_HASH_LEN;
+            targetMemAmount++;
+        }
         permissionsRpId = getTempOrFlashByteBuffer((short)(RP_HASH_LEN + 1), permRpIdInRam);
 
         initKeyAgreementKeyIfNecessary();
 
-        // 199+32=231
-        if (availableMem >= 231) {
+        if (availableMem >= (short)(targetMemAmount + 32)) {
+            targetMemAmount += 32;
             sharedSecretAESKey = getTransientAESKey();
         } else {
             sharedSecretAESKey = getPersistentAESKey();
         }
-        // 231+32=263
-        if (availableMem >= 263) {
+        if (availableMem >= (short)(targetMemAmount + 32)) {
+            targetMemAmount += 32;
             pinWrapKey = getTransientAESKey();
         } else {
             pinWrapKey = getPersistentAESKey();
         }
 
-        boolean requestBufferInRam = availableMem >= (short)(263 + BUFFER_MEM_SIZE);
+        boolean requestBufferInRam = availableMem >= (short)(targetMemAmount + BUFFER_MEM_SIZE);
+        if (requestBufferInRam) {
+            targetMemAmount += BUFFER_MEM_SIZE;
+        }
         bufferMem = getTempOrFlashByteBuffer(BUFFER_MEM_SIZE, requestBufferInRam);
 
         // Four things are truly random and persist until we hard-FIDO2-reset the authenticator:

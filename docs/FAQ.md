@@ -196,6 +196,15 @@ chaining if your smartcard has 1k of RAM, and is only used for "ordinary" reques
 around 200 bytes of RAM. Great care has been taken to make sure the most common operations like
 getPinToken and getKeyAgreement don't write to flash.
 
+If you want to assess exactly what is and is not in RAM on your particular Javacard, you can install
+the applet and send APDUs like the following:
+
+    gpp -d -a 00A4040008A0000006472F000100 -a 801000000145FF
+
+(This is an app select, followed by the CTAP2 vendor use area command `0x45`)
+
+The result that comes back can be decoded by passing it to the included `decode_bufinfo.py` script.
+
 ## Can I update the app and maintain the validity of my previously-issued credentials?
 
 No. Once you start using a certain version of the applet, you're stuck on that version if you
