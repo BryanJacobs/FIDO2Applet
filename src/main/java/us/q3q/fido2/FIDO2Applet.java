@@ -1723,29 +1723,24 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                                     residentKeyCounters, (short)(i * 4), (short) 4) > 0;
                         }
 
-                        if (!counterSmallerThanOrig) {
-                            // This cred has a higher counter than where we started iteration, so ignore it
-                            continue;
+                        if (counterSmallerThanOrig) {
+                            // This cred has a lower counter than where we started iteration, so check further
+
+                            if (Util.arrayCompare(credCounterBuffer, credCounterOffset,
+                                    residentKeyCounters, (short)(i * 4), (short) 4) <= 0) {
+                                // The counter for this cred is smaller than the original, and higher than any relevant
+                                // other we've found so far - it's next in iteration order
+                                Util.arrayCopyNonAtomic(residentKeyCounters, (short)(i * 4),
+                                        credCounterBuffer, credCounterOffset, (short) 4);
+
+                                potentialAssertionIterationPointer = (byte) (i + 1);
+                                matchingPubKeyBuffer = residentKeyData;
+                                startOfMatchingPubKeyCredData = (short) (i * CREDENTIAL_ID_LEN);
+                                matchingPubKeyCredDataLen = CREDENTIAL_ID_LEN;
+                                rkMatch = i;
+                                loadScratchIntoAttester(credTempBuffer, credTempOffset);
+                            }
                         }
-
-                        if (Util.arrayCompare(credCounterBuffer, credCounterOffset,
-                                residentKeyCounters, (short)(i * 4), (short) 4) > 0) {
-                            // This cred has a lower counter than where we started, but we found one that
-                            // has a higher counter value elsewhere - that one comes first
-                            continue;
-                        }
-
-                        Util.arrayCopyNonAtomic(residentKeyCounters, (short)(i * 4),
-                                credCounterBuffer, credCounterOffset, (short) 4);
-
-                        // The counter for this cred is smaller than the original, and higher than any relevant
-                        // other we've found so far - it's next in iteration order
-                        potentialAssertionIterationPointer = (byte) (i + 1);
-                        matchingPubKeyBuffer = residentKeyData;
-                        startOfMatchingPubKeyCredData = (short) (i * CREDENTIAL_ID_LEN);
-                        matchingPubKeyCredDataLen = CREDENTIAL_ID_LEN;
-                        rkMatch = i;
-                        loadScratchIntoAttester(credTempBuffer, credTempOffset);
                     }
                 }
 
