@@ -13,8 +13,12 @@ public abstract class FIDOConstants {
     public static final byte CMD_GET_NEXT_ASSERTION = 0x08;
     public static final byte CMD_CREDENTIAL_MANAGEMENT = 0x0A;
     public static final byte CMD_AUTHENTICATOR_SELECTION = 0x0B;
+    public static final byte CMD_AUTHENTICATOR_CONFIG = 0x0D;
     public static final byte CMD_CREDENTIAL_MANAGEMENT_PREVIEW = 0x41;
 
+    /**
+     * "Vendor" command, non-FIDO-standard: dump memory buffer sizing info
+     */
     public static final byte CMD_DUMP_ABUF = 0x45;
 
 
@@ -34,6 +38,11 @@ public abstract class FIDOConstants {
     public static final byte CRED_MGMT_ENUMERATE_CREDS_NEXT = 0x05;
     public static final byte CRED_MGMT_DELETE_CRED = 0x06;
     public static final byte CRED_MGMT_UPDATE_USER_INFO = 0x07;
+
+    // Authenticator config subcommands
+    public static final byte AUTH_CONFIG_ENABLE_ENTERPRISE_ATTESTATION = 0x01;
+    public static final byte AUTH_CONFIG_TOGGLE_ALWAYS_UV = 0x02;
+    public static final byte AUTH_CONFIG_SET_MIN_PIN_LENGTH = 0x03;
 
     // PIN token permissions
     public static final byte PERM_MAKE_CREDENTIAL = 0x01;
@@ -86,6 +95,9 @@ public abstract class FIDOConstants {
     public static final byte CTAP2_ERR_REQUEST_TOO_LARGE = 0x39; //	 	Authenticator cannot handle this request due to memory constraints.
     public static final byte CTAP2_ERR_ACTION_TIMEOUT = 0x3A; //	 	The current operation has timed out.
     public static final byte CTAP2_ERR_UP_REQUIRED = 0x3B; //	 	User presence is required for the requested operation.
+    public static final byte CTAP2_ERR_INTEGRITY_FAILURE = 0x3D; // A checksum did not match.
+    public static final byte CTAP2_ERR_INVALID_SUBCOMMAND = 0x3E; // The requested subcommand is either invalid or not implemented.
+    public static final byte CTAP2_ERR_UNAUTHORIZED_PERMISSION = 0x40; // The permissions parameter contains an unauthorized permission.
     public static final byte CTAP1_ERR_OTHER = 0x7F; //	 	Other unspecified error.
     /**
      * HKDF "info" for PIN protocol two HMAC key

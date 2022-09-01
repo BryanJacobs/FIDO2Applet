@@ -38,7 +38,7 @@ public abstract class CannedCBOR {
                         0x50, // byte string, 16 bytes long
                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // aaguid
                 0x04, // map key: options
-                    (byte) 0xA7, // map: seven entries
+                    (byte) 0xA8, // map: eight entries
                         0x62, // string: two bytes long
                             0x72, 0x6B, // rk
                             (byte) 0xF5, // true
@@ -50,6 +50,9 @@ public abstract class CannedCBOR {
                             (byte) 0xF5, // true
                         0x68, // string - eight bytes long
                             0x63, 0x72, 0x65, 0x64, 0x4d, 0x67, 0x6d, 0x74, // credMgmt
+                            (byte) 0xF5, // true
+                        0x69, // string: eight bytes long
+                            0x61, 0x75, 0x74, 0x68, 0x6E, 0x72, 0x43, 0x66, 0x67, // authnrCfg
                             (byte) 0xF5, // true
                         0x69, // string: nine bytes long
                             0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x50, 0x69, 0x6e, // clientPin

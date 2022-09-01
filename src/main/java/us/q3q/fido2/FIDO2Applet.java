@@ -2770,6 +2770,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             case FIDOConstants.CMD_AUTHENTICATOR_SELECTION:
                 authenticatorSelection(apdu);
                 break;
+            case FIDOConstants.CMD_AUTHENTICATOR_CONFIG:
+                reqBuffer = fullyReadReq(apdu, lc, amtRead, false);
+
+                authenticatorConfigSubcommand(apdu, reqBuffer, lcEffective);
+                break;
             case FIDOConstants.CMD_DUMP_ABUF:
                 dumpMemoryTransienceInfo(apdu);
                 return;
@@ -2779,6 +2784,37 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         transientStorage.resetChainIncomingReadOffset();
+    }
+
+    /**
+     * Handles an authenticator config CTAP2.1 subcommand
+     *
+     * @param apdu Request/response object
+     * @param reqBuffer Buffer containing incoming request
+     * @param lcEffective Length of incoming request, as sent by the platform
+     */
+    private void authenticatorConfigSubcommand(APDU apdu, byte[] reqBuffer, short lcEffective) {
+        short readIdx = (short) 0;
+
+        if (lcEffective < 2) {
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
+        }
+
+        if (reqBuffer[readIdx++] != 0x01) {
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
+        }
+
+        switch (reqBuffer[readIdx++]) {
+            case FIDOConstants.AUTH_CONFIG_ENABLE_ENTERPRISE_ATTESTATION:
+            case FIDOConstants.AUTH_CONFIG_TOGGLE_ALWAYS_UV:
+            case FIDOConstants.AUTH_CONFIG_SET_MIN_PIN_LENGTH:
+                // We don't actually allow any of these things
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
+            default:
+                // Spec says this is INVALID_PARAMETER, not CTAP2 INVALID_SUBCOMMAND
+                sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
+
+        }
     }
 
     /**
@@ -3749,7 +3785,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 handleClientPinGetToken(apdu, buffer, readIdx, lc, pinProtocol, true, numOptions);
                 return;
             default:
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_UNSUPPORTED_OPTION);
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_SUBCOMMAND);
                 break;
         }
     }
