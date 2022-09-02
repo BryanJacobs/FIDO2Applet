@@ -544,6 +544,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         // Consume any remaining parameters
         byte lastMapKey = 0x04;
         for (short i = 4; i < numParameters; i++) {
+            if (readIdx >= lc) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
+            }
             if (buffer[readIdx] <= lastMapKey) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
             }
@@ -701,10 +704,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         final short wLen = ((ECPublicKey) ecKeyPair.getPublic()).getW(scratchPublicKeyBuffer, scratchPublicKeyOffset);
         if (scratchPublicKeyBuffer[scratchPublicKeyOffset] != 0x04) {
             // EC algorithm returned a compressed point... we can't decode that...
-            throwException(ISO7816.SW_UNKNOWN);
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INTEGRITY_FAILURE);
         }
         if (wLen != 2 * KEY_POINT_LENGTH + 1) {
-            throwException(ISO7816.SW_UNKNOWN);
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INTEGRITY_FAILURE);
         }
 
         encodeCredentialID(apdu, (ECPrivateKey) ecKeyPair.getPrivate(),
@@ -877,7 +880,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         final short sigLength = attester.sign(bufferMem, offsetForStartOfAuthData, (short)(adLen + CLIENT_DATA_HASH_LEN),
                 bufferMem, (short) (outputLen + 1 + CannedCBOR.ATTESTATION_STATEMENT_PREAMBLE.length));
         if (sigLength > 256 || sigLength < 24) {
-            throwException(ISO7816.SW_UNKNOWN);
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
         }
 
         // Attestation statement
@@ -909,7 +912,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         short ret = symmetricWrapper.doFinal(inBuf, inOffset, inLen,
                 outBuf, outOff);
         if (ret != inLen) {
-            throwException(ISO7816.SW_UNKNOWN);
+            throwException(ISO7816.SW_DATA_INVALID);
         }
         // Re-init IV after using wrapper
         initSymmetricCrypto();
@@ -1325,7 +1328,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         final short sLen = privKey.getS(scratch, scratchOff);
         if (sLen != KEY_POINT_LENGTH) {
-            throwException(ISO7816.SW_UNKNOWN);
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INTEGRITY_FAILURE);
         }
 
         // credential ID
@@ -1337,7 +1340,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 outBuffer, (short)(outOffset + encryptedBytes));
         // Using symmetric crypto requires re-initializing the IV
         initSymmetricCrypto();
-        if (encryptedBytes > CREDENTIAL_ID_LEN) {
+        if (encryptedBytes != CREDENTIAL_ID_LEN) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
         }
 
@@ -1889,7 +1892,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     outputBuffer, outputIdx, hmacSecretBytes);
         }
         if ((short)(outputIdx - beforeExtensionOutputLen) != extensionDataLen) {
-            throwException(ISO7816.SW_UNKNOWN);
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INTEGRITY_FAILURE);
         }
 
         bufferManager.release(apdu, hmacOutputHandle, (short) 80);
@@ -1904,7 +1907,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         // It might be stored in flash, so let's clear that out.
         ecKeyPair.getPrivate().clearKey();
         if (sigLength > 255 || sigLength < 24) { // would not require exactly one byte to encode the length...
-            throwException(ISO7816.SW_UNKNOWN);
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
         }
 
         // advance past the signature we just wrote, which overwrote the clientDataHash in the buffer
@@ -1942,22 +1945,27 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         bufferManager.clear();
 
-        final short bufferChunkSize = (short)(APDU.getOutBlockSize() - 2);
-        if (outputIdx <= bufferChunkSize || apdu.getOffsetCdata() == ISO7816.OFFSET_EXT_CDATA) {
-            // We can send the whole APDU buffer in one go, no copies required
-            sendNoCopy(apdu, outputIdx);
-            return;
+        short bufferChunkSize = (short)(APDU.getOutBlockSize() - 2);
+        final short requestedBytes = apdu.setOutgoing();
+        if (requestedBytes < bufferChunkSize) {
+            bufferChunkSize = requestedBytes;
         }
 
-        // What we have in the buffer is longer than what we can send at once. Send the first chunk, copy the rest
-        // to bufferMem
-        final short leftoverBytes = (short)(outputIdx - bufferChunkSize);
-        apdu.setOutgoing();
+        if (outputIdx < bufferChunkSize) {
+            bufferChunkSize = outputIdx;
+        }
+
+        if (outputIdx > bufferChunkSize) {
+            // What we had in the buffer is longer than what we can send at once.
+            // Copy the rest to bufferMem
+            final short leftoverBytes = (short)(outputIdx - bufferChunkSize);
+            Util.arrayCopyNonAtomic(outputBuffer, bufferChunkSize,
+                    bufferMem, (short) 0, leftoverBytes);
+            setupChainedResponse((short) 0, leftoverBytes);
+        }
+
         apdu.setOutgoingLength(bufferChunkSize);
-        Util.arrayCopyNonAtomic(outputBuffer, bufferChunkSize,
-                bufferMem, (short) 0, leftoverBytes);
         apdu.sendBytes((short) 0, bufferChunkSize);
-        setupChainedResponse((short) 0, leftoverBytes);
     }
 
     /**
@@ -2301,18 +2309,21 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     private void doSendResponse(APDU apdu, short outputLen) {
         bufferManager.clear();
 
-        final short bufferChunkSize = (short)(APDU.getOutBlockSize() - 2);
+        short bufferChunkSize = (short)(APDU.getOutBlockSize() - 2);
+        final short expectedLen = apdu.setOutgoing();
+        if (expectedLen < bufferChunkSize) {
+            bufferChunkSize = expectedLen;
+        }
+        if (outputLen < bufferChunkSize) {
+            bufferChunkSize = outputLen;
+        }
 
-        if (outputLen < bufferChunkSize || apdu.getOffsetCdata() == ISO7816.OFFSET_EXT_CDATA) {
-            // If we're under one chunk or okay to use extended length APDUs, send in one go
-            sendByteArray(apdu, bufferMem, outputLen);
-        } else {
-            // else, send one chunk and set state to continue response delivery later
-            apdu.setOutgoing();
-            apdu.setOutgoingLength(bufferChunkSize);
-            Util.arrayCopyNonAtomic(bufferMem, (short) 0,
-                    apdu.getBuffer(), (short) 0, bufferChunkSize);
-            apdu.sendBytes((short) 0, bufferChunkSize);
+        apdu.setOutgoingLength(bufferChunkSize);
+        Util.arrayCopyNonAtomic(bufferMem, (short) 0,
+                apdu.getBuffer(), (short) 0, bufferChunkSize);
+        apdu.sendBytes((short) 0, bufferChunkSize);
+        if (outputLen > bufferChunkSize) {
+            // we're not done; set state to continue response delivery later
             setupChainedResponse(bufferChunkSize, (short)(outputLen - bufferChunkSize));
         }
     }
@@ -2340,10 +2351,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @return New index into incoming request buffer after consuming one CBOR object of any type
      */
     private short consumeAnyEntity(APDU apdu, byte[] buffer, short readIdx, short lc) {
+        if (readIdx >= lc) {
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
+        }
+
         byte b = buffer[readIdx];
         short s = ub(b);
 
-        if ((b >= 0 && b <= 0x17) || (b >= 0x20 && b <= 0x37) || b == (byte)0xF4 || b == (byte)0xF5) {
+        if ((b >= 0 && b <= 0x17) || (b >= 0x20 && b <= 0x37) || b == (byte)0xF4 || b == (byte)0xF5 || b == (byte)0xF6) {
             return (short)(readIdx + 1);
         }
         if (b == 0x18 || b == 0x38) {
@@ -2652,10 +2667,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             short outgoingOffset = transientStorage.getOutgoingContinuationOffset();
             short outgoingRemaining = transientStorage.getOutgoingContinuationRemaining();
 
-            final short chunkSize = (short)(APDU.getOutBlockSize() - 2);
+            short chunkSize = (short)(APDU.getOutBlockSize() - 2);
+            final short requestedChunkSize = apdu.setOutgoing();
+            if (requestedChunkSize < chunkSize) {
+                chunkSize = requestedChunkSize;
+            }
 
             final short writeSize = chunkSize <= outgoingRemaining ? chunkSize : outgoingRemaining;
-            apdu.setOutgoing();
             apdu.setOutgoingLength(writeSize);
             Util.arrayCopyNonAtomic(bufferMem, outgoingOffset,
                     apdu.getBuffer(), (short) 0, writeSize);
@@ -3522,7 +3540,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         short ret = symmetricUnwrapper.doFinal(inBuf, offset, len,
                 outBuf, writeOffset);
         if (ret != len) {
-            throwException(ISO7816.SW_UNKNOWN);
+            throwException(ISO7816.SW_DATA_INVALID);
         }
         // Re-init symmetric crypto after using it (which resets the IV)
         initSymmetricCrypto();
@@ -3630,7 +3648,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_OK);
             } else {
                 JCSystem.abortTransaction();
-                throwException(ISO7816.SW_UNKNOWN);
+                throwException(ISO7816.SW_DATA_INVALID);
             }
         }
     }
@@ -4086,7 +4104,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         short unwrapped = sharedSecretUnwrapper.doFinal(inBuf, readIdx, expectedLength,
                 outputBuffer, outOff);
         if (unwrapped != expectedLength) {
-            throwException(ISO7816.SW_UNKNOWN);
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INTEGRITY_FAILURE);
         }
 
         return (short)(readIdx + expectedLength);
