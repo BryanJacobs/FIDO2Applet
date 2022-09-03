@@ -2923,9 +2923,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param lcEffective Length of incoming request, as sent by the platform
      */
     private void authenticatorConfigSubcommand(APDU apdu, byte[] reqBuffer, short lcEffective) {
-        short readIdx = (short) 0;
+        short readIdx = (short) 1;
 
         if (lcEffective < 2) {
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
+        }
+
+        short numOptions = getMapEntryCount(apdu, reqBuffer[readIdx++]);
+        if (numOptions < 1) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
         }
 
