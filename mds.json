@@ -45,6 +45,7 @@
         "up": true,
         "alwaysUv": true,
         "credMgmt": true,
+        "authnrCfg": true,
         "makeCredUvNotRqd": false,
         "pinUvAuthToken": true
       },
