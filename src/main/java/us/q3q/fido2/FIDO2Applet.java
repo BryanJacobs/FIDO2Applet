@@ -20,15 +20,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     private static final boolean ALLOW_RESIDENT_KEY_CREATION_WITHOUT_PIN = false;
     /**
      * If true, the authenticator will refuse to reset itself until the following three steps happen in order:
-     *
+     * <p>
      * 1. a reset command is sent
      * 2. the authenticator is entirely powered off
      * 3. another reset command is sent
-     *
+     * <p>
      * This is to guard against accidental or malware-driven authenticator resets. It doesn't comply with the FIDO
      * standards. The first reset will respond with OPERATION_DENIED, and if any credential-manipulation commands
      * are received between steps one and three, the process must be started over for the reset to be effective.
-     *
+     * <p>
      * Note that you still don't need the PIN in order to reset the authenticator: that would defeat the purpose of
      * the full reset...
      */
@@ -2757,7 +2757,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             // For U2F compatibility, the CTAP2 standard requires that we respond to select() as if we were a U2F
             // authenticator, and then let the platform figure out we're really CTAP2 by making a getAuthenticatorInfo
             // API request afterwards
-            // sendByteArray(apdu, U2F_V2_RESPONSE);
+            // sendByteArray(apdu, CannedCBOR.U2F_V2_RESPONSE, (short) CannedCBOR.U2F_V2_RESPONSE.length);
 
             // ... but we DON'T implement U2F, so we can send the CTAP2-only response type
             sendByteArray(apdu, CannedCBOR.FIDO_2_RESPONSE, (short) CannedCBOR.FIDO_2_RESPONSE.length);
@@ -4978,19 +4978,19 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         short availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT);
 
-        if (apduBufferIsLarge && availableMem > 64) {
+        if ((apduBufferIsLarge && availableMem > 64) || availableMem > 300) {
             // Attempt to re-initialize EC key pairs into RAM, since the large APDU buffer means they're more
             // important than our in-memory general scratch buffer!
             if (authenticatorKeyAgreementKey.getPrivate().getType() == KeyBuilder.TYPE_EC_FP_PRIVATE) {
                 initAuthenticatorKey(true);
                 P256Constants.setCurve((ECPrivateKey) authenticatorKeyAgreementKey.getPrivate());
-                P256Constants.setCurve((ECPrivateKey) authenticatorKeyAgreementKey.getPublic());
+                P256Constants.setCurve((ECPublicKey) authenticatorKeyAgreementKey.getPublic());
             }
 
             if (ecKeyPair.getPrivate().getType() == KeyBuilder.TYPE_EC_FP_PRIVATE) {
                 initCredKey(true);
                 P256Constants.setCurve((ECPrivateKey) ecKeyPair.getPrivate());
-                P256Constants.setCurve((ECPrivateKey) ecKeyPair.getPublic());
+                P256Constants.setCurve((ECPublicKey) ecKeyPair.getPublic());
             }
 
             availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT);

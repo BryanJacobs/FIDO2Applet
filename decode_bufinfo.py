@@ -4,6 +4,7 @@ import sys
 
 if len(sys.argv) < 2:
     print("Usage: decode_bufinfo.py <APDUResultAsHex>")
+    sys.exit(1)
 
 s = sys.argv[1]
 
