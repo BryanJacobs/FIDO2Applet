@@ -4403,7 +4403,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         if (bLen != expectedLength) { // standard-mandated minimum pad for PINs
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_INVALID);
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_POLICY_VIOLATION);
         }
 
         // Verify pinAuth before we proceed

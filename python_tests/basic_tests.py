@@ -1,14 +1,14 @@
 #!/usr/bin/env python
 import random
-from typing import Optional
+from typing import Optional, Type
 import secrets
 
 import fido2.features
-from fido2.client import Fido2Client, UserInteraction
+from fido2.client import Fido2Client, UserInteraction, PinRequiredError, ClientError
 from fido2.cose import ES256
 from fido2.ctap import CtapError
 from fido2.ctap2 import ClientPin
-from fido2.ctap2.extensions import HmacSecretExtension
+from fido2.ctap2.extensions import HmacSecretExtension, Ctap2Extension
 from fido2.webauthn import Aaguid, PublicKeyCredentialCreationOptions, PublicKeyCredentialRpEntity, \
     PublicKeyCredentialUserEntity, PublicKeyCredentialParameters, PublicKeyCredentialType, \
     AuthenticatorSelectionCriteria, ResidentKeyRequirement, UserVerificationRequirement, \
@@ -24,10 +24,10 @@ class FixedPinUserInteraction(UserInteraction):
     pin: str
 
     def __init__(self, pin: str):
-       self.pin = pin
+        self.pin = pin
 
     def request_pin(
-        self, permissions: ClientPin.PERMISSION, rp_id: Optional[str]
+            self, permissions: ClientPin.PERMISSION, rp_id: Optional[str]
     ) -> Optional[str]:
         return self.pin
 
@@ -95,12 +95,125 @@ class FIDOTesting(CTAPTestCase):
             "hmac-secret": True
         }, res.auth_data.extensions)
 
-    def test_overly_long_pin(self):
-        pin = secrets.token_hex(33)
+    def test_pin_change(self):
+        first_pin = secrets.token_hex(16)
+        second_pin = secrets.token_hex(16)
+        old_pin_client = self.get_high_level_client(user_interaction=FixedPinUserInteraction(first_pin))
+        new_pin_client = self.get_high_level_client(user_interaction=FixedPinUserInteraction(second_pin))
+        cp = ClientPin(self.ctap2)
+
+        cp.set_pin(first_pin)
+        cp.change_pin(first_pin, second_pin)
+        with self.assertRaises(ClientError) as e:
+            # Old PIN is now wrong
+            old_pin_client.make_credential(self.get_make_cred_options())
+
+        # New PIN is correct
+        new_pin_client.make_credential(self.get_make_cred_options())
+
+        self.assertEqual(CtapError.ERR.PIN_INVALID, e.exception.cause.code)
+
+    def test_pin_change_providing_incorrect_old_pin(self):
+        first_pin = secrets.token_hex(16)
+        second_pin = secrets.token_hex(16)
+        cp = ClientPin(self.ctap2)
+        cp.set_pin(first_pin)
+
         with self.assertRaises(CtapError) as e:
-            ClientPin(self.ctap2).set_pin(pin)
+            cp.change_pin("12345", second_pin)
 
         self.assertEqual(CtapError.ERR.PIN_INVALID, e.exception.code)
+
+    @parameterized.expand([
+        ("short", 1, False),
+        ("minimal", 2, True),
+        ("reasonable", 8, True),
+        ("maximal", 31, True),
+        ("overlong", 32, False),
+        ("huge", 40, False),
+    ])
+    def test_pin_lengths(self, _, length, valid):
+        pin = secrets.token_hex(length)
+
+        def do_client_pin():
+            pin_as_bytes = pin.encode()
+            while len(pin_as_bytes) < 64:
+                pin_as_bytes += b'\0'
+
+            cp = ClientPin(self.ctap2)
+            ka, ss = cp._get_shared_secret()
+            enc = cp.protocol.encrypt(ss, pin_as_bytes)
+            puv = cp.protocol.authenticate(ss, enc)
+            self.ctap2.client_pin(
+                2,
+                ClientPin.CMD.SET_PIN,
+                key_agreement=ka,
+                new_pin_enc=enc,
+                pin_uv_param=puv
+            )
+
+        if valid:
+            do_client_pin()
+        else:
+            with self.assertRaises(CtapError) as e:
+                do_client_pin()
+
+            self.assertEqual(CtapError.ERR.PIN_POLICY_VIOLATION, e.exception.code)
+
+    def test_pin_set_and_not_provided_library_level(self):
+        pin = secrets.token_hex(30)
+        ClientPin(self.ctap2).set_pin(pin)
+        client = self.get_high_level_client()
+
+        with self.assertRaises(PinRequiredError):
+            client.make_credential(options=self.get_make_cred_options())
+
+    def test_pin_set_and_not_provided_underyling_impl(self):
+        pin = secrets.token_hex(30)
+        ClientPin(self.ctap2).set_pin(pin)
+
+        with self.assertRaises(CtapError) as e:
+            self.ctap2.make_credential(**self.basic_makecred_params)
+
+        self.assertEqual(CtapError.ERR.PUAT_REQUIRED, e.exception.code)
+
+    def get_make_cred_options(self,
+                              resident_key: ResidentKeyRequirement = ResidentKeyRequirement.DISCOURAGED,
+                              extensions=None) -> PublicKeyCredentialCreationOptions:
+        if extensions is None:
+            extensions = {}
+
+        return PublicKeyCredentialCreationOptions(
+            rp=PublicKeyCredentialRpEntity(
+                name="An RP Name",
+                id=self.basic_makecred_params['rp']['id']
+            ),
+            user=PublicKeyCredentialUserEntity(
+                name="Bob",
+                id=self.basic_makecred_params['user']['id']
+            ),
+            challenge=self.client_data,
+            pub_key_cred_params=[
+                PublicKeyCredentialParameters(
+                    type=PublicKeyCredentialType.PUBLIC_KEY,
+                    alg=ES256.ALGORITHM
+                )
+            ],
+            extensions=extensions,
+            authenticator_selection=AuthenticatorSelectionCriteria(
+                resident_key=resident_key,
+                user_verification=UserVerificationRequirement.DISCOURAGED
+            )
+        )
+
+    def get_high_level_client(self, extensions: Optional[list[Type[Ctap2Extension]]] = None,
+                              user_interaction: UserInteraction = None) -> Fido2Client:
+        if extensions is None:
+            extensions = []
+        if user_interaction is None:
+            user_interaction = UserInteraction()
+        return Fido2Client(self.device, "https://" + self.basic_makecred_params['rp']['id'],
+                           extension_types=extensions, user_interaction=user_interaction)
 
     @parameterized.expand([
         ("nonresident+nopin", False, False),
@@ -117,32 +230,14 @@ class FIDOTesting(CTAPTestCase):
             user_interaction = FixedPinUserInteraction(pin)
             ClientPin(self.ctap2).set_pin(pin)
 
-        client = Fido2Client(self.device, "https://" + self.basic_makecred_params['rp']['id'],
-                             extension_types=[HmacSecretExtension], user_interaction=user_interaction)
+        client = self.get_high_level_client(extensions=[HmacSecretExtension],
+                                            user_interaction=user_interaction)
 
-        cred = client.make_credential(options=PublicKeyCredentialCreationOptions(
-            rp=PublicKeyCredentialRpEntity(
-                name="An RP Name",
-                id=self.basic_makecred_params['rp']['id']
-            ),
-            user=PublicKeyCredentialUserEntity(
-                name="Bob",
-                id=self.basic_makecred_params['user']['id']
-            ),
-            challenge=self.client_data,
-            pub_key_cred_params=[
-                PublicKeyCredentialParameters(
-                    type=PublicKeyCredentialType.PUBLIC_KEY,
-                    alg=ES256.ALGORITHM
-                )
-            ],
-            extensions={
+        cred = client.make_credential(options=self.get_make_cred_options(
+            resident_key,
+            {
                 "hmacCreateSecret": True
-            },
-            authenticator_selection=AuthenticatorSelectionCriteria(
-                resident_key=resident_key,
-                user_verification=UserVerificationRequirement.DISCOURAGED
-            )
+            }
         ))
         self.assertEqual({"hmacCreateSecret": True}, cred.extension_results)
 
