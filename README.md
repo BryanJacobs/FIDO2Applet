@@ -24,12 +24,10 @@ You might be interested in [reading about the security model](docs/security.md).
 
 ## Building the application
 
-You'll need to get a copy of:
-- com.licel.jcardsim-3.0.5
-- JavacardKit, version 3.0.4 (`jckit_304`): you can build with jckit_303 if you prefer
+You'll need to get a copy of JavacardKit, version 3.0.4 (`jckit_304`):
+you can build with jckit_303 if you prefer.
 
-Drop the jcardsim jar into the root of the repository. Set the
-environment variable `JC_HOME` to point to your jckit folder.
+Set the environment variable `JC_HOME` to point to your jckit folder.
 
 Run `./gradlew buildJavaCard`, which will produce a `.cap` file
 for installation.
@@ -91,24 +89,29 @@ I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/s
 | Platform              | Status   |
 |-----------------------|----------|
 | Android (hwsecurity)  | Working  |
-| Android (Google Play) | Broken   |
+| Android (Google Play) | Untested |
 | iOS                   | Untested |
 | Linux (libfido2)      | Working  |
 | Windows 10            | Working  |
 
-| Smartcard                 | Status  |
-|---------------------------|---------|
-| J3H145 (NXP JCOP3)        | Working |
-| OMNI Ring (Infineon SLE78 | Working |
-| jCardSim                  | Working |
+| Smartcard                  | Status  |
+|----------------------------|---------|
+| J3H145 (NXP JCOP3)         | Working |
+| OMNI Ring (Infineon SLE78) | Working |
+| jCardSim                   | Working |
+
+Note that many of the applications below (cough, browsers)
+support FIDO2 in theory but only allow USB security keys - this implementation
+is for PC/SC, and doesn't implement USB HID, so it will only work with FIDO2
+implementations that can handle e.g. NFC tokens instead of being restricted to USB.
 
 | Application         | Status      |
 |---------------------|-------------|
-| Chrome on Android   | Broken      |
+| Chrome on Android   | Untested    |
 | Chrome on Linux     | Unsupported |
 | Fennec on Android   | Unsupported |
 | Firefox on Linux    | Unsupported |
-| Firefox on Windows  | Unsupported |
+| Firefox on Windows  | Untested    |
 | OpenSSH             | Working     |
 | pam_u2f             | Working     |
 | MS Edge             | Working     |

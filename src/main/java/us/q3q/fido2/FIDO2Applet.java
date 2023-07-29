@@ -2250,7 +2250,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         ) != 0) {
             // We must have gotten the crypto wrong somehow... (or the platform sent incorrect vals)
             // our computed HMAC didn't match the input
-            sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INTEGRITY_FAILURE);
         }
 
         bufferManager.release(apdu, scratchHandle, scratchAmt);
@@ -2734,12 +2734,24 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     availableMem = 0xFF;
                 }
                 final byte transientMem = (byte)(availableMem >= (0xFF & MAX_RAM_SCRATCH_SIZE) ? MAX_RAM_SCRATCH_SIZE : availableMem);
-                bufferManager = new BufferManager(transientMem, SCRATCH_SIZE);
 
-                bufferManager.initializeAPDU(apdu);
+                JCSystem.beginTransaction();
+                boolean ok = false;
+                try {
+                    bufferManager = new BufferManager(transientMem, SCRATCH_SIZE);
 
-                // ... aaand finally, the actual wrapping key, which we didn't init because we use the above buffers
-                resetWrappingKey(apdu);
+                    bufferManager.initializeAPDU(apdu);
+
+                    // ... aaand finally, the actual wrapping key, which we didn't init because we use the above buffers
+                    resetWrappingKey(apdu);
+                    ok = true;
+                } finally {
+                    if (ok) {
+                        JCSystem.commitTransaction();
+                    } else {
+                        JCSystem.abortTransaction();
+                    }
+                }
             }
 
             // For U2F compatibility, the CTAP2 standard requires that we respond to select() as if we were a U2F
@@ -2755,10 +2767,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         final byte[] apduBytes = apdu.getBuffer();
 
-        final short clains = Util.getShort(apduBytes, ISO7816.OFFSET_CLA);
-        final short p1p2 = Util.getShort(apduBytes, ISO7816.OFFSET_P1);
+        final short cla_ins = Util.getShort(apduBytes, ISO7816.OFFSET_CLA);
+        final short p1_p2 = Util.getShort(apduBytes, ISO7816.OFFSET_P1);
 
-        if (clains == (short) 0x8012 && p1p2 == (short) 0x0100) {
+        if (cla_ins == (short) 0x8012 && p1_p2 == (short) 0x0100) {
             // Explicit disable command (NFCCTAP_CONTROL end CTAP_MSG). Turn off, and stay off.
             transientStorage.disableAuthenticator();
         }
@@ -2769,7 +2781,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         initKeyAgreementKeyIfNecessary();
 
-        if (clains == 0x00C0 || clains == (short) 0x80C0) {
+        if (cla_ins == 0x00C0 || cla_ins == (short) 0x80C0) {
             // continue outgoing response from buffer
             if (transientStorage.getOutgoingContinuationRemaining() == 0) {
                 throwException(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
@@ -3071,7 +3083,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                 }
                 if (buffer[readIdx++] != 0x20) { // 32 bytes long
-                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                    sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_LENGTH);
                 }
             }
 

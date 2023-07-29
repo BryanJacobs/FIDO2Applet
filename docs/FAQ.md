@@ -34,6 +34,11 @@ Well, they said that, but they hadn't published the source code and I got impati
 
 Two is better than zero, right?
 
+UPDATE: this repository was published in 2022, and as of 2023 more than a year
+later there are zero other open-source CTAP2 Javacard implementations available,
+so far as I can tell. There's a difference between talking about doing something
+and actually doing it.
+
 ## Why did you write this at all?
 
 I was pretty unhappy with the idea of trusting my "two factor" SSH
@@ -158,16 +163,6 @@ See what's going on. Raise a pull request to fix it.
 Ahahahahahahahaahha
 
 Javacard versions before 3.0.1 don't support SHA-2 hashing. Not gonna happen.
-
-## Why doesn't this work on my Android phone?
-
-You're probably using an app that, like most, uses Google
-Play Services' implementation of FIDO standards. That
-implementation doesn't appear to support PINs or, indeed,
-FIDO2 at all.
-
-There's nothing technically wrong with Android compatibility
-but the Google Play Services implementation isn't great.
 
 ## What does this applet mean for the flash storage lifetime of my smartcard?
 

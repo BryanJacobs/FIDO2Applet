@@ -22,10 +22,13 @@ repositories {
 }
 
 dependencies {
-    testImplementation(files("./jcardsim-3.0.5-SNAPSHOT.jar"))
+    testImplementation(group: 'com.klinec', name: 'jcardsim', version: '3.0.5.0') {
+        // Javacard will be provided by the user at runtime through the JC_HOME env var
+        exclude(group: 'oracle.javacard', module: 'api_classic')
+    }
+    testImplementation group: 'org.junit.jupiter', name: 'junit-jupiter-api', version: '5.8.1'
 
-    testImplementation("org.junit.jupiter:junit-jupiter-api:5.8.1")
-    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.8.1")
+    testRuntimeOnly group: 'org.junit.jupiter', name: 'junit-jupiter-engine', version: '5.8.1'
 }
 
 test {
