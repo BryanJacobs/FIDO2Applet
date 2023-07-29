@@ -22,10 +22,10 @@ PIN on the device "securely", and then relying on the correctness
 of their software and the tamper-proofness of their hardware to
 protect private keying material.
 
-This app is different. In this app, once you set a PIN, the "wrapping
-key" - without which the authenticator is useless - is encrypted using
-a key derived from the PIN. This means no credentials can be created
-or used unless you provide your PIN...
+This app is different. In this app, when you enable the "alwaysUv" option,
+the "wrapping key" - without which the authenticator is useless - is
+encrypted using a key derived from the PIN. This means no credentials
+can be created or used unless you provide your PIN...
 
 ## Details: Security Levels
 
@@ -52,10 +52,10 @@ to gain access to it, would require a targeted attack whose brute-force
 difficulty is at most 128 bits, and is likely set by the entropy of
 the user's PIN.
 
-**Use a strong PIN** if you care about security in the event your
-device is entirely compromised. Despite the name, there is no
-requirement that PINs be numeric. You can use any sequence of
-characters up to 64 bytes long.
+**Use a strong PIN** and **enable the alwaysUv option** if you care
+about security in the event your device is entirely compromised. Despite
+the name, there is no requirement that PINs be numeric. You can use any
+sequence of characters up to 64 bytes long.
 
 Your PIN is used for challenge-response to the authenticator at least once
 per power-up, and it's done encrypted over an ECDH channel. The
@@ -142,8 +142,8 @@ flash memory read or computation corrupted, this is the same as
 the "malware" case above. **If not**, then we are in an interesting
 situation.
 
-The attacker needs to decrypt the on-device wrapping key. Without
-doing that, they can read incidentals like:
+If you set the alwaysUv flat, the attacker needs to decrypt the
+on-device wrapping key. Without doing that, they can read incidentals like:
 - how many different resident keys are currently stored on the device
 - how long each key's RP ID is, if less than 32 characters
 - how long each key's user ID is

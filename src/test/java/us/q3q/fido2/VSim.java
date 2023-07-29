@@ -15,13 +15,10 @@ public class VSim {
     static final AID appletAID = AIDUtil.create("A0000006472F0001");
     static final int PORT = 35963;
 
-    public static void main(String[] args) throws Exception {
-
+    public static Simulator startBackgroundSimulator() throws Exception {
         System.setProperty("com.licel.jcardsim.vsmartcard.reloader.port", "" + PORT);
         System.setProperty("com.licel.jcardsim.vsmartcard.reloader.delay", "1000");
 
-        // This line requires a patched jcardsim...
-        // new VSmartCard("127.0.0.1", 35963, appletAID, FIDO2Applet.class);
         VSmartCard sc = new VSmartCard("127.0.0.1", PORT);
 
         // The JCardSim VSmartCard class doesn't natively support loading applets at startup...
@@ -30,9 +27,17 @@ public class VSim {
         // and reach directly into the class to install our applet.
         Field f = sc.getClass().getDeclaredField("sim");
         f.setAccessible(true);
-        Simulator sim = (Simulator) f.get(sc);
+        return (Simulator) f.get(sc);
+    }
 
+    public static void installApplet(Simulator sim) {
         sim.installApplet(appletAID, FIDO2Applet.class);
+    }
+
+    public static void main(String[] args) throws Exception {
+        Simulator sim = startBackgroundSimulator();
+
+        installApplet(sim);
     }
 
 }

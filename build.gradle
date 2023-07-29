@@ -22,7 +22,7 @@ repositories {
 }
 
 dependencies {
-    testImplementation(group: 'com.klinec', name: 'jcardsim', version: '3.0.5.0') {
+    testImplementation(group: 'com.klinec', name: 'jcardsim', version: '3.0.5.11') {
         // Javacard will be provided by the user at runtime through the JC_HOME env var
         exclude(group: 'oracle.javacard', module: 'api_classic')
     }
@@ -35,9 +35,21 @@ test {
     useJUnitPlatform()
 }
 
+tasks.register('testJar', Jar) {
+    baseName = project.name + '-tests'
+    duplicatesStrategy = 'include'
+    from sourceSets.test.output + sourceSets.test.allSource
+    from {
+        sourceSets.test.runtimeClasspath.filter {
+            it.toString().indexOf("jcardsim-") != -1
+        }.collect {
+            zipTree(it)
+        }
+    }
+}
+
 javacard {
     config {
-        jckit System.getenv("JC_HOME")
         cap {
             packageName 'us.q3q.fido2'
             version '0.1'

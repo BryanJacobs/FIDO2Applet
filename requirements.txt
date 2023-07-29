@@ -1,0 +1,3 @@
+fido2[pcsc]==1.1.2
+JPype1==1.4.1
+parameterized==0.9.0

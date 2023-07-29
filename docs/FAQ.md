@@ -34,8 +34,8 @@ Well, they said that, but they hadn't published the source code and I got impati
 
 Two is better than zero, right?
 
-UPDATE: this repository was published in 2022, and as of 2023 more than a year
-later there are zero other open-source CTAP2 Javacard implementations available,
+UPDATE: this repository was published in 2022, and as of 2023 (more than a year
+later) there are zero other open-source CTAP2 Javacard implementations available,
 so far as I can tell. There's a difference between talking about doing something
 and actually doing it.
 
@@ -48,7 +48,7 @@ existing open hardware devices didn't work the way I wanted.
 I wanted my password to be used in such a way that without it, the
 authenticator was useless - in other words, a true second factor.
 
-So I wrote a CTAP2 implementation that [had that property](security.md).
+So I wrote a CTAP2 implementation that [had that property](security_model.md).
 
 ## You say there are "caveats" for some implementation bits. What are those?
 
@@ -87,7 +87,7 @@ This authenticator and CTAP2.1 cap PINs at 63 bytes long.
 
 U2F doesn't support PINs, and requires an attestation certificate.
 
-[The security model](security.md) requires PINs.
+[The security model](security_model.md) requires PINs.
 
 It would be possible to implement U2F commands in non-standards-compliant ways,
 but implementing them the normal way would require turning off the `alwaysUv`
@@ -147,11 +147,6 @@ stacks.
 A perfect example of this is the BufferManager class. It looks like a mess, but
 it makes it possible to use both sides of the APDU buffer as transient memory,
 avoiding flash wear on very memory-constrained devices.
-
-## Why is the smartcard giving me OPERATION_DENIED when I try to create a resident key?
-
-You haven't set a PIN. You can turn off this feature in the code, or you can
-set a PIN. If I were you, I would use a PIN with resident keys.
 
 ## I'm getting some strange CBOR error when I try to use this
 

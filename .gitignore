@@ -1,3 +1,5 @@
 /.gradle
 /.idea
 /build
+/venv
+__pycache__

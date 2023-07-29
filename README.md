@@ -20,7 +20,7 @@ In order to run this, you will need
 describe themselves as running Javacard 3.0.1 also work - see the
 detailed requirements.
 
-You might be interested in [reading about the security model](docs/security.md).
+You might be interested in [reading about the security model](docs/security_model.md).
 
 ## Building the application
 
@@ -35,13 +35,19 @@ for installation.
 ## Testing the application
 
 While you can test on an actual smartcard, I prefer to use VSmartCard
-and run JCardSim connected to that. There are a few example JCardSim
-unit tests in the repository, but you'll get much better analysis
-of the behaviour by using real applications or other testing suites
-like SoloKey's `fido2-tests`, which you can run against the simulated
-application.
+and run JCardSim connected to that for ease and speed.
 
-The `VSim` class might get you started.
+You can get great analysis of the applet's behaviour using real applications
+or third-party testing suites like SoloKey's `fido2-tests`, which you can run
+against the simulated application - the `VSim` class might get you started.
+
+There are also a reasonable number of Python-language tests in the
+`python_tests` top level directory. These start up JCardSim and use the
+Python `python-fido2` library to interact the with applet. They're in Python
+because, as of this writing, there is no FIDO2 client library available for
+the JVM. And hey, interoperability testing, right? You can test with `libfido2`,
+or Python libraries, or the official FIDO Standards Tests (Javascript). The
+applet should pass everything you throw at it.
 
 ## Contributing
 
@@ -49,7 +55,7 @@ If you want to, feel free!
 
 ## Where to go Next
 
-I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/security.md).
+I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/security_model.md).
 
 ## Implementation Status
 

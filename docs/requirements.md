@@ -1,8 +1,8 @@
 # Runtime requirements
 
-This app requires Javacard 3.0.4. I really, really, really wanted to
-support Javacard 3.0.1, which runs on cool products like the
-Mclear/NFCRings.com OMNI Ring (seriously nice tech!).
+This app requires, in theory, Javacard 3.0.4. I really, really,
+really wanted to support Javacard 3.0.1, which runs on cool
+products like the Mclear/NFCRings.com OMNI Ring (seriously nice tech!).
 
 Unfortunately, CTAP2.0 requires an EC diffie-helmann key exchange
 in order to support PINs or the hmac-secret extension, and it uses

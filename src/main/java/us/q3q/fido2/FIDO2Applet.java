@@ -17,7 +17,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * This is "normal" for a FIDO2 authenticator, but means keys on the device could be
      * accessed in the event of a software bug or hardware fault.
      */
-    private static final boolean ALLOW_RESIDENT_KEY_CREATION_WITHOUT_PIN = false;
+    private static final boolean ALLOW_RESIDENT_KEY_CREATION_WITHOUT_PIN = true;
     /**
      * If true, the authenticator will refuse to reset itself until the following three steps happen in order:
      * <p>
@@ -3823,6 +3823,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         offset = Util.arrayCopyNonAtomic(CannedCBOR.AUTH_INFO_RESPONSE, (short) 0,
                 buffer, offset, (short) CannedCBOR.AUTH_INFO_RESPONSE.length);
+
+        if (pinSet) { // alwaysUv if we have a PIN set
+            buffer[offset++] = (byte) 0xF5; // true
+        } else {
+            buffer[offset++] = (byte) 0xF4; // false
+        }
+
+        offset = Util.arrayCopyNonAtomic(CannedCBOR.AUTH_INFO_MIDDLE, (short) 0,
+                buffer, offset, (short) CannedCBOR.AUTH_INFO_MIDDLE.length);
 
         if (pinSet) {
             buffer[offset++] = (byte) 0xF5; // true
