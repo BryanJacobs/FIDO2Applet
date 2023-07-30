@@ -19,7 +19,7 @@ public abstract class CannedCBOR {
     static final byte[] CRED_PROTECT_EXTENSION_ID = {
             0x63, 0x72, 0x65, 0x64, 0x50, 0x72, 0x6F, 0x74, 0x65, 0x63, 0x74, // credProtect
     };
-    static final byte[] AUTH_INFO_RESPONSE = {
+    static final byte[] AUTH_INFO_START = {
             FIDOConstants.CTAP2_OK,
             (byte) 0xA9, // Map - nine keys
                 0x01, // map key: versions
@@ -28,15 +28,17 @@ public abstract class CannedCBOR {
                         0x46, 0x49, 0x44, 0x4F, 0x5F, 0x32, 0x5F, 0x30, // FIDO_2_0
                         0x68, // string - eight bytes long
                         0x46, 0x49, 0x44, 0x4F, 0x5F, 0x32, 0x5F, 0x31, // FIDO_2_1
-            0x02, // map key: extensions
+                0x02, // map key: extensions
                     (byte) 0x82, // array - two items
                         0x6B, // string - eleven bytes long
                             0x63, 0x72, 0x65, 0x64, 0x50, 0x72, 0x6F, 0x74, 0x65, 0x63, 0x74, // credProtect
                         0x6B, // string - eleven bytes long
                             0x68, 0x6D, 0x61, 0x63, 0x2D, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, // hmac-secret
-                    0x03, // map key: aaguid
-                        0x50, // byte string, 16 bytes long
-                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // aaguid
+                0x03, // map key: aaguid
+                    0x50, // byte string, 16 bytes long
+    };
+
+    static final byte[] AUTH_INFO_SECOND = {
                 0x04, // map key: options
                     (byte) 0xA8, // map: eight entries
                         0x62, // string: two bytes long
@@ -49,7 +51,7 @@ public abstract class CannedCBOR {
                             0x61, 0x6c, 0x77, 0x61, 0x79, 0x73, 0x55, 0x76, // alwaysUv
     };
 
-    static final byte[] AUTH_INFO_MIDDLE = {
+    static final byte[] AUTH_INFO_THIRD = {
             0x68, // string - eight bytes long
                 0x63, 0x72, 0x65, 0x64, 0x4d, 0x67, 0x6d, 0x74, // credMgmt
                 (byte) 0xF5, // true
@@ -97,16 +99,33 @@ public abstract class CannedCBOR {
                     0x58, // byte string with one-byte length next
                         0x20 // 32 bytes long
     };
-    static final byte[] ATTESTATION_STATEMENT_PREAMBLE = {
+    static final byte[] SELF_ATTESTATION_STATEMENT_PREAMBLE = {
             0x03, // map key: attestation statement
             (byte) 0xA2, // map - two entries
                     0x63, // string - three bytes long
                         0x61, 0x6C, 0x67, // alg
                         0x26, // integer (-7) - means ES256 algorithm
-            0x63, // string: three characters
+                    0x63, // string: three characters
                         0x73, 0x69, 0x67, // sig
                         0x58, // byte string with one-byte length
     };
+
+    static final byte[] BASIC_ATTESTATION_STATEMENT_PREAMBLE = {
+            0x03, // map key: attestation statement
+            (byte) 0xA3, // map - three entries
+                0x63, // string - three bytes long
+                    0x61, 0x6C, 0x67, // alg
+                    0x26, // integer (-7) - means ES256 algorithm
+                0x63, // string: three characters
+                    0x73, 0x69, 0x67, // sig
+                    0x58, // byte string with one-byte length
+    };
+
+    static final byte[] X5C = {
+            0x63, // string: three characters
+                0x78, 0x35, 0x63, // x5c
+    };
+
     static final byte[] SINGLE_ID_MAP_PREAMBLE = {
             (byte) 0xA1, // map: one entry
                 0x62, // string - two bytes long

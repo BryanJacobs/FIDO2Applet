@@ -76,6 +76,16 @@ public final class SigOpCounter {
     }
 
     /**
+     * Returns true if the counter still has its initial value
+     *
+     * @return true if the counter is zero
+     */
+    public boolean isZero() {
+        return (firstBytes[0] == 0 && firstBytes[1] == 0
+                && firstBytes[2] == 0 && lastBytes[0] == 0);
+    }
+
+    /**
      * Resets counter for new use. Does not start its own transaction - use within an existing one!
      */
     public void clear() {

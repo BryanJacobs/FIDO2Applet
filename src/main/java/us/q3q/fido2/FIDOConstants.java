@@ -20,6 +20,10 @@ public abstract class FIDOConstants {
      * "Vendor" command, non-FIDO-standard: dump memory buffer sizing info
      */
     public static final byte CMD_DUMP_ABUF = 0x45;
+    /**
+     * "Vendor" command, non-FIDO-standard: install attestation certificates
+     */
+    public static final byte CMD_INSTALL_CERTS = 0x46;
 
 
     // Client pin subCommands

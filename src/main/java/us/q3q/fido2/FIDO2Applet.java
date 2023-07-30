@@ -233,6 +233,26 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private KeyPair ecKeyPair;
     /**
+     * Used for CTAP2 "basic" attestation, and for CTAP1/U2F
+     */
+    private ECPrivateKey attestationKey;
+    /**
+     * If set to true, allow loading an attestation certificate.
+     * Will become false after install completed unless params are
+     * provided.
+     */
+    private boolean attestationSwitchingEnabled;
+    /**
+     * Used for CTAP2 "basic" attestation - should be a CBOR array
+     * where each element contains X.509 certificate data, starting
+     * with the basic attestation certificate
+     */
+    private byte[] attestationData;
+    /**
+     * How much of the attestationData has been successfully read so far
+     */
+    private short filledAttestationData;
+    /**
      * General hashing of stuff
      */
     private final MessageDigest sha256;
@@ -302,11 +322,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * How many distinct RPs are present across all resident keys
      */
     private byte numResidentRPs;
-
+    /**
+     * Unique identifier ID - set at install time, or left zeroes
+     * for self-attestation.
+     */
     private byte[] aaguid = {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     };
+    private static final byte AAGUID_LENGTH = 16;
 
     /**
      * Deliver a particular byte array to the platform
@@ -892,16 +916,24 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         Util.arrayCopyNonAtomic(clientDataHashBuffer, clientDataHashScratchOffset,
                 bufferMem, outputLen, CLIENT_DATA_HASH_LEN);
 
-        attester.init(ecKeyPair.getPrivate(), Signature.MODE_SIGN);
+        boolean selfAttestation = attestationKey == null;
+        byte[] attestationPreamble;
+        if (selfAttestation) {
+            attester.init(ecKeyPair.getPrivate(), Signature.MODE_SIGN);
+            attestationPreamble = CannedCBOR.SELF_ATTESTATION_STATEMENT_PREAMBLE;
+        } else {
+            attester.init(attestationKey, Signature.MODE_SIGN);
+            attestationPreamble = CannedCBOR.BASIC_ATTESTATION_STATEMENT_PREAMBLE;
+        }
         final short sigLength = attester.sign(bufferMem, offsetForStartOfAuthData, (short)(adLen + CLIENT_DATA_HASH_LEN),
-                bufferMem, (short) (outputLen + 1 + CannedCBOR.ATTESTATION_STATEMENT_PREAMBLE.length));
+                bufferMem, (short) (outputLen + 1 + attestationPreamble.length));
         if (sigLength > 256 || sigLength < 24) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
         }
 
         // Attestation statement
-        outputLen = Util.arrayCopyNonAtomic(CannedCBOR.ATTESTATION_STATEMENT_PREAMBLE, (short) 0,
-                bufferMem, outputLen, (short) CannedCBOR.ATTESTATION_STATEMENT_PREAMBLE.length);
+        outputLen = Util.arrayCopyNonAtomic(attestationPreamble, (short) 0,
+                bufferMem, outputLen, (short) attestationPreamble.length);
 
         bufferMem[outputLen++] = (byte) sigLength;
         outputLen += sigLength;
@@ -910,6 +942,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         // well clear it out here since we don't need it any more. We'll get its private key back from the credential
         // ID to use later...
         ecKeyPair.getPrivate().clearKey();
+
+        if (!selfAttestation) {
+            // Add x5c certificate data
+            outputLen = Util.arrayCopyNonAtomic(CannedCBOR.X5C, (short) 0,
+                    bufferMem, outputLen, (short) CannedCBOR.X5C.length);
+            outputLen = Util.arrayCopyNonAtomic(attestationData, (short) 0,
+                    bufferMem, outputLen, (short) attestationData.length);
+        }
 
         doSendResponse(apdu, outputLen);
     }
@@ -1703,7 +1743,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         numMatchesThisRP++;
                         startOfMatchingPubKeyCredData = beforeReadIdx;
                         matchingPubKeyCredDataLen = (short) (blockReadIdx - startOfMatchingPubKeyCredData);
-                        loadScratchIntoAttester(credTempBuffer, credTempOffset);
+                        if (attestationKey == null) {
+                            loadScratchIntoAttester(credTempBuffer, credTempOffset);
+                        } else {
+                            attester.init(attestationKey, Signature.MODE_SIGN);
+                        }
                     }
                 }
 
@@ -1773,7 +1817,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                                 startOfMatchingPubKeyCredData = (short) (i * CREDENTIAL_ID_LEN);
                                 matchingPubKeyCredDataLen = CREDENTIAL_ID_LEN;
                                 rkMatch = i;
-                                loadScratchIntoAttester(credTempBuffer, credTempOffset);
+                                if (attestationKey == null) {
+                                    loadScratchIntoAttester(credTempBuffer, credTempOffset);
+                                } else {
+                                    attester.init(attestationKey, Signature.MODE_SIGN);
+                                }
                             }
                         }
                     }
@@ -2815,7 +2863,27 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             transientStorage.clearOutgoingContinuation();
         }
 
-        if (apdu.isCommandChainingCLA()) {
+        if (attestationData != null && filledAttestationData < attestationData.length &&
+                transientStorage.getChainIncomingReadOffset() > 0
+                && bufferMem[0] == FIDOConstants.CMD_INSTALL_CERTS
+            ) {
+            // Still waiting to receive more cert data
+            final short amtRead = apdu.setIncomingAndReceive();
+
+            final short lc = apdu.getIncomingLength();
+            if (lc == 0) {
+                ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+            }
+            byte[] buf = fullyReadReq(apdu, lc, amtRead, true);
+            final boolean done = initAttestationKeyContinue(apdu, buf,
+                    (short) 1, lc);
+            transientStorage.resetChainIncomingReadOffset();
+            if (!done) {
+                // Keep the command byte
+                transientStorage.increaseChainIncomingReadOffset((short) 1);
+            }
+            return;
+        } else if (apdu.isCommandChainingCLA()) {
             // Incoming chained request
             final short amtRead = apdu.setIncomingAndReceive();
 
@@ -2824,8 +2892,28 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 ISOException.throwIt(ISO7816.SW_DATA_INVALID);
             }
             fullyReadReq(apdu, lc, amtRead, true);
+            if (attestationSwitchingEnabled
+                    && bufferMem[0] == FIDOConstants.CMD_INSTALL_CERTS) {
+                // Stream cert install, which can be very large, directly
+                boolean done = false;
+                if (attestationData == null) {
+                    // Initial attestation data
+                    done = initAttestationKeyStart(apdu, bufferMem,
+                            (short) (apdu.getOffsetCdata() + 1), lc);
+                } else {
+                    // How did we get here?
+                    throwException(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+                }
+                transientStorage.resetChainIncomingReadOffset();
+                if (!done) {
+                    // Keep the command byte
+                    transientStorage.increaseChainIncomingReadOffset((short) 1);
+                }
+                return;
+            } else {
+                transientStorage.increaseChainIncomingReadOffset(lc);
+            }
 
-            transientStorage.increaseChainIncomingReadOffset(lc);
             return;
         }
 
@@ -2919,6 +3007,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             case FIDOConstants.CMD_DUMP_ABUF:
                 dumpMemoryTransienceInfo(apdu);
                 return;
+            case FIDOConstants.CMD_INSTALL_CERTS:
+                reqBuffer = fullyReadReq(apdu, lc, amtRead, false);
+                initAttestationKeyStart(apdu, reqBuffer, apdu.getOffsetCdata(), lc);
+                break;
             default:
                 sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_COMMAND);
                 break;
@@ -3821,8 +3913,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         short offset = 0;
 
-        offset = Util.arrayCopyNonAtomic(CannedCBOR.AUTH_INFO_RESPONSE, (short) 0,
-                buffer, offset, (short) CannedCBOR.AUTH_INFO_RESPONSE.length);
+        offset = Util.arrayCopyNonAtomic(CannedCBOR.AUTH_INFO_START, (short) 0,
+                buffer, offset, (short) CannedCBOR.AUTH_INFO_START.length);
+
+        offset = Util.arrayCopyNonAtomic(aaguid, (short) 0,
+                buffer, offset, AAGUID_LENGTH);
+
+        offset = Util.arrayCopyNonAtomic(CannedCBOR.AUTH_INFO_SECOND, (short) 0,
+                buffer, offset, (short) CannedCBOR.AUTH_INFO_SECOND.length);
 
         if (pinSet) { // alwaysUv if we have a PIN set
             buffer[offset++] = (byte) 0xF5; // true
@@ -3830,8 +3928,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             buffer[offset++] = (byte) 0xF4; // false
         }
 
-        offset = Util.arrayCopyNonAtomic(CannedCBOR.AUTH_INFO_MIDDLE, (short) 0,
-                buffer, offset, (short) CannedCBOR.AUTH_INFO_MIDDLE.length);
+        offset = Util.arrayCopyNonAtomic(CannedCBOR.AUTH_INFO_THIRD, (short) 0,
+                buffer, offset, (short) CannedCBOR.AUTH_INFO_THIRD.length);
 
         if (pinSet) {
             buffer[offset++] = (byte) 0xF5; // true
@@ -4944,6 +5042,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         initAuthenticatorKey(authenticatorKeyInRam);
         initCredKey(ecPairInRam);
+        if (length > 0) {
+            attestationSwitchingEnabled = true;
+            initAttestationKeyStart(null, array, offset, length);
+        } else {
+            attestationSwitchingEnabled = false;
+        }
     }
 
     private void initAuthenticatorKey(boolean authenticatorKeyInRam) {
@@ -4963,6 +5067,154 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         );
         P256Constants.setCurve((ECKey) ecKeyPair.getPrivate());
         P256Constants.setCurve((ECKey) ecKeyPair.getPublic());
+    }
+
+    /**
+     * Initialize non-self attestation mode.
+     *
+     * This installs an AAGUID and a certificate chain for signing credentials,
+     * instead of them being signed with their own private keys.
+     *
+     * @param apdu Optional (nullable) APDU context object
+     * @param params Byte array of encoded parameters:
+     *               - aaguid
+     *               - private key point
+     *               - certificate chain. CBOR-encoded
+     * @param offset Offset into params array of start of data
+     * @param length Length of parameter data loaded in buffer
+     * @return true if we're done reading the keys
+     */
+    private boolean initAttestationKeyStart(APDU apdu, byte[] params, short offset, short length) {
+        if (attestationKey != null) {
+            // We already did this!
+            if (apdu != null) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NOT_ALLOWED);
+            }
+            throwException(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+        }
+
+        if (!counter.isZero()) {
+            // Too late!
+            if (apdu != null) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NOT_ALLOWED);
+            }
+            throwException(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+        }
+
+        if (apdu == null && length == 1 && attestationSwitchingEnabled) {
+            if (params[0] != 0x01) {
+                // Late switching disabled
+                attestationSwitchingEnabled = false;
+            }
+            return true;
+        }
+
+        if (length <= AAGUID_LENGTH + KEY_POINT_LENGTH + 4) {
+            if (apdu != null) {
+                sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_LENGTH);
+            }
+            throwException(ISO7816.SW_DATA_INVALID);
+        }
+
+        if (!attestationSwitchingEnabled) {
+            // We should only get here from late-switching code
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NOT_ALLOWED);
+        }
+
+        JCSystem.beginTransaction();
+        boolean success = false;
+        try {
+            attestationSwitchingEnabled = false; // We're loading a cert here and now.
+
+            Util.arrayCopyNonAtomic(params, offset, aaguid, (short) 0, AAGUID_LENGTH);
+            offset += AAGUID_LENGTH;
+
+            attestationKey = getECPrivKey(false);
+            P256Constants.setCurve(attestationKey);
+            attestationKey.setS(params, offset, KEY_POINT_LENGTH);
+            offset += KEY_POINT_LENGTH;
+
+            final short expectedLength = Util.getShort(params, offset);
+            offset += 2;
+
+            final short amountToRead = (short)(length - offset);
+
+            if (amountToRead > expectedLength) {
+                if (apdu != null) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_LENGTH);
+                }
+                throwException(ISO7816.SW_DATA_INVALID);
+            }
+
+            if ((params[offset] & 0xF0) != 0x80) {
+                // These bytes should/must be a CBOR array
+                // it's doubtful trying to use >15 certificates is a good idea, either
+                throwException(ISO7816.SW_DATA_INVALID);
+            }
+
+            attestationData = new byte[expectedLength];
+            filledAttestationData = amountToRead;
+            Util.arrayCopyNonAtomic(params, offset,
+                    attestationData, (short) 0, amountToRead);
+
+            if (filledAttestationData == attestationData.length) {
+                // Done!
+                if (apdu != null) {
+                    final byte[] buffer = apdu.getBuffer();
+                    buffer[0] = FIDOConstants.CTAP2_OK;
+                    sendNoCopy(apdu, (short) 1);
+                }
+                success = true;
+                return true;
+            }
+
+            success = true;
+        } finally {
+            if (success) {
+                JCSystem.commitTransaction();
+            } else {
+                JCSystem.abortTransaction();
+            }
+        }
+
+        return false;
+    }
+
+    private boolean initAttestationKeyContinue(APDU apdu, byte[] buffer, short offset, short lc) {
+        if (attestationData == null || filledAttestationData == attestationData.length) {
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NOT_ALLOWED);
+        }
+        final short amountRemaining = (short) (attestationData.length - filledAttestationData);
+        if (lc > amountRemaining) {
+            sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_LENGTH);
+        }
+        JCSystem.beginTransaction();
+        boolean ok = false;
+        boolean done;
+        try {
+            Util.arrayCopyNonAtomic(buffer, offset,
+                    attestationData, filledAttestationData, lc);
+            filledAttestationData += lc;
+            done = filledAttestationData == attestationData.length;
+            if (done) {
+                // Loaded up, ready to go, locked
+                attestationSwitchingEnabled = false;
+            }
+            ok = true;
+        } finally {
+            if (ok) {
+                JCSystem.commitTransaction();
+            } else {
+                JCSystem.abortTransaction();
+            }
+        }
+
+        if (done) {
+            final byte[] apduBuf = apdu.getBuffer();
+            apduBuf[0] = FIDOConstants.CTAP2_OK;
+            sendNoCopy(apdu, (short) 1);
+        }
+        return done;
     }
 
     private byte[] getTempOrFlashByteBuffer(short len, boolean inRAM) {

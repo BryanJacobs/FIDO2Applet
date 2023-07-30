@@ -66,9 +66,9 @@ I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/s
 | CTAP2.1 core                              | Implemented, many caveats                               |
 | Resident keys                             | Implemented, default 50 slots                           |
 | User Presence                             | User always considered present: not standards compliant |
-| Self attestation                          | Implemented                                             |
-| Attestation certificates                  | Not implemented                                         |
 | ECDSA (SecP256r1)                         | Implemented                                             |
+| Self attestation                          | Implemented                                             |
+| Basic attestation with ECDSA certs        | Implemented (see [install guide](docs/certs.md))        |
 | Other crypto, like ed25519                | Not implemented                                         |
 | CTAP2.0 hmac-secret extension             | Implemented                                             |
 | CTAP2.1 hmac-secret extension             | Implemented with one secret (requiring UV) not two      |

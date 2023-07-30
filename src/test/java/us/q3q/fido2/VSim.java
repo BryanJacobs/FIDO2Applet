@@ -30,14 +30,17 @@ public class VSim {
         return (Simulator) f.get(sc);
     }
 
-    public static void installApplet(Simulator sim) {
-        sim.installApplet(appletAID, FIDO2Applet.class);
+    public static void installApplet(Simulator sim, byte[] params) {
+        if (params.length > 255) {
+            throw new IllegalArgumentException("Install parameters too long!");
+        }
+        sim.installApplet(appletAID, FIDO2Applet.class, params, (short) 0, (byte) params.length);
     }
 
     public static void main(String[] args) throws Exception {
         Simulator sim = startBackgroundSimulator();
 
-        installApplet(sim);
+        installApplet(sim, new byte[0]);
     }
 
 }
