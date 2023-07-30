@@ -947,8 +947,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             // Add x5c certificate data
             outputLen = Util.arrayCopyNonAtomic(CannedCBOR.X5C, (short) 0,
                     bufferMem, outputLen, (short) CannedCBOR.X5C.length);
-            outputLen = Util.arrayCopyNonAtomic(attestationData, (short) 0,
-                    bufferMem, outputLen, (short) attestationData.length);
+
+            // The certificates can be very (VERY) long. So we set up the
+            // output delivery to read directly from the X5C buffer.
+            transientStorage.setStreamX5CLater(true);
         }
 
         doSendResponse(apdu, outputLen);
@@ -2468,6 +2470,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     private void doSendResponse(APDU apdu, short outputLen) {
         bufferManager.clear();
 
+        final boolean x5c = transientStorage.shouldStreamX5CLater();
+
         short bufferChunkSize = (short)(APDU.getOutBlockSize() - 2);
         final short expectedLen = apdu.setOutgoing();
         if (expectedLen < bufferChunkSize) {
@@ -2476,14 +2480,37 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         if (outputLen < bufferChunkSize) {
             bufferChunkSize = outputLen;
         }
+        short effectiveOutputLen = bufferChunkSize;
+        if (x5c) {
+            effectiveOutputLen = (short) (effectiveOutputLen + attestationData.length);
+            if (effectiveOutputLen > expectedLen) {
+                effectiveOutputLen = expectedLen;
+            }
+        }
 
-        apdu.setOutgoingLength(bufferChunkSize);
+        apdu.setOutgoingLength(effectiveOutputLen);
+        final byte[] apduBytes = apdu.getBuffer();
         Util.arrayCopyNonAtomic(bufferMem, (short) 0,
-                apdu.getBuffer(), (short) 0, bufferChunkSize);
-        apdu.sendBytes((short) 0, bufferChunkSize);
-        if (outputLen > bufferChunkSize) {
+                apduBytes, (short) 0, bufferChunkSize);
+        if (x5c) {
+            // Stash the amount of bufmem that was validly filled
+            transientStorage.setStoredVars(outputLen, (byte) -1);
+            // Update output length to include attestation data - we have to send it too
+            outputLen = (short)(outputLen + attestationData.length);
+            if (bufferChunkSize < effectiveOutputLen) {
+                // We can send some X5C bytes, too!
+                short remaining = (short) (effectiveOutputLen - bufferChunkSize);
+                if (remaining > attestationData.length) {
+                    remaining = (short) attestationData.length;
+                }
+                Util.arrayCopyNonAtomic(attestationData, (short) 0,
+                        apduBytes, bufferChunkSize, remaining);
+            }
+        }
+        apdu.sendBytes((short) 0, effectiveOutputLen);
+        if (outputLen > effectiveOutputLen) {
             // we're not done; set state to continue response delivery later
-            setupChainedResponse(bufferChunkSize, (short)(outputLen - bufferChunkSize));
+            setupChainedResponse(effectiveOutputLen, (short)(outputLen - effectiveOutputLen));
         }
     }
 
@@ -2837,6 +2864,20 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
             short outgoingOffset = transientStorage.getOutgoingContinuationOffset();
             short outgoingRemaining = transientStorage.getOutgoingContinuationRemaining();
+            final boolean x5c = transientStorage.shouldStreamX5CLater();
+            short remainingValidInBufMem = outgoingRemaining;
+            short x5cidx = 0;
+            if (x5c) {
+                remainingValidInBufMem = transientStorage.getStoredIdx();
+                if (remainingValidInBufMem > outgoingOffset) {
+                    // We still have some reading from bufmem to do
+                    remainingValidInBufMem = (short)(remainingValidInBufMem - outgoingOffset);
+                } else {
+                    // We've already moved on to x5c data
+                    x5cidx = (short)(outgoingOffset - remainingValidInBufMem);
+                    remainingValidInBufMem = (short) 0;
+                }
+            }
 
             short chunkSize = (short)(APDU.getOutBlockSize() - 2);
             final short requestedChunkSize = apdu.setOutgoing();
@@ -2846,8 +2887,16 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
             final short writeSize = chunkSize <= outgoingRemaining ? chunkSize : outgoingRemaining;
             apdu.setOutgoingLength(writeSize);
-            Util.arrayCopyNonAtomic(bufferMem, outgoingOffset,
-                    apdu.getBuffer(), (short) 0, writeSize);
+            short chunkToWrite = writeSize;
+            if (remainingValidInBufMem > 0) {
+                Util.arrayCopyNonAtomic(bufferMem, outgoingOffset,
+                        apduBytes, (short) 0, remainingValidInBufMem);
+                chunkToWrite -= remainingValidInBufMem;
+            }
+            if (x5c && chunkToWrite > 0) {
+                Util.arrayCopyNonAtomic(attestationData, x5cidx,
+                        apduBytes, remainingValidInBufMem, chunkToWrite);
+            }
             apdu.sendBytes((short) 0, writeSize);
             outgoingOffset += writeSize;
             outgoingRemaining -= writeSize;

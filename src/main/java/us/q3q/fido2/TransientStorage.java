@@ -13,7 +13,9 @@ public final class TransientStorage {
     private final byte[] tempBytes;
     private static final byte IDX_PIN_RETRIES_SINCE_RESET = 0; // 1 byte
     /**
-     * Used for storing found indices in searches
+     * Used for storing found indices in searches, and also for storing the
+     * original output length (not including x5c) when streaming makeCredential
+     * results
      */
     private static final byte IDX_TEMP_BUF_IDX_STORAGE = 1; // 2 bytes
     /**
@@ -81,6 +83,10 @@ public final class TransientStorage {
      * Set to true when the authenticator app is fully disabled until next reselect
      */
     private static final byte BOOL_IDX_AUTHENTICATOR_DISABLED = 5;
+    /**
+     * Set to true when certificate data should follow response
+     */
+    private static final byte BOOL_IDX_X5C_LATER = 6;
 
     public TransientStorage() {
         // Pin-retries-since-reset counter, which must be cleared on RESET, not on deselect, is stored in this array
@@ -112,6 +118,14 @@ public final class TransientStorage {
 
     public void disableAuthenticator() {
         setBoolByIdx(BOOL_IDX_AUTHENTICATOR_DISABLED, true);
+    }
+
+    public boolean shouldStreamX5CLater() {
+        return getBoolByIdx(BOOL_IDX_X5C_LATER);
+    }
+
+    public void setStreamX5CLater(boolean newState) {
+        setBoolByIdx(BOOL_IDX_X5C_LATER, newState);
     }
 
     public void clearIterationPointers() {
@@ -222,6 +236,7 @@ public final class TransientStorage {
 
     public void clearOutgoingContinuation() {
         setOutgoingContinuation((short) 0, (short) 0);
+        setBoolByIdx(BOOL_IDX_X5C_LATER, false);
     }
 
     public short getOutgoingContinuationOffset() {

@@ -34,3 +34,6 @@ Notes on length:
 - You'll be using APDU chaining, so the maximum total size is a hair under 65535 bytes
 - Certificates will be stored directly into an on-flash byte array, so the maximum is also
   limited by the available flash
+
+Advice: keep your certificates *as short as possible*, since the longer they are, the more
+flash you'll use and the slower the makeCredential operation will be.
