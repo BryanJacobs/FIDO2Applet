@@ -4,8 +4,7 @@ from parameterized import parameterized
 from fido2.client import UserInteraction
 from fido2.ctap2 import ClientPin
 from fido2.ctap2.extensions import HmacSecretExtension
-from fido2.webauthn import ResidentKeyRequirement, PublicKeyCredentialDescriptor, PublicKeyCredentialRequestOptions, \
-    UserVerificationRequirement, PublicKeyCredentialType
+from fido2.webauthn import ResidentKeyRequirement
 
 from .ctap_test import CTAPTestCase, FixedPinUserInteraction
 
@@ -42,7 +41,7 @@ class HMACSecretTestCase(CTAPTestCase):
         client = self.get_high_level_client(extensions=[HmacSecretExtension],
                                             user_interaction=user_interaction)
 
-        cred = client.make_credential(options=self.get_make_cred_options(
+        cred = client.make_credential(options=self.get_high_level_make_cred_options(
             resident_key,
             {
                 "hmacCreateSecret": True
@@ -51,27 +50,16 @@ class HMACSecretTestCase(CTAPTestCase):
         self.assertEqual({"hmacCreateSecret": True}, cred.extension_results)
 
         assert_client_data = self.get_random_client_data()
-        assertion_allow_credentials = []
-        if not resident:
-            assertion_allow_credentials = [
-                PublicKeyCredentialDescriptor(
-                    type=PublicKeyCredentialType.PUBLIC_KEY,
-                    id=cred.attestation_object.auth_data.credential_data.credential_id
-                )
-            ]
 
         def get_assertion(given_salt):
-            assertions = client.get_assertion(options=PublicKeyCredentialRequestOptions(
-                challenge=assert_client_data,
-                rp_id=self.basic_makecred_params['rp']['id'],
-                allow_credentials=assertion_allow_credentials,
-                user_verification=UserVerificationRequirement.DISCOURAGED,
-                extensions={
-                    "hmacGetSecret": {
-                        "salt1": given_salt
-                    }
-                }
-            ))
+            opts = self.get_high_level_assertion_opts_from_cred(None if resident else cred,
+                                                                client_data=assert_client_data, rp_id=self.rp_id,
+                                                                extensions={
+                                                                    "hmacGetSecret": {
+                                                                        "salt1": given_salt
+                                                                    }
+                                                                })
+            assertions = client.get_assertion(options=opts)
             # TODO: verify
             # cred_public_key = cred.attestation_object.auth_data.credential_data.public_key
             # cred_public_key.verify(assertion.authenticator_data + assert_client_data,

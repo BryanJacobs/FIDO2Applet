@@ -1,4 +1,5 @@
 import secrets
+from typing import Optional
 
 from fido2.client import ClientError, PinRequiredError
 from fido2.ctap import CtapError
@@ -9,37 +10,63 @@ from .ctap_test import CTAPTestCase, FixedPinUserInteraction
 
 
 class CTAPPINTestCase(CTAPTestCase):
+
+    cp: ClientPin
+
+    def setUp(self, install_params: Optional[bytes] = None) -> None:
+        super().setUp(install_params=install_params)
+        self.cp = ClientPin(self.ctap2)
+
     def test_pin_change(self):
         first_pin = secrets.token_hex(16)
         second_pin = secrets.token_hex(16)
         old_pin_client = self.get_high_level_client(user_interaction=FixedPinUserInteraction(first_pin))
         new_pin_client = self.get_high_level_client(user_interaction=FixedPinUserInteraction(second_pin))
-        cp = ClientPin(self.ctap2)
 
         info_before_switch = self.ctap2.get_info()
-        cp.set_pin(first_pin)
+        self.cp.set_pin(first_pin)
         info_after_switch = self.ctap2.get_info()
-        cp.change_pin(first_pin, second_pin)
+        self.cp.change_pin(first_pin, second_pin)
         with self.assertRaises(ClientError) as e:
             # Old PIN is now wrong
-            old_pin_client.make_credential(self.get_make_cred_options())
+            old_pin_client.make_credential(self.get_high_level_make_cred_options())
 
         # New PIN is correct
-        new_pin_client.make_credential(self.get_make_cred_options())
+        new_pin_client.make_credential(self.get_high_level_make_cred_options())
 
         self.assertFalse(info_before_switch.options['clientPin'])
         self.assertTrue(info_after_switch.options['clientPin'])
         self.assertEqual([1, 2], info_before_switch.pin_uv_protocols)
         self.assertEqual([1, 2], info_after_switch.pin_uv_protocols)
 
+    def test_pin_cleared_by_reset(self):
+        first_pin = secrets.token_hex(16)
+
+        self.cp.set_pin(first_pin)
+        self.ctap2.reset()
+        info_after_reset = self.ctap2.get_info()
+        with self.assertRaises(CtapError) as e:
+            self.cp.change_pin(old_pin=first_pin, new_pin=secrets.token_hex(10))
+
+        self.assertFalse(info_after_reset.options['clientPin'])
+        self.assertEqual(CtapError.ERR.PIN_NOT_SET, e.exception.code)
+
+    def test_cannot_set_pin_twice(self):
+        first_pin = secrets.token_hex(16)
+        self.cp.set_pin(first_pin)
+
+        with self.assertRaises(CtapError) as e:
+            self.cp.set_pin(first_pin)
+
+        self.assertEqual(CtapError.ERR.PUAT_REQUIRED, e.exception.code)
+
     def test_pin_change_providing_incorrect_old_pin(self):
         first_pin = secrets.token_hex(16)
         second_pin = secrets.token_hex(16)
-        cp = ClientPin(self.ctap2)
-        cp.set_pin(first_pin)
+        self.cp.set_pin(first_pin)
 
         with self.assertRaises(CtapError) as e:
-            cp.change_pin("12345", second_pin)
+            self.cp.change_pin("12345", second_pin)
 
         self.assertEqual(CtapError.ERR.PIN_INVALID, e.exception.code)
 
@@ -59,10 +86,9 @@ class CTAPPINTestCase(CTAPTestCase):
             while len(pin_as_bytes) < 64:
                 pin_as_bytes += b'\0'
 
-            cp = ClientPin(self.ctap2)
-            ka, ss = cp._get_shared_secret()
-            enc = cp.protocol.encrypt(ss, pin_as_bytes)
-            puv = cp.protocol.authenticate(ss, enc)
+            ka, ss = self.cp._get_shared_secret()
+            enc = self.cp.protocol.encrypt(ss, pin_as_bytes)
+            puv = self.cp.protocol.authenticate(ss, enc)
             self.ctap2.client_pin(
                 2,
                 ClientPin.CMD.SET_PIN,
@@ -85,7 +111,7 @@ class CTAPPINTestCase(CTAPTestCase):
         client = self.get_high_level_client()
 
         with self.assertRaises(PinRequiredError):
-            client.make_credential(options=self.get_make_cred_options())
+            client.make_credential(options=self.get_high_level_make_cred_options())
 
     def test_pin_set_and_not_provided_underyling_impl(self):
         pin = secrets.token_hex(30)

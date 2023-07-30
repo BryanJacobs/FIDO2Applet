@@ -14,7 +14,8 @@ from fido2.ctap2.extensions import Ctap2Extension
 from fido2.pcsc import CtapPcscDevice
 from fido2.webauthn import ResidentKeyRequirement, PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, \
     PublicKeyCredentialRpEntity, PublicKeyCredentialParameters, PublicKeyCredentialType, AuthenticatorSelectionCriteria, \
-    UserVerificationRequirement
+    UserVerificationRequirement, PublicKeyCredentialDescriptor, AuthenticatorAttestationResponse, \
+    PublicKeyCredentialRequestOptions
 
 
 class JCardSimTestCase(TestCase):
@@ -175,9 +176,9 @@ class CTAPTestCase(JCardSimTestCase):
         return Fido2Client(self.device, origin=origin,
                            extension_types=extensions, user_interaction=user_interaction)
 
-    def get_make_cred_options(self,
-                              resident_key: ResidentKeyRequirement = ResidentKeyRequirement.DISCOURAGED,
-                              extensions=None, rp_id: Optional[str] = None) -> PublicKeyCredentialCreationOptions:
+    def get_high_level_make_cred_options(self,
+                                         resident_key: ResidentKeyRequirement = ResidentKeyRequirement.DISCOURAGED,
+                                         extensions=None, rp_id: Optional[str] = None) -> PublicKeyCredentialCreationOptions:
         if extensions is None:
             extensions = {}
 
@@ -205,6 +206,32 @@ class CTAPTestCase(JCardSimTestCase):
                 resident_key=resident_key,
                 user_verification=UserVerificationRequirement.DISCOURAGED
             )
+        )
+
+    def get_high_level_assertion_opts_from_cred(self, cred: Optional[AuthenticatorAttestationResponse] = None,
+                                                client_data: Optional[bytes] = None, rp_id: Optional[str] = None,
+                                                extensions: Optional[
+                                                    dict[str, Any]] = None) -> PublicKeyCredentialRequestOptions:
+        if extensions is None:
+            extensions = {}
+        if client_data is None:
+            client_data = self.client_data
+        if rp_id is None:
+            rp_id = self.rp_id
+        assertion_allow_credentials = []
+        if cred is not None:
+            assertion_allow_credentials = [
+                PublicKeyCredentialDescriptor(
+                    type=PublicKeyCredentialType.PUBLIC_KEY,
+                    id=cred.attestation_object.auth_data.credential_data.credential_id
+                )
+            ]
+        return PublicKeyCredentialRequestOptions(
+            challenge=client_data,
+            rp_id=rp_id,
+            allow_credentials=assertion_allow_credentials,
+            user_verification=UserVerificationRequirement.DISCOURAGED,
+            extensions=extensions
         )
 
 
