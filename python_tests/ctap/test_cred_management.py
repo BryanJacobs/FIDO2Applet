@@ -10,7 +10,10 @@ import fido2.features
 
 from .ctap_test import CTAPTestCase, FixedPinUserInteraction
 
-fido2.features.webauthn_json_mapping.enabled = False
+try:
+    fido2.features.webauthn_json_mapping.enabled = False
+except:
+    pass
 
 
 class CredManagementTestCase(CTAPTestCase):

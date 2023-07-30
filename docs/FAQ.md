@@ -92,7 +92,7 @@ This authenticator and CTAP2.1 cap PINs at 63 bytes long.
 
 ## Why don't you implement U2F/CTAP1?
 
-U2F doesn't support PINs, and requires an attestation certificate.
+U2F doesn't support PINs.
 
 [The security model](security_model.md) requires PINs.
 

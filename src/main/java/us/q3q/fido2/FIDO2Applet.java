@@ -2529,7 +2529,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      *
      * @return Short integer, always positive, representing the byte as unsigned
      */
-    private short ub(byte b) {
+    private static short ub(byte b) {
         return (short)(0xFF & b);
     }
 
@@ -2956,7 +2956,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 if (attestationData == null) {
                     // Initial attestation data
                     done = initAttestationKeyStart(apdu, bufferMem,
-                            (short) (apdu.getOffsetCdata() + 1), lc);
+                            (short) (apdu.getOffsetCdata() + 1),
+                            (short)(lc - apdu.getOffsetCdata() - 1));
                 } else {
                     // How did we get here?
                     throwException(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
@@ -3066,7 +3067,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 return;
             case FIDOConstants.CMD_INSTALL_CERTS:
                 reqBuffer = fullyReadReq(apdu, lc, amtRead, false);
-                initAttestationKeyStart(apdu, reqBuffer, apdu.getOffsetCdata(), lc);
+                initAttestationKeyStart(apdu, reqBuffer, apdu.getOffsetCdata(),
+                        (short)(lc - apdu.getOffsetCdata()));
                 break;
             default:
                 sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_COMMAND);
@@ -5034,6 +5036,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     @SuppressWarnings("unused")
     public static void install(byte[] array, short offset, byte length)
             throws ISOException {
+        if (length > 0) {
+            short aidLen = ub(array[offset]);
+            short infoLen = ub(array[(short)(offset + aidLen + 1)]);
+            length = array[(short)(offset + aidLen + infoLen + 2)];
+            offset = (short)(offset + aidLen + infoLen + 3);
+        }
         FIDO2Applet applet = new FIDO2Applet(array, offset, length);
 
         // Javacard API requires this call to know we succeeded and set the app up with the platform
@@ -5159,7 +5167,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         if (apdu == null && length == 1 && attestationSwitchingEnabled) {
-            if (params[0] != 0x01) {
+            if (params[offset] != 0x01) {
                 // Late switching disabled
                 attestationSwitchingEnabled = false;
             }
@@ -5194,7 +5202,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             final short expectedLength = Util.getShort(params, offset);
             offset += 2;
 
-            final short amountToRead = (short)(length - offset);
+            final short amountToRead = (short)(length - AAGUID_LENGTH - KEY_POINT_LENGTH - 2);
 
             if (amountToRead > expectedLength) {
                 if (apdu != null) {

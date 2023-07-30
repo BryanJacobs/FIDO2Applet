@@ -1,6 +1,6 @@
 # Installing the Applet for Basic Attestation
 
-A default install of the FIDO2Applet will use "self attestation". This disables any
+A default install of the FIDO2Applet will use "self attestation". This prevents any potential
 CTAP1/U2F functionality (U2F requires attestation certificates). The authenticator will
 have a CTAP2 AAGUID of all zeros.
 
@@ -10,7 +10,7 @@ certificates (ECDSA) are supported for the authenticator's own certificate; any 
 may be used for CAs further up the chain.
 
 These may be provided via Applet install parameters, although the maximum length in that case
-is a very restrictive 255 bytes, or via a vendor CTAP command (command byte 0x46). In order
+is a very restrictive <250 bytes, or via a vendor CTAP command (command byte 0x46). In order
 to enable the vendor CTAP command, you must provide an install parameter of a single byte,
 `0x01`. By default, the vendor command will be rejected to avoid inadvertently allowing an attacker
 to switch the authenticator to basic attestation mode.

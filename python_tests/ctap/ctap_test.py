@@ -104,6 +104,9 @@ class JCardSimTestCase(TestCase):
     def setUp(self, install_params: Optional[bytes] = None) -> None:
         if install_params is None:
             install_params = bytes()
+        # Javacard install parameters are prefixed by AID and platform info
+        ip_len = len(install_params)
+        install_params = bytes([1, 95, 1, 86, ip_len]) + install_params
         self.q_out.put(install_params)  # Tell JVM to reset applet state
         self.q_in.get(block=True)  # Wait for applet to be started in JVM
 

@@ -5,7 +5,10 @@ from fido2.webauthn import Aaguid
 
 from .ctap_test import CTAPTestCase
 
-fido2.features.webauthn_json_mapping.enabled = False
+try:
+    fido2.features.webauthn_json_mapping.enabled = False
+except:
+    pass
 
 
 class CTAPBasicsTestCase(CTAPTestCase):
