@@ -1,7 +1,7 @@
 # Security Model
 
 First off, this application is likely not secure. It hasn't been
-audit, fuzz tested, or even really tested at all. That means
+audit, fuzz tested, pentested, whatever. That means
 there's very likely a critical bug that breaks its model.
 
 This page aims to describe the **theoretical** security of the
@@ -22,10 +22,12 @@ PIN on the device "securely", and then relying on the correctness
 of their software and the tamper-proofness of their hardware to
 protect private keying material.
 
-This app is different. In this app, when you enable the "alwaysUv" option,
-the "wrapping key" - without which the authenticator is useless - is
-encrypted using a key derived from the PIN. This means no credentials
-can be created or used unless you provide your PIN...
+This app is different. In this app, when you set a PIN, the authenticator
+enables the `alwaysUv` option - requiring the PIN for all credential
+creation and use. The "wrapping key" - without which the authenticator
+is useless - is encrypted using a key derived from the PIN. In other words,
+if you could read all the authenticator's memory when a PIN is set, you'd
+only find encrypted data.
 
 ## Details: Security Levels
 
@@ -52,10 +54,9 @@ to gain access to it, would require a targeted attack whose brute-force
 difficulty is at most 128 bits, and is likely set by the entropy of
 the user's PIN.
 
-**Use a strong PIN** and **enable the alwaysUv option** if you care
-about security in the event your device is entirely compromised. Despite
-the name, there is no requirement that PINs be numeric. You can use any
-sequence of characters up to 64 bytes long.
+**Use a strong PIN** if you care about security in the event your device
+is entirely compromised. Despite the name, there is no requirement that
+PINs be numeric. You can use any sequence of characters up to 63 bytes long.
 
 Your PIN is used for challenge-response to the authenticator at least once
 per power-up, and it's done encrypted over an ECDH channel. The

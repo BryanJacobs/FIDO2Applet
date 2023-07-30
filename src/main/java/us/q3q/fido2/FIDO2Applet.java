@@ -664,6 +664,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             if (pinSet) {
                 // PIN is set, but no PIN-auth option was provided
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
+            } else {
+                if (credProtectLevel == 3 || (credProtectLevel == 2 && transientStorage.hasRKOption())) {
+                    // Don't allow creating credProtect-level-3 creds unless a PIN is set
+                    // Don't allow creating credProtect-level-2 creds as RKs unless a PIN is set
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
+                }
             }
             if (!ALLOW_RESIDENT_KEY_CREATION_WITHOUT_PIN && transientStorage.hasRKOption()) {
                 // Don't allow storing resident keys without a PIN set

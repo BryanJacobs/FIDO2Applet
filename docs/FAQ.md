@@ -70,6 +70,13 @@ clear CTAP2.1 PIN token permissions on use.
 
 So set a PIN, and unplug your card when you're not using it.
 
+Fourthly, implementing credProtect by storing a different value for every
+credential is a royal pain: it would require the key's generated credential IDs
+to be longer than the minimum 64 bytes. Rather than do that, this implementation
+just rejects the creation of high-credProtect credentials while a PIN is unset.
+
+So, again, set a PIN.
+
 Finally, the CTAP2.0 and CTAP2.1 standards are actually mutually incompatible. When
 a getAssertion call is made with an `allowList` given, CTAP2.0 says that the
 authenticator should iterate through assertions generated with the matching
@@ -215,3 +222,11 @@ That should be enough longevity.
 The only other limit to be aware of is the PIN retry count - if you incorrectly attempt a PIN eight
 times (by default) across three power-ups of the authenticator without successfully entering it once,
 the app will be locked and you won't be able to use it without clearing everything.
+
+## I'm getting "operation denied" for certain requests
+
+The authenticator will refuse to create credProtect=2 discoverable credentials, or any
+credProtect=3 credentials, without a PIN set. This is to avoid needing to store the
+credProtect status of the credential alongside it.
+
+If you want to use this authenticator with those relying parties, set a PIN.
