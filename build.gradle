@@ -2,10 +2,6 @@ buildscript {
     repositories {
         mavenCentral()
         maven { url "https://javacard.pro/maven" }
-        maven { url "https://deadcode.me/mvn" }
-    }
-    dependencies {
-        classpath("com.klinec:gradle-javacard:1.8.0")
     }
 }
 
@@ -36,7 +32,7 @@ test {
 }
 
 tasks.register('testJar', Jar) {
-    baseName = project.name + '-tests'
+    archiveBaseName = project.name + '-tests'
     duplicatesStrategy = 'include'
     from sourceSets.test.output + sourceSets.test.allSource
     from {
