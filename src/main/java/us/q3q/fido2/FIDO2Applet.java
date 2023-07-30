@@ -862,7 +862,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     // We're filling an empty slot
                     numResidentCredentials++;
                 }
-                residentKeyUniqueRP[targetRKSlot] = !foundRPMatchInRKs;
+                if (!foundMatchingRK) {
+                    residentKeyUniqueRP[targetRKSlot] = !foundRPMatchInRKs;
+                }
                 if (!foundRPMatchInRKs) {
                     numResidentRPs++;
                 }

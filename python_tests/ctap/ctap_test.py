@@ -178,12 +178,16 @@ class CTAPTestCase(JCardSimTestCase):
 
     def get_high_level_make_cred_options(self,
                                          resident_key: ResidentKeyRequirement = ResidentKeyRequirement.DISCOURAGED,
-                                         extensions=None, rp_id: Optional[str] = None) -> PublicKeyCredentialCreationOptions:
+                                         extensions=None, rp_id: Optional[str] = None,
+                                         user_id: Optional[bytes] = None) -> PublicKeyCredentialCreationOptions:
         if extensions is None:
             extensions = {}
 
         if rp_id is None:
             rp_id = self.rp_id
+
+        if user_id is None:
+            user_id = self.basic_makecred_params['user']['id']
 
         return PublicKeyCredentialCreationOptions(
             rp=PublicKeyCredentialRpEntity(
@@ -192,7 +196,7 @@ class CTAPTestCase(JCardSimTestCase):
             ),
             user=PublicKeyCredentialUserEntity(
                 name="Bob",
-                id=self.basic_makecred_params['user']['id']
+                id=user_id
             ),
             challenge=self.client_data,
             pub_key_cred_params=[
