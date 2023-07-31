@@ -20,7 +20,7 @@ class ResetTestCase(CTAPTestCase):
             resident_key
         ))
 
-        self.ctap2.reset()
+        self.reset()
 
         with self.assertRaises(ClientError) as e:
             opts = self.get_high_level_assertion_opts_from_cred(None if resident else cred)

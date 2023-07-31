@@ -15,6 +15,10 @@ class CTAPPINTestCase(CTAPTestCase):
 
     def setUp(self, install_params: Optional[bytes] = None) -> None:
         super().setUp(install_params=install_params)
+        self.reset()
+
+    def reset(self):
+        super().reset()
         self.cp = ClientPin(self.ctap2)
 
     def test_pin_change(self):
@@ -43,7 +47,7 @@ class CTAPPINTestCase(CTAPTestCase):
         first_pin = secrets.token_hex(16)
 
         self.cp.set_pin(first_pin)
-        self.ctap2.reset()
+        self.reset()
         info_after_reset = self.ctap2.get_info()
         with self.assertRaises(CtapError) as e:
             self.cp.change_pin(old_pin=first_pin, new_pin=secrets.token_hex(10))

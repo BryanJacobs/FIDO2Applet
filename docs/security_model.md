@@ -143,12 +143,13 @@ flash memory read or computation corrupted, this is the same as
 the "malware" case above. **If not**, then we are in an interesting
 situation.
 
-If you set the alwaysUv flat, the attacker needs to decrypt the
+If you set the alwaysUv flag, the attacker needs to decrypt the
 on-device wrapping key. Without doing that, they can read incidentals like:
 - how many different resident keys are currently stored on the device
 - how long each key's RP ID is, if less than 32 characters
 - how long each key's user ID is
 - how many different RPs in total have resident keys on the device
+- the credProtect level of each resident key
 
 What they can't do without decrypting the wrapping key is get at
 your actual credentials for sites - the private keys, the RP IDs,

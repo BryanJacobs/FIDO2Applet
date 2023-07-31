@@ -124,6 +124,7 @@ It will store:
 - the length of the user ID, unencrypted
 - a boolean set to true on the first credential from a given RP ID, used
   to save state when enumerating and counting on-device RPs
+- a two-bit credProtect level value
 - a four-byte counter value tracking which credential was most recently created
 - how many distinct RPs have valid keys on the device, unencrypted
 - how many total RPs are on the device, unencrypted

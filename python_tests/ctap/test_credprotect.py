@@ -7,7 +7,8 @@ from fido2.ctap2.extensions import CredProtectExtension
 from fido2.webauthn import ResidentKeyRequirement
 from parameterized import parameterized
 
-from .ctap_test import CTAPTestCase, FixedPinUserInteraction
+from .ctap_test import CTAPTestCase, FixedPinUserInteraction, CredManagementBaseTestCase
+from .test_cred_management import CredManagementTestCase
 
 
 class CredProtectTestCase(CTAPTestCase):
@@ -76,3 +77,33 @@ class CredProtectTestCase(CTAPTestCase):
             self.assertEqual(level, res.attestation_object.auth_data.extensions.get('credProtect'))
         else:
             self.assertEqual(CtapError.ERR.OPERATION_DENIED, res.code)
+
+
+class CredProtectRKVisTestCase(CredManagementBaseTestCase):
+    @parameterized.expand([
+        ("Level 3", 3, CredProtectExtension.POLICY.REQUIRED),
+        ("Level 2", 2, CredProtectExtension.POLICY.OPTIONAL_WITH_LIST),
+        ("Level 1", 1, CredProtectExtension.POLICY.OPTIONAL),
+        ("Omitted", 0, None),
+    ])
+    def test_cred_protect_level_rk_visibility(self, _, level, policy):
+        client = self.get_high_level_client(extensions=[CredProtectExtension],
+                                            user_interaction=FixedPinUserInteraction(self.pin))
+        resident_key = ResidentKeyRequirement.REQUIRED
+
+        res = client.make_credential(options=self.get_high_level_make_cred_options(
+            resident_key,
+            {
+                "credentialProtectionPolicy": policy
+            }
+        ))
+        extensions = res.attestation_object.auth_data.extensions
+        if policy is None:
+            self.assertIsNone(extensions)
+        else:
+            self.assertEqual(level, extensions['credProtect'])
+
+        cm = self.get_credential_management()
+        creds = cm.enumerate_creds(self.rp_id_hash(self.rp_id))
+        self.assertEqual(1, len(creds))
+        self.assertEqual(level, creds[0][10])

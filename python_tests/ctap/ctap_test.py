@@ -1,3 +1,4 @@
+import abc
 import os
 import random
 import secrets
@@ -5,11 +6,12 @@ from multiprocessing import Queue, Process
 from typing import ClassVar, Optional, Any, Type
 from unittest import TestCase
 
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
-from fido2.client import UserInteraction, Fido2Client
+from fido2.client import UserInteraction, Fido2Client, _Ctap2ClientBackend
 from fido2.cose import ES256
-from fido2.ctap2 import Ctap2, ClientPin, AttestationResponse, AssertionResponse
+from fido2.ctap2 import Ctap2, ClientPin, AttestationResponse, AssertionResponse, CredentialManagement, PinProtocolV2
 from fido2.ctap2.extensions import Ctap2Extension
 from fido2.pcsc import CtapPcscDevice
 from fido2.webauthn import ResidentKeyRequirement, PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, \
@@ -17,8 +19,11 @@ from fido2.webauthn import ResidentKeyRequirement, PublicKeyCredentialCreationOp
     UserVerificationRequirement, PublicKeyCredentialDescriptor, AuthenticatorAttestationResponse, \
     PublicKeyCredentialRequestOptions
 
+import fido2.features
+fido2.features.webauthn_json_mapping.enabled = False
 
-class JCardSimTestCase(TestCase):
+
+class JCardSimTestCase(TestCase, abc.ABC):
 
     q_in: ClassVar[Queue]
     q_out: ClassVar[Queue]
@@ -111,7 +116,7 @@ class JCardSimTestCase(TestCase):
         self.q_in.get(block=True)  # Wait for applet to be started in JVM
 
 
-class CTAPTestCase(JCardSimTestCase):
+class CTAPTestCase(JCardSimTestCase, abc.ABC):
     VIRTUAL_DEVICE_NAME = "Virtual PCD"
     device: CtapPcscDevice
     ctap2: Ctap2
@@ -149,6 +154,9 @@ class CTAPTestCase(JCardSimTestCase):
     @classmethod
     def get_random_client_data(cls) -> bytes:
         return secrets.token_bytes(32)
+
+    def reset(self):
+        self.ctap2.reset()
 
     def get_assertion_from_cred(self, cred_res: AttestationResponse,
                                 rp_id: Optional[str] = None,
@@ -243,7 +251,7 @@ class CTAPTestCase(JCardSimTestCase):
         )
 
 
-class BasicAttestationTestCase(CTAPTestCase):
+class BasicAttestationTestCase(CTAPTestCase, abc.ABC):
     public_key: EllipticCurvePublicKey
     aaguid: bytes
     cert: bytes
@@ -293,4 +301,34 @@ class FixedPinUserInteraction(UserInteraction):
             self, permissions: ClientPin.PERMISSION, rp_id: Optional[str]
     ) -> Optional[str]:
         return self.pin
+
+
+class CredManagementBaseTestCase(CTAPTestCase, abc.ABC):
+
+    PERMISSION_CRED_MGMT = 4
+    pin: str
+
+    def setUp(self, install_params: Optional[bytes] = None) -> None:
+        super().setUp(install_params)
+
+        self.pin = secrets.token_hex(10)
+        ClientPin(self.ctap2).set_pin(self.pin)
+
+    def get_credential_management(self, permissions: Optional[int] = None) -> CredentialManagement:
+        if permissions is None:
+            permissions = self.PERMISSION_CRED_MGMT
+
+        client = self.get_high_level_client(
+            user_interaction=FixedPinUserInteraction(self.pin),
+        )
+        # noinspection PyTypeChecker
+        be: _Ctap2ClientBackend = client._backend
+        token = be._get_token(ClientPin(self.ctap2), permissions=permissions,
+                              rp_id=None, event=None, on_keepalive=None, allow_internal_uv=False)
+        return CredentialManagement(self.ctap2, pin_uv_protocol=PinProtocolV2(), pin_uv_token=token)
+
+    def rp_id_hash(self, rp_id: str) -> bytes:
+        digester = hashes.Hash(hashes.SHA256())
+        digester.update(rp_id.encode())
+        return digester.finalize()
 

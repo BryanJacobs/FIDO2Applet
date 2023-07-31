@@ -1,14 +1,8 @@
-import fido2.features
 from fido2.cose import ES256
 from fido2.ctap import CtapError
 from fido2.webauthn import Aaguid
 
 from .ctap_test import CTAPTestCase
-
-try:
-    fido2.features.webauthn_json_mapping.enabled = False
-except:
-    pass
 
 
 class CTAPBasicsTestCase(CTAPTestCase):

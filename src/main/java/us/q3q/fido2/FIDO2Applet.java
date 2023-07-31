@@ -280,9 +280,21 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private final byte[] residentKeyData;
     /**
-     * A boolean stating whether the resident key is valid (stored, usable) or not
+     * Mashed-up bitfield of stored data for the resident key. One byte per key:
+     * - A boolean stating whether the resident key is valid (stored, usable) or not
+     * - A boolean set to true for each (valid) resident key that has a "unique" RP -
+     *   used to speed up enumerating RPs while preserving privacy. Note that this doesn't
+     *   mean it's the only RK with a particular RP; it is just set on exactly ONE RK for
+     *   each distinct RP
+     * - Four unused bits
+     * - Two bits to represent the credProtect level of the stored RK
      */
-    private final boolean[] residentKeyValidity;
+    private final byte[] residentKeyState;
+    /**
+     * For each resident key, contains the four-byte signature counter at the time of creation.
+     * This allows tracking which credential was most recently created.
+     */
+    private final byte[] residentKeyCounters;
     /**
      * Encrypted (with the device wrapping key) user ID fields for resident keys
      */
@@ -303,17 +315,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * Encrypted (with the device wrapping key) public key X+Y point data for resident keys
      */
     private final byte[] residentKeyPublicKeys;
-    /**
-     * Set to true for each (valid) resident key that has a "unique" RP - used to speed up
-     * enumerating RPs while preserving privacy. Note that this doesn't mean it's the only
-     * RK with a particular RP; it is just set on exactly ONE RK for each distinct RP
-     */
-    private final boolean[] residentKeyUniqueRP;
-    /**
-     * For each resident key, contains the four-byte signature counter at the time of creation.
-     * This allows tracking which credential was most recently created.
-     */
-    private final byte[] residentKeyCounters;
     /**
      * How many resident key slots are filled
      */
@@ -787,7 +788,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 targetRKSlot = 0;
             } else {
                 for (short i = 0; i < NUM_RESIDENT_KEY_SLOTS; i++) {
-                    if (!residentKeyValidity[i]) {
+                    if ((residentKeyState[i] & 0x80) == 0) {
                         if (targetRKSlot == -1) {
                             targetRKSlot = i;
                         }
@@ -858,12 +859,17 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 initSymmetricWrapperForRK(targetRKSlot);
                 symmetricWrap(scratchPublicKeyBuffer, (short)(scratchPublicKeyOffset + 1), (short)(KEY_POINT_LENGTH * 2),
                         residentKeyPublicKeys, (short) (targetRKSlot * KEY_POINT_LENGTH * 2));
-                residentKeyValidity[targetRKSlot] = true;
+                byte residentKeyFlagByte = (byte) (0x80 | credProtectLevel);
                 if (!foundMatchingRK) {
                     // We're filling an empty slot
                     numResidentCredentials++;
-                    residentKeyUniqueRP[targetRKSlot] = !foundRPMatchInRKs;
+                    if (!foundRPMatchInRKs) {
+                        residentKeyFlagByte |= 0x40;
+                    }
+                } else {
+                    residentKeyFlagByte = (byte)(residentKeyFlagByte | (residentKeyState[targetRKSlot] & 0x40));
                 }
+                residentKeyState[targetRKSlot] = residentKeyFlagByte;
                 if (!foundRPMatchInRKs) {
                     numResidentRPs++;
                 }
@@ -1787,12 +1793,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
             Util.arrayFillNonAtomic(credCounterBuffer, credCounterOffset, (short) 4, (byte) 0x00);
 
-            final byte[] origCredCounterBuffer = residentKeyCounters;
             final short origCredCounterOffset = (short)(firstCredIdx * 4 - 4);
 
             short scannedRKs = 0;
             for (short i = 0; i < NUM_RESIDENT_KEY_SLOTS; i++) {
-                if (!residentKeyValidity[i]) {
+                if ((residentKeyState[i] & 0x80) == 0) {
                     continue;
                 }
 
@@ -1807,7 +1812,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         if (firstCredIdx == 0) {
                             counterSmallerThanOrig = true;
                         } else {
-                            counterSmallerThanOrig = Util.arrayCompare(origCredCounterBuffer, origCredCounterOffset,
+                            counterSmallerThanOrig = Util.arrayCompare(residentKeyCounters, origCredCounterOffset,
                                     residentKeyCounters, (short)(i * 4), (short) 4) > 0;
                         }
 
@@ -2068,7 +2073,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     private boolean scanRKsForExactCredential(byte[] buffer, short credIdx) {
         short scannedRKs = 0;
         for (short i = 0; i < NUM_RESIDENT_KEY_SLOTS; i++) {
-            if (!residentKeyValidity[i]) {
+            if ((residentKeyState[i] & 0x80) == 0) {
                 continue;
             }
 
@@ -3339,7 +3344,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         short uidOffset = bufferManager.getOffsetForHandle(uidHandle);
         byte[] uidBuffer = bufferManager.getBufferForHandle(apdu, uidHandle);
         for (short i = 0; i < NUM_RESIDENT_KEY_SLOTS; i++) {
-            if (!residentKeyValidity[i]) {
+            if ((residentKeyState[i] & 0x80) == 0) {
                 continue;
             }
             if (residentKeyUserIdLengths[i] != userIdLen) {
@@ -3433,7 +3438,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         short scannedRKs = 0;
         for (short i = 0; i < NUM_RESIDENT_KEY_SLOTS; i++) {
-            if (!residentKeyValidity[i]) {
+            if ((residentKeyState[i] & 0x80) == 0) {
                 continue;
             }
 
@@ -3459,9 +3464,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     }
                 }
 
-                if (residentKeyUniqueRP[i]) {
+                if ((residentKeyState[i] & 0x40) != 0) {
                     // Due to how we manage RP validity, we need to find ANOTHER RK with the same RP,
-                    // to set residentKeyUniqueRP on it and thus "promote" it to being the representative
+                    // to set the unique-RP bit on it and thus "promote" it to being the representative
                     // of the RP for iteration purposes
                     short rpHavingSameRP = -1;
 
@@ -3473,7 +3478,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                             // we want ANOTHER RK, not this one...
                             continue;
                         }
-                        if (!residentKeyValidity[otherRKIdx]) {
+                        if ((residentKeyState[otherRKIdx] & 0x80) == 0) {
                             // deleted keys need not apply
                             continue;
                         }
@@ -3494,9 +3499,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                             // also lowered the total RP count by one
                             numResidentRPs--;
                         } else {
-                            residentKeyUniqueRP[rpHavingSameRP] = true;
+                            residentKeyState[rpHavingSameRP] |= 0x40;
                         }
-                        residentKeyValidity[i] = false;
+                        residentKeyState[i] = 0x00;
                         numResidentCredentials--;
                         ok = true;
                     } finally {
@@ -3510,7 +3515,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     JCSystem.beginTransaction();
                     boolean ok = false;
                     try {
-                        residentKeyValidity[i] = false;
+                        residentKeyState[i] = 0x00;
                         numResidentCredentials--;
                         ok = true;
                     } finally {
@@ -3598,7 +3603,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         short scannedRKs = 0;
         short rkIndex;
         for (rkIndex = startCredIdx; rkIndex < NUM_RESIDENT_KEY_SLOTS; rkIndex++) {
-            if (!residentKeyValidity[rkIndex]) {
+            if ((residentKeyState[rkIndex] & 0x80) == 0) {
                 continue;
             }
 
@@ -3614,7 +3619,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     // we're not storing a list of which creds share an RP, so this is the only way to get
                     // the count associated with this RP...
                     for (short otherCredIdx = (short) (rkIndex + 1); otherCredIdx < NUM_RESIDENT_KEY_SLOTS; otherCredIdx++) {
-                        if (!residentKeyValidity[otherCredIdx]) {
+                        if ((residentKeyState[otherCredIdx] & 0x80) == 0) {
                             continue;
                         }
 
@@ -3674,7 +3679,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 }
 
                 outBuf[writeOffset++] = 0x0A; // map key: credProtect
-                outBuf[writeOffset++] = 0x03; // cred protect level 3
+                outBuf[writeOffset++] = (byte)(residentKeyState[rkIndex] & 0x03); // cred protect level
 
                 sendNoCopy(apdu, writeOffset);
                 return;
@@ -3741,7 +3746,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         short rkIndex;
         for (rkIndex = startOffset; rkIndex < NUM_RESIDENT_KEY_SLOTS; rkIndex++) {
             // if a credential is not for a *unique* RP, ignore it - we're enumerating RPs here!
-            if (residentKeyValidity[rkIndex] && residentKeyUniqueRP[rkIndex]) {
+            if ((residentKeyState[rkIndex] & 0xC0) == 0xC0) {
                 break;
             }
             if (++scannedRKs == numResidentCredentials) {
@@ -3905,7 +3910,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             random.generateData(hmacWrapperBytes, (short) 0, (short) hmacWrapperBytes.length);
 
             for (short i = 0; i < NUM_RESIDENT_KEY_SLOTS; i++) {
-                residentKeyValidity[i] = false;
+                residentKeyState[i] = 0x00;
             }
             numResidentCredentials = 0;
             numResidentRPs = 0;
@@ -5069,17 +5074,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         // Resident key data, of course, must all be in flash. Losing that on reset would be Bad
         residentKeyIVs = new byte[NUM_RESIDENT_KEY_SLOTS * RESIDENT_KEY_IV_LEN];
         residentKeyData = new byte[NUM_RESIDENT_KEY_SLOTS * CREDENTIAL_ID_LEN];
-        residentKeyValidity = new boolean[NUM_RESIDENT_KEY_SLOTS];
-        for (short i = 0; i < NUM_RESIDENT_KEY_SLOTS; i++) {
-            // better safe than sorry
-            residentKeyValidity[i] = false;
-        }
+        residentKeyState = new byte[NUM_RESIDENT_KEY_SLOTS];
         residentKeyUserIds = new byte[NUM_RESIDENT_KEY_SLOTS * MAX_USER_ID_LENGTH];
         residentKeyUserIdLengths = new byte[NUM_RESIDENT_KEY_SLOTS];
         residentKeyRPIds = new byte[NUM_RESIDENT_KEY_SLOTS * MAX_RESIDENT_RP_ID_LENGTH];
         residentKeyRPIdLengths = new byte[NUM_RESIDENT_KEY_SLOTS];
         residentKeyPublicKeys = new byte[NUM_RESIDENT_KEY_SLOTS * KEY_POINT_LENGTH * 2];
-        residentKeyUniqueRP = new boolean[NUM_RESIDENT_KEY_SLOTS];
         residentKeyCounters = new byte[NUM_RESIDENT_KEY_SLOTS * 4];
         numResidentCredentials = 0;
         numResidentRPs = 0;
