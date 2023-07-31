@@ -667,9 +667,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 // PIN is set, but no PIN-auth option was provided
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
             } else {
-                if (credProtectLevel == 3 || (credProtectLevel == 2 && transientStorage.hasRKOption())) {
-                    // Don't allow creating credProtect-level-3 creds unless a PIN is set
-                    // Don't allow creating credProtect-level-2 creds as RKs unless a PIN is set
+                if (credProtectLevel == 3 && !transientStorage.hasRKOption()) {
+                    // Don't allow creating credProtect-level-3-non-discoverable creds
+                    // ... unless a PIN is set.
+                    // we'll check level 2 when trying to do a getAssertion, but with
+                    // level 3, we can't allow the cred to be created non-resident,
+                    // because we don't store the credProtect level in the credential
+                    // ID itself.
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
                 }
             }
@@ -731,7 +735,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     // This cred decodes valid and is for the given RPID. If, and only if, it's present in our
                     // currently-valid resident credentials, then we'll fail early. (if the credential used to be
                     // present but was deleted, we'll accept creating it again!)
-                    if (scanRKsForExactCredential(buffer, credIdIdx)) {
+                    if (scanRKsForExactCredential(buffer, credIdIdx, pinAuthSuccess)) {
                         sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CREDENTIAL_EXCLUDED);
                     }
                 }
@@ -1751,7 +1755,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         // but the FIDO compliance tests check that deleting a resident credential also makes
                         // attempts to use it via the allowList fail. So we'll run through our stored keys and validate
                         // that we have something matching this before we accept it
-                        acceptedMatch = scanRKsForExactCredential(buffer, pubKeyIdx);
+                        acceptedMatch = scanRKsForExactCredential(buffer, pubKeyIdx,
+                            pinInfoBuffer[(short)(pinInfoIdx + 1)] == 1);
                     }
 
                     if (acceptedMatch) {
@@ -1806,6 +1811,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                             scratchRPIDHashBuffer, scratchRPIDHashIdx,
                             credTempBuffer, credTempOffset, true)) {
                         // Got a resident key hit!
+                        if (pinInfoBuffer[(short)(pinInfoIdx + 1)] != 1 && (residentKeyState[i] & 0x03) > 1) {
+                            // ... but with credProtect level two or higher, and no PIN auth,
+                            // we should just pretend it DIDN'T match.
+                            continue;
+                        }
+
                         numMatchesThisRP++;
 
                         boolean counterSmallerThanOrig;
@@ -2066,11 +2077,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * Checks if a particular credential ID (as a byte string) is present and valid in our RK set
      *
      * @param buffer Buffer containing encoded credential ID
-     * @param  credIdx Index of credential ID in input buffer
+     * @param credIdx Index of credential ID in input buffer
+     * @param pinAuthSuccess True if the user has verified themselves with a PIN
      *
-     * @return true if credential is present and valid; false otherwise
+     * @return true if credential is present, valid, and its level usable with the
+     *              amount of PIN auth performed; false otherwise
      */
-    private boolean scanRKsForExactCredential(byte[] buffer, short credIdx) {
+    private boolean scanRKsForExactCredential(byte[] buffer, short credIdx,
+                                              boolean pinAuthSuccess) {
         short scannedRKs = 0;
         for (short i = 0; i < NUM_RESIDENT_KEY_SLOTS; i++) {
             if ((residentKeyState[i] & 0x80) == 0) {
@@ -2081,7 +2095,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             if (Util.arrayCompare(buffer, credIdx,
                     residentKeyData, (short)(CREDENTIAL_ID_LEN * i), CREDENTIAL_ID_LEN) == 0) {
                 // Match! This credential is still valid in our RK list
-                return true;
+                if (pinAuthSuccess || (residentKeyState[i] & 0x03) < 3) {
+                    // credProtect Level 3 credentials are not usable unless the PIN is set
+                    return true;
+                }
             }
 
             if (++scannedRKs == numResidentCredentials) {
@@ -4010,7 +4027,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         offset = encodeIntLenTo(buffer, offset, (short) CannedCBOR.MAKE_CRED_UV_NOT_REQD.length, false);
         offset = Util.arrayCopyNonAtomic(CannedCBOR.MAKE_CRED_UV_NOT_REQD, (short) 0,
                 buffer, offset, (short) CannedCBOR.MAKE_CRED_UV_NOT_REQD.length);
-        buffer[offset++] = (byte) 0xF4; // false
+
+        if (pinSet) {
+            buffer[offset++] = (byte) 0xF4; // false
+        } else {
+            buffer[offset++] = (byte) 0xF5; // true
+        }
 
         buffer[offset++] = 0x06; // map key: pinProtocols
         buffer[offset++] = (byte) 0x82; // array: two items
