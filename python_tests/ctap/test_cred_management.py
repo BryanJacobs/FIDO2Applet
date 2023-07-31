@@ -8,7 +8,6 @@ from .ctap_test import FixedPinUserInteraction, CredManagementBaseTestCase
 
 
 class CredManagementTestCase(CredManagementBaseTestCase):
-
     PERMISSION_CRED_MGMT = 4
     pin: str
 
@@ -56,6 +55,47 @@ class CredManagementTestCase(CredManagementBaseTestCase):
         with self.assertRaises(ClientError) as e:
             client.get_assertion(self.get_high_level_assertion_opts_from_cred(cred))
         self.assertEqual(CtapError.ERR.NO_CREDENTIALS, e.exception.cause.code)
+
+    def test_cred_delete_rk_multiple(self):
+        creds_to_make = 9
+        client = self.get_high_level_client(
+            user_interaction=FixedPinUserInteraction(self.pin)
+        )
+
+        creds = []
+        for x in range(creds_to_make):
+            user = secrets.token_bytes(50)
+            creds.append(
+                client.make_credential(options=self.get_high_level_make_cred_options(
+                    resident_key=ResidentKeyRequirement.REQUIRED,
+                    user_id=user
+                ))
+            )
+
+        cm = self.get_credential_management()
+        cred_indices_to_delete = [0, 5]
+        for x in cred_indices_to_delete:
+            cm.delete_cred(
+                self.get_descriptor_from_cred(creds[x])
+            )
+
+        asserts = client.get_assertion(
+            self.get_high_level_assertion_opts_from_cred(
+                rp_id=self.rp_id
+            )
+        ).get_assertions()
+
+        self.assertEqual(creds_to_make - len(cred_indices_to_delete), len(asserts))
+        expected_cred_ids = [
+                                x.attestation_object.auth_data.credential_data.credential_id
+                                for i, x in enumerate(creds)
+                                if i not in cred_indices_to_delete
+                            ][::-1]  # List should be from most recent to least
+        gotten_cred_ids = [
+            x.credential['id'] for x in asserts
+        ]
+
+        self.assertEqual(expected_cred_ids, gotten_cred_ids)
 
     def test_rk_count(self):
         cm = self.get_credential_management()
