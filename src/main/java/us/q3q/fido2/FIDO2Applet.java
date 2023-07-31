@@ -550,7 +550,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             readIdx = checkIfPubKeyBlockSupported(apdu, buffer, readIdx, lc);
             if (transientStorage.getStoredLen() != -1) {
                 foundES256 = true;
-                break;
+                // cannot break here because we need to check for any
+                // invalid pubKeyCredParams entries that come later...
             }
         }
 
@@ -861,8 +862,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 if (!foundMatchingRK) {
                     // We're filling an empty slot
                     numResidentCredentials++;
-                }
-                if (!foundMatchingRK) {
                     residentKeyUniqueRP[targetRKSlot] = !foundRPMatchInRKs;
                 }
                 if (!foundRPMatchInRKs) {
@@ -3134,15 +3133,17 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         outBuf[wpos++] = JCSystem.NOT_A_TRANSIENT_OBJECT;
         outBuf[wpos++] = JCSystem.MEMORY_TYPE_TRANSIENT_RESET;
         outBuf[wpos++] = JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT;
-        outBuf[wpos++] = (byte)(authenticatorKeyAgreementKey.getPrivate().getType() == KeyBuilder.TYPE_EC_FP_PRIVATE ?
-            0x00 : 0x02);
-        outBuf[wpos++] = (byte)(ecKeyPair.getPrivate().getType() == KeyBuilder.TYPE_EC_FP_PRIVATE ?
-            0x00 : 0x02);
+        outBuf[wpos++] = authenticatorKeyAgreementKey.getPrivate().getType() == KeyBuilder.TYPE_EC_FP_PRIVATE ?
+            JCSystem.NOT_A_TRANSIENT_OBJECT : JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT;
+        outBuf[wpos++] = ecKeyPair.getPrivate().getType() == KeyBuilder.TYPE_EC_FP_PRIVATE ?
+            JCSystem.NOT_A_TRANSIENT_OBJECT : JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT;
         outBuf[wpos++] = JCSystem.isTransient(pinToken);
         outBuf[wpos++] = JCSystem.isTransient(sharedSecretVerifyKey);
         outBuf[wpos++] = JCSystem.isTransient(permissionsRpId);
-        outBuf[wpos++] = (byte)(sharedSecretAESKey.getType() == KeyBuilder.TYPE_AES ? 0x00 : 0x02);
-        outBuf[wpos++] = (byte)(pinWrapKey.getType() == KeyBuilder.TYPE_AES ? 0x00 : 0x02);
+        outBuf[wpos++] = sharedSecretAESKey.getType() == KeyBuilder.TYPE_AES ? JCSystem.NOT_A_TRANSIENT_OBJECT :
+                JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT;
+        outBuf[wpos++] = pinWrapKey.getType() == KeyBuilder.TYPE_AES ? JCSystem.NOT_A_TRANSIENT_OBJECT :
+                JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT;
         outBuf[wpos++] = JCSystem.isTransient(bufferMem);
 
         wpos = Util.setShort(outBuf, wpos, bufferManager.getTransientBufferSize());

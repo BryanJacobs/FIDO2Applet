@@ -117,7 +117,7 @@ implementations that can handle e.g. NFC tokens instead of being restricted to U
 | Chrome on Linux     | Unsupported |
 | Fennec on Android   | Unsupported |
 | Firefox on Linux    | Unsupported |
-| Firefox on Windows  | Untested    |
+| Firefox on Windows  | Working     |
 | OpenSSH             | Working     |
 | pam_u2f             | Working     |
 | MS Edge             | Working     |

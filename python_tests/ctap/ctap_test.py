@@ -117,18 +117,19 @@ class CTAPTestCase(JCardSimTestCase):
     ctap2: Ctap2
     client_data: bytes
     rp_id: str
-    basic_makecred_params = {
-        "rp": {},
-        "user": {},
-        "key_params": [
-            {
-                "type": "public-key",
-                "alg": ES256.ALGORITHM
-            }
-        ],
-    }
+    basic_makecred_params: dict[str, Any]
 
     def setUp(self, install_params: Optional[bytes] = None) -> None:
+        self.basic_makecred_params = {
+            "rp": {},
+            "user": {},
+            "key_params": [
+                {
+                    "type": "public-key",
+                    "alg": ES256.ALGORITHM
+                }
+            ],
+        }
         if install_params is None:
             install_params = bytes([0x01])
         super().setUp(install_params)
