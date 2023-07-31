@@ -35,6 +35,11 @@ public class VSim {
             throw new IllegalArgumentException("Install parameters too long!");
         }
         sim.installApplet(appletAID, FIDO2Applet.class, params, (short) 0, (byte) params.length);
+        sim.selectApplet(appletAID);
+    }
+
+    public static byte[] transmitCommand(Simulator sim, byte[] command) {
+        return sim.transmitCommand(command);
     }
 
     public static void main(String[] args) throws Exception {

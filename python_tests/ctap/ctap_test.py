@@ -1,4 +1,5 @@
 import abc
+import enum
 import os
 import random
 import secrets
@@ -13,14 +14,27 @@ from fido2.client import UserInteraction, Fido2Client, _Ctap2ClientBackend
 from fido2.cose import ES256
 from fido2.ctap2 import Ctap2, ClientPin, AttestationResponse, AssertionResponse, CredentialManagement, PinProtocolV2
 from fido2.ctap2.extensions import Ctap2Extension
-from fido2.pcsc import CtapPcscDevice
+from fido2.pcsc import CtapPcscDevice, logger
 from fido2.webauthn import ResidentKeyRequirement, PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, \
     PublicKeyCredentialRpEntity, PublicKeyCredentialParameters, PublicKeyCredentialType, AuthenticatorSelectionCriteria, \
     UserVerificationRequirement, PublicKeyCredentialDescriptor, AuthenticatorAttestationResponse, \
     PublicKeyCredentialRequestOptions
 
 import fido2.features
+
 fido2.features.webauthn_json_mapping.enabled = False
+
+
+class CommandType(enum.Enum):
+    APPLET_REINSTALL = 0
+    DIRECT_COMMUNICATE = 1
+
+
+class LogPrintHandler:
+    level = 0
+
+    def handle(self, r):
+        print(r.msg % r.args)
 
 
 class JCardSimTestCase(TestCase, abc.ABC):
@@ -31,6 +45,7 @@ class JCardSimTestCase(TestCase, abc.ABC):
 
     DEBUG_PORT = 5005
     SUSPEND_ON_LAUNCH = False
+    LOG_ABSOLUTELY_EVERYTHING = False
 
     @classmethod
     def start_jvm(cls):
@@ -77,29 +92,50 @@ class JCardSimTestCase(TestCase, abc.ABC):
         )
 
     @classmethod
-    def launch_sim(cls, incoming_q: Queue, outgoing_q: Queue):
+    def process(cls, VSim, sim, command_type, command) -> Optional[list[int]]:
+        if command_type == CommandType.APPLET_REINSTALL:
+            # Reset the simulator to fresh
+            sim.resetRuntime()
+            sim.reset()
+            VSim.installApplet(sim, command)
+            return None
+        elif command_type == CommandType.DIRECT_COMMUNICATE:
+            result = VSim.transmitCommand(sim, bytes(command))
+            return [(x + 256) % 256 for x in result]
+        else:
+            # Unknown command?
+            return None
+
+    @classmethod
+    def launch_sim(cls, incoming_q: Queue, outgoing_q: Queue, startup_q: Queue):
         cls.start_jvm()
         from us.q3q.fido2 import VSim
 
         sim = VSim.startBackgroundSimulator()
         VSim.installApplet(sim, bytes())
+        startup_q.put(None)
         while True:
-            applet_install_params = incoming_q.get(block=True)
-            if applet_install_params is None:
+            command_type, command = incoming_q.get(block=True)
+            if command_type == CommandType.APPLET_REINSTALL and command is None:
                 # We're done - exit
                 break
-            # Reset the simulator to fresh
-            sim.resetRuntime()
-            sim.reset()
-            VSim.installApplet(sim, applet_install_params)
-            outgoing_q.put(None, block=True)
+            outgoing_q.put(cls.process(VSim, sim, command_type, command))
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.q_in = Queue()
-        cls.q_out = Queue()
-        cls.p = Process(target=cls.launch_sim, args=(cls.q_out, cls.q_in))
+        if cls.LOG_ABSOLUTELY_EVERYTHING:
+            fido2.pcsc.logger.setLevel(0)
+            fido2.pcsc.logger.disabled = False
+            fido2.pcsc.logger.isEnabledFor = lambda x: True
+            fido2.pcsc.logger.manager.disable = 0
+            fido2.pcsc.logger.addHandler(LogPrintHandler())
+            fido2.pcsc.logger._cache = {}
+        cls.q_in = Queue(maxsize=1)
+        cls.q_out = Queue(maxsize=1)
+        q_startup = Queue(maxsize=1)
+        cls.p = Process(target=cls.launch_sim, args=(cls.q_out, cls.q_in, q_startup))
         cls.p.start()
+        q_startup.get(block=True)
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -107,17 +143,48 @@ class JCardSimTestCase(TestCase, abc.ABC):
         cls.p.join()
 
     def setUp(self, install_params: Optional[bytes] = None) -> None:
+        assert self.p.is_alive()
         if install_params is None:
             install_params = bytes()
         # Javacard install parameters are prefixed by AID and platform info
         ip_len = len(install_params)
         install_params = bytes([1, 95, 1, 86, ip_len]) + install_params
-        self.q_out.put(install_params)  # Tell JVM to reset applet state
+        self.q_out.put((CommandType.APPLET_REINSTALL, install_params))  # Tell JVM to reset applet state
         self.q_in.get(block=True)  # Wait for applet to be started in JVM
+
+    def tearDown(self) -> None:
+        if self.q_in.full():
+            self.q_in.get()
+
+
+class FakeSCConnection:
+    q_in: Queue
+    q_out: Queue
+
+    def __init__(self, q_in: Queue, q_out: Queue):
+        self.q_in = q_in
+        self.q_out = q_out
+
+    def connect(self):
+        pass
+
+    def disconnect(self):
+        pass
+
+    def transmit(self, b, protocol=None):
+        self.q_out.put((CommandType.DIRECT_COMMUNICATE, b))
+        response = self.q_in.get(block=True)
+
+        sw1 = (response[-2] + 256) % 256
+        sw2 = (response[-1] + 256) % 256
+        data = [(x + 256) % 256 for x in response[:-2]]
+
+        return list(data), sw1, sw2
 
 
 class CTAPTestCase(JCardSimTestCase, abc.ABC):
     VIRTUAL_DEVICE_NAME = "Virtual PCD"
+    PCSC_MODE = False
     device: CtapPcscDevice
     ctap2: Ctap2
     client_data: bytes
@@ -138,11 +205,17 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
         if install_params is None:
             install_params = bytes([0x01])
         super().setUp(install_params)
-        devs = list(CtapPcscDevice.list_devices(self.VIRTUAL_DEVICE_NAME))
-        assert 1 == len(devs)
-        self.device = devs[0]
-        self.ctap2 = Ctap2(self.device)
+        if self.PCSC_MODE:
+            devs = list(CtapPcscDevice.list_devices(self.VIRTUAL_DEVICE_NAME))
+            assert 1 == len(devs)
+            self.device = devs[0]
+        else:
+            self.device = CtapPcscDevice(
+                FakeSCConnection(self.q_in, self.q_out),
+                'fake_device'
+            )
 
+        self.ctap2 = Ctap2(self.device)
         self.client_data = self.get_random_client_data()
         self.basic_makecred_params["client_data_hash"] = self.client_data
         rpid_length = random.randint(1, 16)

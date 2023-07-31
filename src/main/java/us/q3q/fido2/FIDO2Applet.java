@@ -3089,7 +3089,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 break;
             case FIDOConstants.CMD_DUMP_ABUF:
                 dumpMemoryTransienceInfo(apdu);
-                return;
+                break;
             case FIDOConstants.CMD_INSTALL_CERTS:
                 reqBuffer = fullyReadReq(apdu, lc, amtRead, false);
                 initAttestationKeyStart(apdu, reqBuffer, apdu.getOffsetCdata(),
