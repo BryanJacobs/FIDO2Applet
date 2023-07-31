@@ -115,9 +115,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private boolean pinSet;
     /**
-     * Random key for deriving keys for the hmac-secret extension from regular credential private keys
+     * Random keys for deriving keys for the hmac-secret extension from regular credential private keys
      */
-    private final byte[] hmacWrapperBytes;
+    private final byte[] hmacWrapperBytesUV;
+    private final byte[] hmacWrapperBytesNoUV;
 
 
     // Fields for negotiating auth with the platform
@@ -1923,7 +1924,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             hmacSecretBytes = computeHMACSecret(apdu, (ECPrivateKey) ecKeyPair.getPrivate(),
                     hmacSaltBuffer, (short)(hmacSaltIdx + 1), hmacSaltBuffer[hmacSaltIdx],
                     pinInfoBuffer[pinInfoIdx],
-                    hmacOutputBuffer, hmacOutputOffset
+                    hmacOutputBuffer, hmacOutputOffset,
+                    pinInfoBuffer[(short)(pinInfoIdx + 1)] == 1
             );
         }
 
@@ -2352,11 +2354,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param pinProtocol Integer PIN protocol version in use
      * @param outBuf Buffer into which to store output - must contain at least 80 bytes! NOTE: NOT ONLY 64 BYTES
      * @param outOff Offset into output buffer to start writing
+     * @param uv Whether user verification was performed
      *
      * @return Length of HMAC secret data in output buffer
      */
     private short computeHMACSecret(APDU apdu, ECPrivateKey privateKey, byte[] saltBuf, short saltOff, short saltLen,
-                                    byte pinProtocol, byte[] outBuf, short outOff) {
+                                    byte pinProtocol, byte[] outBuf, short outOff, boolean uv) {
         // Position the hashes, pre-encryption, with 16 bytes padding at their start
         // that way if we are using PIN protocol 2 and encrypting adds a 16 byte IV to the beginning, we still
         // won't clobber the key before using it!
@@ -2369,6 +2372,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         // Derive the HMAC secret from the private key by taking the credential private key,
         // doing an HMAC-SHA256 on it...
+        byte[] hmacWrapperBytes = uv ? hmacWrapperBytesUV : hmacWrapperBytesNoUV;
         hmacSha256(apdu, hmacWrapperBytes, (short) 0,
                 outBuf, outOff, (short) 32,
                 outBuf, outOff);
@@ -3924,7 +3928,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         JCSystem.beginTransaction();
         boolean ok = false;
         try {
-            random.generateData(hmacWrapperBytes, (short) 0, (short) hmacWrapperBytes.length);
+            random.generateData(hmacWrapperBytesUV, (short) 0, (short) hmacWrapperBytesUV.length);
+            random.generateData(hmacWrapperBytesNoUV, (short) 0, (short) hmacWrapperBytesNoUV.length);
 
             for (short i = 0; i < NUM_RESIDENT_KEY_SLOTS; i++) {
                 residentKeyState[i] = 0x00;
@@ -5089,7 +5094,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         pinKDFSalt = new byte[28];
         wrappingKeySpace = new byte[32];
         wrappingKeyValidation = new byte[64];
-        hmacWrapperBytes = new byte[32];
+        hmacWrapperBytesUV = new byte[32];
+        hmacWrapperBytesNoUV = new byte[32];
         wrappingIV = new byte[16];
         externalCredentialIV = new byte[16];
         wrappingKey = getTransientAESKey(); // Our most important treasure, from which all other crypto is born...
@@ -5403,8 +5409,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         random.generateData(wrappingIV, (short) 0, (short) wrappingIV.length);
         // - the IV we use for encrypting externally-held credentials
         random.generateData(externalCredentialIV, (short) 0, (short) externalCredentialIV.length);
-        // - the key we use for converting a credential private key into an hmac-secret ... uh ... secret
-        random.generateData(hmacWrapperBytes, (short) 0, (short) hmacWrapperBytes.length);
+        // - the keys we use for converting a credential private key into an hmac-secret ... uh ... secret
+        random.generateData(hmacWrapperBytesUV, (short) 0, (short) hmacWrapperBytesUV.length);
+        random.generateData(hmacWrapperBytesNoUV, (short) 0, (short) hmacWrapperBytesNoUV.length);
 
         if (Util.arrayCompare(wrappingIV, (short) 0,
                 externalCredentialIV, (short) 0, (short) wrappingIV.length) == 0) {

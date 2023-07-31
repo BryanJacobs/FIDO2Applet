@@ -55,13 +55,7 @@ So I wrote a CTAP2 implementation that [had that property](security_model.md).
 Well, first off, this app doesn't attempt to do a full CBOR parse, so its error
 statuses often aren't perfect and it's generally tolerant of invalid input.
 
-Secondly, OpenSSH has a bug that rejects makeCredential responses
-that don't have credProtect level two when it requests level two. The
-CTAP2.1 standard says it's okay to return level three if two was requested,
-but that breaks OpenSSH, so... credProtect is incorrectly implemented in
-that it always applies level three internally.
-
-Thirdly, the CTAP API requires user presence detection, but there's really no
+Secondly, the CTAP API requires user presence detection, but there's really no
 way to do that on Javacard 3.0.4. We can't even use the "presence timeout"
 that is described in the spec for NFC devices. So you're always treated as
 being present, which is to some extent offset by the fact that anything real
@@ -70,10 +64,12 @@ clear CTAP2.1 PIN token permissions on use.
 
 So set a PIN, and unplug your card when you're not using it.
 
-Fourthly, implementing credProtect by storing a different value for every
-credential is a royal pain: it would require the key's generated credential IDs
+Thirdly, implementing credProtect by storing values for non-discoverable
+credentials is a royal pain: it would require the key's generated credential IDs
 to be longer than the minimum 64 bytes. Rather than do that, this implementation
-just rejects the creation of high-credProtect credentials while a PIN is unset.
+just rejects the creation of level-three non-discoverable credentials while a PIN
+is unset. Discoverable credentials are always fine, although of course you can't
+USE level 3 credentials without setting a PIN...
 
 So, again, set a PIN.
 

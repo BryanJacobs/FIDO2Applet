@@ -4,7 +4,7 @@ from parameterized import parameterized
 from fido2.client import UserInteraction
 from fido2.ctap2 import ClientPin
 from fido2.ctap2.extensions import HmacSecretExtension
-from fido2.webauthn import ResidentKeyRequirement
+from fido2.webauthn import ResidentKeyRequirement, AuthenticatorAssertionResponse
 
 from .ctap_test import CTAPTestCase, FixedPinUserInteraction
 
@@ -22,6 +22,52 @@ class HMACSecretTestCase(CTAPTestCase):
         self.assertEqual({
             "hmac-secret": True
         }, res.auth_data.extensions)
+
+    def get_hmacs_from_result(self, assertion: AuthenticatorAssertionResponse) -> tuple[str, str]:
+        return (assertion.extension_results['hmacGetSecret'].get('output1'),
+               assertion.extension_results['hmacGetSecret'].get('output2'))
+
+    def test_uv_and_non_uv_yield_different_values(self):
+        no_pin_client = self.get_high_level_client(extensions=[HmacSecretExtension])
+        cred = no_pin_client.make_credential(options=self.get_high_level_make_cred_options(
+            extensions={
+                "hmacCreateSecret": True
+            }
+        ))
+        salt1 = secrets.token_bytes(32)
+        salt2 = secrets.token_bytes(32)
+
+        assertion_before = no_pin_client.get_assertion(
+            self.get_high_level_assertion_opts_from_cred(cred,
+                                                        extensions={
+                                                            "hmacGetSecret": {
+                                                                "salt1": salt1,
+                                                                "salt2": salt2,
+                                                            }
+                                                        })
+        )
+
+        pin = secrets.token_hex(30)
+        ClientPin(self.ctap2).set_pin(pin)
+        pin_client = self.get_high_level_client(extensions=[HmacSecretExtension],
+                                                user_interaction=FixedPinUserInteraction(pin))
+        assertion_after = pin_client.get_assertion(
+            self.get_high_level_assertion_opts_from_cred(cred,
+                                                         extensions={
+                                                             "hmacGetSecret": {
+                                                                 "salt1": salt1,
+                                                                 "salt2": salt2,
+                                                             }
+                                                         })
+        )
+
+        before1, before2 = self.get_hmacs_from_result(assertion_before.get_response(0))
+        after1, after2 = self.get_hmacs_from_result(assertion_after.get_response(0))
+
+        self.assertNotEqual(before1, after1)
+        self.assertNotEqual(before1, before2)
+        self.assertNotEqual(before2, after2)
+        self.assertNotEqual(after1, after2)
 
     @parameterized.expand([
         ("nonresident+nopin", False, False),

@@ -71,7 +71,7 @@ I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/s
 | Basic attestation with ECDSA certs        | Implemented (see [install guide](docs/certs.md))        |
 | Other crypto, like ed25519                | Not implemented                                         |
 | CTAP2.0 hmac-secret extension             | Implemented                                             |
-| CTAP2.1 hmac-secret extension             | Implemented with one secret (requiring UV) not two      |
+| CTAP2.1 hmac-secret extension             | Implemented                                             |
 | CTAP2.1 alwaysUv option                   | Implemented                                             |
 | CTAP2.1 credProtect option                | Implemented, one caveat                                 |
 | CTAP2.1 PIN Protocol 1                    | Implemented                                             |

@@ -78,10 +78,10 @@ finish using it.
 
 The hmac-secret extension keys are made by performing an HMAC-SHA256
 of a particular credential's ECDSA private key, using a random 32-byte
-key generated when the app is first installed. This makes the brute-force
-resistance of these keys dependent on the entropy in a raw ECDSA private key,
-which is somewhat less than 256 bits and likely considerably stronger
-than the ECDSA keypair itself.
+key generated when the app is first installed (one for UV, a different one for
+non-UV). This makes the brute-force resistance of these keys dependent on the
+entropy in a raw ECDSA private key, which is somewhat less than 256 bits and
+likely considerably stronger than the ECDSA keypair itself.
 
 ## Threat Modeling
 
