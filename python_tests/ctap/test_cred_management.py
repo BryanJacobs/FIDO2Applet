@@ -2,7 +2,7 @@ import secrets
 
 from fido2.client import ClientError
 from fido2.ctap import CtapError
-from fido2.webauthn import ResidentKeyRequirement, PublicKeyCredentialDescriptor, PublicKeyCredentialType
+from fido2.webauthn import ResidentKeyRequirement
 
 from .ctap_test import FixedPinUserInteraction, CredManagementBaseTestCase
 
@@ -37,12 +37,6 @@ class CredManagementTestCase(CredManagementBaseTestCase):
         cred_res = cm.enumerate_creds(self.rp_id_hash(self.rp_id))
         self.assertEqual(1, len(cred_res))
 
-    def get_descriptor_from_cred(self, cred: bytes) -> PublicKeyCredentialDescriptor:
-        return PublicKeyCredentialDescriptor(
-            type=PublicKeyCredentialType.PUBLIC_KEY,
-            id=cred
-        )
-
     def test_cred_delete_rk(self):
         client = self.get_high_level_client(
             user_interaction=FixedPinUserInteraction(self.pin)
@@ -51,18 +45,59 @@ class CredManagementTestCase(CredManagementBaseTestCase):
         cred = client.make_credential(options=self.get_high_level_make_cred_options(
             resident_key=ResidentKeyRequirement.REQUIRED
         ))
+        client.get_assertion(self.get_high_level_assertion_opts_from_cred(cred=None))
         client.get_assertion(self.get_high_level_assertion_opts_from_cred(cred))
 
         cm = self.get_credential_management()
         cm.delete_cred(
-            self.get_descriptor_from_cred(
-                cred.attestation_object.auth_data.credential_data.credential_id
-            )
+            self.get_descriptor_from_cred(cred)
         )
 
         with self.assertRaises(ClientError) as e:
             client.get_assertion(self.get_high_level_assertion_opts_from_cred(cred))
         self.assertEqual(CtapError.ERR.NO_CREDENTIALS, e.exception.cause.code)
+
+    def test_rk_count(self):
+        cm = self.get_credential_management()
+
+        cred_info = cm.get_metadata()
+        original_creds_remaining = cred_info[2]
+        self.assertEqual(0, cred_info[1])
+
+        client = self.get_high_level_client(
+            user_interaction=FixedPinUserInteraction(self.pin)
+        )
+        client.make_credential(options=self.get_high_level_make_cred_options(
+            resident_key=ResidentKeyRequirement.REQUIRED
+        ))
+
+        cred_info = self.get_credential_management().get_metadata()
+        self.assertEqual(1, cred_info[1])
+        self.assertEqual(original_creds_remaining - 1, cred_info[2])
+
+    def test_cred_recreate_rk(self):
+        client = self.get_high_level_client(
+            user_interaction=FixedPinUserInteraction(self.pin)
+        )
+
+        cred = client.make_credential(options=self.get_high_level_make_cred_options(
+            resident_key=ResidentKeyRequirement.REQUIRED
+        ))
+
+        cm = self.get_credential_management()
+        cm.delete_cred(
+            self.get_descriptor_from_cred(cred)
+        )
+
+        client.make_credential(options=self.get_high_level_make_cred_options(
+            resident_key=ResidentKeyRequirement.REQUIRED
+        ))
+
+        # Fails with old cred ID in allowList - succeeds with nothing
+        with self.assertRaises(ClientError) as e:
+            client.get_assertion(self.get_high_level_assertion_opts_from_cred(cred))
+        self.assertEqual(CtapError.ERR.NO_CREDENTIALS, e.exception.cause.code)
+        client.get_assertion(self.get_high_level_assertion_opts_from_cred(cred=None))
 
     def test_cred_enumeration_after_deletes(self):
         creds_by_rp, rp_ids = self.setup_creds(3, 3)
@@ -71,9 +106,9 @@ class CredManagementTestCase(CredManagementBaseTestCase):
         delete_everything_rp = rp_ids[0]
         delete_some_things_rp = rp_ids[-1]
         for cred in creds_by_rp[delete_everything_rp]:
-            cm.delete_cred(self.get_descriptor_from_cred(cred))
+            cm.delete_cred(self.get_descriptor_from_cred_id(cred))
         one_cred_to_delete = creds_by_rp[delete_some_things_rp][0]
-        cm.delete_cred(self.get_descriptor_from_cred(one_cred_to_delete))
+        cm.delete_cred(self.get_descriptor_from_cred_id(one_cred_to_delete))
 
         rp_res = cm.enumerate_rps()
         gotten_rpids = [x[3]['id'] for x in rp_res]

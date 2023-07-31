@@ -158,9 +158,16 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
     def reset(self):
         self.ctap2.reset()
 
-    def get_assertion_from_cred(self, cred_res: AttestationResponse,
+    def get_assertion_from_cred(self, cred: Optional[AttestationResponse],
                                 rp_id: Optional[str] = None,
-                                client_data: Optional[bytes] = None) -> AssertionResponse:
+                                client_data: Optional[bytes] = None,
+                                base_allow_list=None) -> AssertionResponse:
+        allow_list = [] if base_allow_list is None else base_allow_list
+        if cred is not None:
+            allow_list.append({
+                "type": "public-key",
+                "id": cred.auth_data.credential_data.credential_id
+            })
         if rp_id is None:
             rp_id = self.rp_id
         if client_data is None:
@@ -168,13 +175,11 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
         return self.ctap2.get_assertion(
             rp_id=rp_id,
             client_data_hash=client_data,
-            allow_list=[
-                {
-                    "type": "public-key",
-                    "id": cred_res.auth_data.credential_data.credential_id
-                }
-            ]
+            allow_list=allow_list
         )
+
+    def get_assertion(self, rp_id: str, client_data: Optional[bytes] = None):
+        return self.get_assertion_from_cred(cred=None, rp_id=rp_id, client_data=client_data)
 
     def get_high_level_client(self, extensions: Optional[list[Type[Ctap2Extension]]] = None,
                               user_interaction: UserInteraction = None,
@@ -224,6 +229,18 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
             )
         )
 
+    def get_descriptor_from_cred_id(self, cred: bytes) -> PublicKeyCredentialDescriptor:
+        return PublicKeyCredentialDescriptor(
+            type=PublicKeyCredentialType.PUBLIC_KEY,
+            id=cred
+        )
+
+    def get_descriptor_from_cred(self, cred: AuthenticatorAttestationResponse) -> PublicKeyCredentialDescriptor:
+        return self.get_descriptor_from_cred_id(cred.attestation_object.auth_data.credential_data.credential_id)
+
+    def get_descriptor_from_ll_cred(self, cred: AttestationResponse) -> PublicKeyCredentialDescriptor:
+        return self.get_descriptor_from_cred_id(cred.auth_data.credential_data.credential_id)
+
     def get_high_level_assertion_opts_from_cred(self, cred: Optional[AuthenticatorAttestationResponse] = None,
                                                 client_data: Optional[bytes] = None, rp_id: Optional[str] = None,
                                                 extensions: Optional[
@@ -237,10 +254,7 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
         assertion_allow_credentials = []
         if cred is not None:
             assertion_allow_credentials = [
-                PublicKeyCredentialDescriptor(
-                    type=PublicKeyCredentialType.PUBLIC_KEY,
-                    id=cred.attestation_object.auth_data.credential_data.credential_id
-                )
+                self.get_descriptor_from_cred(cred)
             ]
         return PublicKeyCredentialRequestOptions(
             challenge=client_data,
