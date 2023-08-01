@@ -93,13 +93,13 @@ I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/s
 
 ## Software Compatibility
 
-| Platform              | Status   |
-|-----------------------|----------|
-| Android (hwsecurity)  | Working  |
-| Android (Google Play) | Untested |
-| iOS                   | Untested |
-| Linux (libfido2)      | Working  |
-| Windows 10            | Working  |
+| Platform              | Status     |
+|-----------------------|------------|
+| Android (hwsecurity)  | Working    |
+| Android (Google Play) | Broken [1] |
+| iOS                   | Untested   |
+| Linux (libfido2)      | Working    |
+| Windows 10            | Working    |
 
 | Smartcard                  | Status  |
 |----------------------------|---------|
@@ -107,22 +107,29 @@ I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/s
 | OMNI Ring (Infineon SLE78) | Working |
 | jCardSim                   | Working |
 
-Note that many of the applications below (cough, browsers)
-support FIDO2 in theory but only allow USB security keys - this implementation
-is for PC/SC, and doesn't implement USB HID, so it will only work with FIDO2
-implementations that can handle e.g. NFC tokens instead of being restricted to USB.
+| Application         | Status                          |
+|---------------------|---------------------------------|
+| Chrome on Android   | Unsupported (Play Services [1]) |
+| Chrome on Linux     | Unsupported (USBHID only [2])   |
+| Chrome on Windows   | Working                         |
+| Fennec on Android   | Unsupported (Play Services [1]) |
+| WebView on Android  | Working                         |
+| Firefox on Linux    | Unsupported (USBHID only [2])   |
+| Firefox on Windows  | Working                         |
+| MS Edge on Windows  | Working                         |
+| Safari on iOS       | Untested                        |
+| OpenSSH             | Working                         |
+| pam_u2f             | Working                         |
+| systemd-cryptenroll | Working                         |
+| python-fido2        | Working                         |
 
-| Application         | Status                                |
-|---------------------|---------------------------------------|
-| Chrome on Android   | Passkeys interfere with some features |
-| Chrome on Linux     | No way to connect - USBHID only       |
-| Chrome on Windows   | Working                               |
-| Fennec on Android   | Passkeys interfere with some features |
-| Firefox on Linux    | No way to connect - USBHID only       |
-| Firefox on Windows  | Working                               |
-| MS Edge on Windows  | Working                               |
-| Safari on iOS       | Untested                              |
-| OpenSSH             | Working                               |
-| pam_u2f             | Working                               |
-| systemd-cryptenroll | Working                               |
-| WebView on Android  | Working                               |
+There are two compatibility issues in the table above:
+1. Google Play Services on Android contains a complete webauthn implementation, but it appears to be
+   hardwired to use only "passkeys". If a set explicitly requrests a non-discoverable credential,
+   you will be prompted to use an NFC security key, but this is only CTAP1 and not CTAP2. There's
+   nothing fundamentally preventing this from working on Android but the current state of Chrome
+   and Fennec are that it doesn't, because both use the broken Play Services library.
+1. Some browsers support FIDO2 in theory but only allow USB security keys - this implementation
+   is for PC/SC, and doesn't implement USB HID, so it will only work with FIDO2
+   implementations that can handle e.g. NFC tokens instead of being restricted to USB. This prevents,
+   for example, Firefox on Linux from using FIDO2Applet. 
