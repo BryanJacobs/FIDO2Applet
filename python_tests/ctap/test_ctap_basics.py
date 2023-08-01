@@ -95,6 +95,11 @@ class CTAPBasicsTestCase(CTAPTestCase):
         cred_res_2 = self.ctap2.make_credential(**self.basic_makecred_params)
         self.assertEqual(cred_res_2.auth_data.counter, cred_res_1.auth_data.counter + 1)
 
+    def test_counter_allows_many_ops(self):
+        for i in range(350):
+            cred_res = self.ctap2.make_credential(**self.basic_makecred_params)
+            self.assertEqual(i, cred_res.auth_data.counter)
+
     def test_makecred_disallowed_by_exclude_list(self):
         cred_res_1 = self.ctap2.make_credential(**self.basic_makecred_params)
         cred_res_2 = self.ctap2.make_credential(**self.basic_makecred_params)

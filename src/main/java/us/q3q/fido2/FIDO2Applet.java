@@ -80,6 +80,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * FIDO2 standards say three.
      */
     private static final short PIN_TRIES_PER_RESET = 3;
+    /**
+     * The maximum number of times we will reroll a private key in makeCredential before giving up
+     */
+    private static final short MAX_ATTEMPTS_TO_GET_GOOD_KEY = 3;
 
     // Fields for decoding incoming APDUs and encoding outgoing ones
     /**
@@ -747,19 +751,26 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         // Well, we're getting to it, only 150 lines in.
         // We sometimes reset the private key, which clears its curve data, so reset that here
         P256Constants.setCurve((ECPrivateKey) ecKeyPair.getPrivate());
-        ecKeyPair.genKeyPair();
 
         final short scratchPublicKeyHandle = bufferManager.allocate(apdu, (short)(KEY_POINT_LENGTH * 2 + 1), BufferManager.ANYWHERE);
         final short scratchPublicKeyOffset = bufferManager.getOffsetForHandle(scratchPublicKeyHandle);
         final byte[] scratchPublicKeyBuffer = bufferManager.getBufferForHandle(apdu, scratchPublicKeyHandle);
 
-        final short wLen = ((ECPublicKey) ecKeyPair.getPublic()).getW(scratchPublicKeyBuffer, scratchPublicKeyOffset);
-        if (scratchPublicKeyBuffer[scratchPublicKeyOffset] != 0x04) {
-            // EC algorithm returned a compressed point... we can't decode that...
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INTEGRITY_FAILURE);
-        }
-        if (wLen != 2 * KEY_POINT_LENGTH + 1) {
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INTEGRITY_FAILURE);
+        for (short i = 1; i <= MAX_ATTEMPTS_TO_GET_GOOD_KEY; i++) {
+            ecKeyPair.genKeyPair();
+
+            // Sometimes, when the stars (mis)align, we get points less than 32 bytes long.
+            // Let's roll the dice up to three times to make that happen less.
+            // We lose one bit of randomness in our keys - they have 2^31 * 254 possible values
+            short sLen = ((ECPrivateKey) ecKeyPair.getPrivate()).getS(scratchPublicKeyBuffer, scratchPublicKeyOffset);
+            short wLen = ((ECPublicKey) ecKeyPair.getPublic()).getW(scratchPublicKeyBuffer, scratchPublicKeyOffset);
+            if (sLen == KEY_POINT_LENGTH && wLen == (short)(2 * KEY_POINT_LENGTH + 1)
+                    && scratchPublicKeyBuffer[scratchPublicKeyOffset] == 0x04) {
+                break;
+            }
+            if (i == MAX_ATTEMPTS_TO_GET_GOOD_KEY) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INTEGRITY_FAILURE);
+            }
         }
 
         encodeCredentialID(apdu, (ECPrivateKey) ecKeyPair.getPrivate(),
@@ -1412,14 +1423,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         final byte[] scratch = bufferManager.getBufferForHandle(apdu, scratchHandle);
         final short scratchOff = bufferManager.getOffsetForHandle(scratchHandle);
 
-        final short sLen = privKey.getS(scratch, scratchOff);
-        if (sLen != KEY_POINT_LENGTH) {
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INTEGRITY_FAILURE);
-        }
-
-        if ((short)(sLen + RP_HASH_LEN) != CREDENTIAL_ID_LEN || sLen != RP_HASH_LEN) {
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INTEGRITY_FAILURE);
-        }
+        privKey.getS(scratch, scratchOff);
 
         // Pack together into buffer for one-shot signing call with all parts mixed
         // this nicely makes sure that no block of our credential ID comes from entirely user-supplied input
