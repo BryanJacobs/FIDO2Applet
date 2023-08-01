@@ -240,7 +240,8 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
     def get_assertion_from_cred(self, cred: Optional[AttestationResponse],
                                 rp_id: Optional[str] = None,
                                 client_data: Optional[bytes] = None,
-                                base_allow_list=None) -> AssertionResponse:
+                                base_allow_list=None,
+                                **kwargs) -> AssertionResponse:
         allow_list = [] if base_allow_list is None else base_allow_list
         if cred is not None:
             allow_list.append({
@@ -254,7 +255,8 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
         return self.ctap2.get_assertion(
             rp_id=rp_id,
             client_data_hash=client_data,
-            allow_list=allow_list
+            allow_list=allow_list,
+            **kwargs
         )
 
     def get_assertion(self, rp_id: str, client_data: Optional[bytes] = None):

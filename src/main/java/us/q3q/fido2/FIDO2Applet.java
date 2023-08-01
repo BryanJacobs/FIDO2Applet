@@ -1163,23 +1163,36 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param pinProtocol          Integer PIN protocol number
      */
     private void verifyPinAuth(APDU apdu, byte[] buffer, short readIdx,
-                                byte[] clientDataHashBuffer, short clientDataHashIdx,
-                                byte pinProtocol) {
+                               byte[] clientDataHashBuffer, short clientDataHashIdx,
+                               byte pinProtocol) {
         byte desiredLength = 16;
         if (pinProtocol == 2) {
             desiredLength = 32;
         }
 
+        byte len = buffer[readIdx++];
+        if (len == 0x40) {
+            if (pinSet) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_INVALID);
+            } else {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_NOT_SET);
+            }
+
+        }
+
         if (desiredLength < 24) {
-            if (buffer[readIdx++] != (byte)(0x40 + desiredLength)) { // byte array with included length
+            if (len != (byte)(0x40 + desiredLength)) { // byte array with included length
+                if (len >= (byte) 0x40 && len <= (byte) 0x57) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+                }
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
             }
         } else {
-            if (buffer[readIdx++] != 0x58) { // byte array, one-byte length
+            if (len != 0x58) { // byte array, one-byte length
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
             }
             if (buffer[readIdx++] != desiredLength) {
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
             }
         }
 
@@ -4069,11 +4082,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         buffer[offset++] = 0x0A; // ten
 
         buffer[offset++] = 0x08; // map key: maxCredentialIdLength
-        buffer[offset++] = 0x18; // one-byte integer
-        buffer[offset++] = 0x40; // sixty-four
+        offset = encodeIntTo(buffer, offset, (byte) 64);
 
         buffer[offset++] = 0x0E; // map key: firmwareVersion
-        buffer[offset++] = 0x01; // one
+        offset = encodeIntTo(buffer, offset, (byte) 0x01);
 
         buffer[offset++] = 0x14; // map key: remainingDiscoverableCredentials
         offset = encodeIntTo(buffer, offset, (byte)(NUM_RESIDENT_KEY_SLOTS - numResidentCredentials));

@@ -3,6 +3,7 @@ import secrets
 
 from fido2.cose import ES256
 from fido2.ctap import CtapError
+from fido2.ctap2 import ClientPin
 from fido2.webauthn import Aaguid
 
 from .ctap_test import CTAPTestCase
@@ -50,6 +51,44 @@ class CTAPBasicsTestCase(CTAPTestCase):
         with self.assertRaises(CtapError) as e:
             self.ctap2.make_credential(**self.basic_makecred_params)
         self.assertEqual(CtapError.ERR.INVALID_OPTION, e.exception.code)
+
+    def test_make_credential_accepts_empty_pin_auth(self):
+        self.basic_makecred_params['pin_uv_param'] = b""
+        self.basic_makecred_params['pin_uv_protocol'] = 1
+
+        with self.assertRaises(CtapError) as e:
+            self.ctap2.make_credential(**self.basic_makecred_params)
+        self.assertEqual(CtapError.ERR.PIN_NOT_SET, e.exception.code)
+
+    def test_empty_pin_auth_rejected_when_real_pin_set(self):
+        pin = secrets.token_hex(5)
+        ClientPin(self.ctap2).set_pin(pin)
+        self.basic_makecred_params['pin_uv_param'] = b""
+        self.basic_makecred_params['pin_uv_protocol'] = 1
+
+        with self.assertRaises(CtapError) as e:
+            self.ctap2.make_credential(**self.basic_makecred_params)
+        self.assertEqual(CtapError.ERR.PIN_INVALID, e.exception.code)
+
+    def test_get_assertion_accepts_empty_pin_auth(self):
+        cred = self.ctap2.make_credential(**self.basic_makecred_params)
+
+        with self.assertRaises(CtapError) as e:
+            self.get_assertion_from_cred(cred,
+                                         pin_uv_param=b"",
+                                         pin_uv_protocol=1)
+        self.assertEqual(CtapError.ERR.PIN_NOT_SET, e.exception.code)
+
+    def test_assertion_empty_pin_auth_rejected_when_pin_set(self):
+        cred = self.ctap2.make_credential(**self.basic_makecred_params)
+
+        pin = secrets.token_hex(5)
+        ClientPin(self.ctap2).set_pin(pin)
+        with self.assertRaises(CtapError) as e:
+            self.get_assertion_from_cred(cred,
+                                         pin_uv_param=b"",
+                                         pin_uv_protocol=1)
+        self.assertEqual(CtapError.ERR.PIN_INVALID, e.exception.code)
 
     def test_counter_increases_on_makecred(self):
         cred_res_1 = self.ctap2.make_credential(**self.basic_makecred_params)
