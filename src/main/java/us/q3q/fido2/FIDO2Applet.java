@@ -631,7 +631,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     }
                     continue;
                 case 0x07: // options
-                    readIdx = processOptionsMap(apdu, buffer, readIdx, lc);
+                    readIdx = processOptionsMap(apdu, buffer, readIdx, lc, true);
                     continue;
                 case 0x08: // pinAuth
                     // Read past this, because we need the pinProtocol option first
@@ -675,7 +675,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     // level 3, we can't allow the cred to be created non-resident,
                     // because we don't store the credProtect level in the credential
                     // ID itself.
-                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
                 }
             }
             if (!ALLOW_RESIDENT_KEY_CREATION_WITHOUT_PIN && transientStorage.hasRKOption()) {
@@ -1651,7 +1651,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
                         break;
                     case 0x05: // options
-                        readIdx = processOptionsMap(apdu, buffer, readIdx, lc);
+                        readIdx = processOptionsMap(apdu, buffer, readIdx, lc, false);
                         break;
                     case 0x06: // pinAuth
                         pinAuthIdx = readIdx;
@@ -1962,7 +1962,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         outputBuffer[outputIdx++] = 0x02; // map key: authData
 
-        // Always act like UP present on request
         byte flags = transientStorage.hasUPOption() ? (byte) 0x01 : 0x00;
         if (pinInfoBuffer[(short)(pinInfoIdx + 1)] == 1) {
             // UV flag bit
@@ -2175,10 +2174,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param buffer Buffer containing incoming request
      * @param readIdx Read index into request buffer
      * @param lc Length of incoming request, as sent by the platform
+     * @param requireUP Disallow UP=false, and set UP=true afterwards if option omitted
      *
      * @return New read index after consuming the options map object
      */
-    private short processOptionsMap(APDU apdu, byte[] buffer, short readIdx, short lc) {
+    private short processOptionsMap(APDU apdu, byte[] buffer, short readIdx, short lc, boolean requireUP) {
         short numOptions = getMapEntryCount(apdu, buffer[readIdx++]);
         if (readIdx > (short)(lc - 3)) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
@@ -2225,6 +2225,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     }
                 } else if (val == (byte) 0xF4) { // false
                     if (buffer[pOrVPos] == 'p') {
+                        if (requireUP) {
+                            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_OPTION);
+                        }
                         transientStorage.setUPOption(false);
                     } else {
                         transientStorage.setUVOption(false);
@@ -2234,6 +2237,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 }
             }
             readIdx++;
+        }
+
+        if (requireUP) {
+            // UP defaults to true in this case
+            transientStorage.setUPOption(true);
         }
 
         return readIdx;
@@ -2504,46 +2512,48 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         bufferManager.clear();
 
         final boolean x5c = transientStorage.shouldStreamX5CLater();
-
-        short bufferChunkSize = (short)(APDU.getOutBlockSize() - 2);
+        final short apduBlockSize = (short)(APDU.getOutBlockSize() - 2);
         final short expectedLen = apdu.setOutgoing();
-        if (expectedLen < bufferChunkSize) {
-            bufferChunkSize = expectedLen;
-        }
-        if (outputLen < bufferChunkSize) {
-            bufferChunkSize = outputLen;
-        }
-        short effectiveOutputLen = bufferChunkSize;
+
+        short totalOutputLen = outputLen;
         if (x5c) {
-            effectiveOutputLen = (short) (effectiveOutputLen + attestationData.length);
-            if (effectiveOutputLen > expectedLen) {
-                effectiveOutputLen = expectedLen;
-            }
+            totalOutputLen = (short)(totalOutputLen + attestationData.length);
         }
 
-        apdu.setOutgoingLength(effectiveOutputLen);
+        short amountFitInBuffer = totalOutputLen;
+        if (amountFitInBuffer > expectedLen) {
+            amountFitInBuffer = expectedLen;
+        }
+        if (amountFitInBuffer > apduBlockSize) {
+            amountFitInBuffer = apduBlockSize;
+        }
+
+        short amountFromMem = amountFitInBuffer;
+        if (amountFromMem > outputLen) {
+            amountFromMem = outputLen;
+        }
+
+        apdu.setOutgoingLength(amountFitInBuffer);
         final byte[] apduBytes = apdu.getBuffer();
         Util.arrayCopyNonAtomic(bufferMem, (short) 0,
-                apduBytes, (short) 0, bufferChunkSize);
+                apduBytes, (short) 0, amountFromMem);
         if (x5c) {
             // Stash the amount of bufmem that was validly filled
             transientStorage.setStoredVars(outputLen, (byte) -1);
-            // Update output length to include attestation data - we have to send it too
-            outputLen = (short)(outputLen + attestationData.length);
-            if (bufferChunkSize < effectiveOutputLen) {
+            if (amountFromMem < amountFitInBuffer) {
                 // We can send some X5C bytes, too!
-                short remaining = (short) (effectiveOutputLen - bufferChunkSize);
-                if (remaining > attestationData.length) {
-                    remaining = (short) attestationData.length;
+                short availableForX5C = (short) (amountFitInBuffer - amountFromMem);
+                if (availableForX5C > attestationData.length) {
+                    availableForX5C = (short) attestationData.length;
                 }
                 Util.arrayCopyNonAtomic(attestationData, (short) 0,
-                        apduBytes, bufferChunkSize, remaining);
+                        apduBytes, amountFromMem, availableForX5C);
             }
         }
-        apdu.sendBytes((short) 0, effectiveOutputLen);
-        if (outputLen > effectiveOutputLen) {
+        apdu.sendBytes((short) 0, amountFitInBuffer);
+        if (totalOutputLen > amountFitInBuffer) {
             // we're not done; set state to continue response delivery later
-            setupChainedResponse(effectiveOutputLen, (short)(outputLen - effectiveOutputLen));
+            setupChainedResponse(amountFitInBuffer, (short)(totalOutputLen - amountFitInBuffer));
         }
     }
 
@@ -2830,45 +2840,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     @Override
     public void process(APDU apdu) throws ISOException {
         if (selectingApplet()) {
-            if (bufferManager == null) {
-                apdu.setIncomingAndReceive();
-
-                // There also might not be enough RAM, quite, if we allocate this during install while the app install
-                // parameters array is held in memory...
-                initTransientStorage(apdu);
-
-                short availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT);
-                if (availableMem > 0xFF) {
-                    availableMem = 0xFF;
-                }
-                final byte transientMem = (byte)(availableMem >= (0xFF & MAX_RAM_SCRATCH_SIZE) ? MAX_RAM_SCRATCH_SIZE : availableMem);
-
-                JCSystem.beginTransaction();
-                boolean ok = false;
-                try {
-                    bufferManager = new BufferManager(transientMem, SCRATCH_SIZE);
-
-                    bufferManager.initializeAPDU(apdu);
-
-                    // ... aaand finally, the actual wrapping key, which we didn't init because we use the above buffers
-                    resetWrappingKey(apdu);
-                    ok = true;
-                } finally {
-                    if (ok) {
-                        JCSystem.commitTransaction();
-                    } else {
-                        JCSystem.abortTransaction();
-                    }
-                }
-            }
-
-            // For U2F compatibility, the CTAP2 standard requires that we respond to select() as if we were a U2F
-            // authenticator, and then let the platform figure out we're really CTAP2 by making a getAuthenticatorInfo
-            // API request afterwards
-            // sendByteArray(apdu, CannedCBOR.U2F_V2_RESPONSE, (short) CannedCBOR.U2F_V2_RESPONSE.length);
-
-            // ... but we DON'T implement U2F, so we can send the CTAP2-only response type
-            sendByteArray(apdu, CannedCBOR.FIDO_2_RESPONSE, (short) CannedCBOR.FIDO_2_RESPONSE.length);
+            handleAppletSelect(apdu);
 
             return;
         }
@@ -2881,6 +2853,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         if (cla_ins == (short) 0x8012 && p1_p2 == (short) 0x0100) {
             // Explicit disable command (NFCCTAP_CONTROL end CTAP_MSG). Turn off, and stay off.
             transientStorage.disableAuthenticator();
+        }
+
+        if (cla_ins == (short) 0x00A4 && p1_p2 == (short) 0x0400) {
+            // Applet-select command, probably part of test shenanigans
+            handleAppletSelect(apdu);
+            return;
         }
 
         if (transientStorage.authenticatorDisabled()) {
@@ -2971,6 +2949,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
             final short lc = apdu.getIncomingLength();
             if (lc == 0) {
+                // No data?
                 ISOException.throwIt(ISO7816.SW_DATA_INVALID);
             }
             fullyReadReq(apdu, lc, amtRead, true);
@@ -3066,7 +3045,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 getAssertion(apdu, (short) 16000, null, transientStorage.getAssertIterationPointer());
                 break;
             case FIDOConstants.CMD_CLIENT_PIN:
-                reqBuffer = fullyReadReq(apdu, lc, amtRead, false);
+                reqBuffer = fullyReadReq(apdu, lc, amtRead, true);
 
                 clientPINSubcommand(apdu, reqBuffer, lcEffective);
                 break;
@@ -3101,6 +3080,48 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         transientStorage.resetChainIncomingReadOffset();
+    }
+
+    private void handleAppletSelect(APDU apdu) {
+        if (bufferManager == null) {
+            apdu.setIncomingAndReceive();
+
+            // There also might not be enough RAM, quite, if we allocate this during install while the app install
+            // parameters array is held in memory...
+            initTransientStorage(apdu);
+
+            short availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT);
+            if (availableMem > 0xFF) {
+                availableMem = 0xFF;
+            }
+            final byte transientMem = (byte)(availableMem >= (0xFF & MAX_RAM_SCRATCH_SIZE) ? MAX_RAM_SCRATCH_SIZE : availableMem);
+
+            JCSystem.beginTransaction();
+            boolean ok = false;
+            try {
+                bufferManager = new BufferManager(transientMem, SCRATCH_SIZE);
+
+                bufferManager.initializeAPDU(apdu);
+
+                // ... aaand finally, the actual wrapping key, which we didn't init because we use the above buffers
+                resetWrappingKey(apdu);
+                ok = true;
+            } finally {
+                if (ok) {
+                    JCSystem.commitTransaction();
+                } else {
+                    JCSystem.abortTransaction();
+                }
+            }
+        }
+
+        // For U2F compatibility, the CTAP2 standard requires that we respond to select() as if we were a U2F
+        // authenticator, and then let the platform figure out we're really CTAP2 by making a getAuthenticatorInfo
+        // API request afterwards
+        // sendByteArray(apdu, CannedCBOR.U2F_V2_RESPONSE, (short) CannedCBOR.U2F_V2_RESPONSE.length);
+
+        // ... but we DON'T implement U2F, so we can send the CTAP2-only response type
+        sendByteArray(apdu, CannedCBOR.FIDO_2_RESPONSE, (short) CannedCBOR.FIDO_2_RESPONSE.length);
     }
 
     /**
@@ -3213,7 +3234,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         if (!pinSet) {
             // All credential management commands require and validate a PIN
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_NOT_SET);
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
         }
 
         if (lc == 0) {

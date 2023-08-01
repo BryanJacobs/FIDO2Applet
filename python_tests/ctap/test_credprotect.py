@@ -45,7 +45,7 @@ class CredProtectTestCase(CTAPTestCase):
                 if not usable_afterwards:
                     self.assertEqual(CtapError.ERR.NO_CREDENTIALS, assert_res.code)
         else:
-            self.assertEqual(CtapError.ERR.OPERATION_DENIED, res.code)
+            self.assertEqual(CtapError.ERR.PUAT_REQUIRED, res.code)
 
     @parameterized.expand([
         ("Fails with nonresident level 3", 3, CredProtectExtension.POLICY.REQUIRED,

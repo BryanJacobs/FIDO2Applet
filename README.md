@@ -112,16 +112,17 @@ support FIDO2 in theory but only allow USB security keys - this implementation
 is for PC/SC, and doesn't implement USB HID, so it will only work with FIDO2
 implementations that can handle e.g. NFC tokens instead of being restricted to USB.
 
-| Application         | Status      |
-|---------------------|-------------|
-| Chrome on Android   | Untested    |
-| Chrome on Linux     | Unsupported |
-| Fennec on Android   | Unsupported |
-| Firefox on Linux    | Unsupported |
-| Firefox on Windows  | Working     |
-| OpenSSH             | Working     |
-| pam_u2f             | Working     |
-| MS Edge             | Working     |
-| Safari on iOS       | Untested    |
-| systemd-cryptenroll | Working     |
-| WebView on Android  | Working     |
+| Application         | Status                                |
+|---------------------|---------------------------------------|
+| Chrome on Android   | Passkeys interfere with some features |
+| Chrome on Linux     | No way to connect - USBHID only       |
+| Chrome on Windows   | Working                               |
+| Fennec on Android   | Passkeys interfere with some features |
+| Firefox on Linux    | No way to connect - USBHID only       |
+| Firefox on Windows  | Working                               |
+| MS Edge on Windows  | Working                               |
+| Safari on iOS       | Untested                              |
+| OpenSSH             | Working                               |
+| pam_u2f             | Working                               |
+| systemd-cryptenroll | Working                               |
+| WebView on Android  | Working                               |

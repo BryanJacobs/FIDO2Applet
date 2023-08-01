@@ -171,7 +171,7 @@ public final class TransientStorage {
 
     public void clearOnDeselect() {
         // Note: fill starts from index 1, skipping the pin-retries-since-reset counter
-        Util.arrayFillNonAtomic(tempBytes, (short) 1, NUM_RESET_BYTES, (byte) 0x00);
+        Util.arrayFillNonAtomic(tempBytes, (short) 1, (short)(NUM_RESET_BYTES - 1), (byte) 0x00);
     }
 
     public void readyStoredVars() {

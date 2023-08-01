@@ -22,6 +22,8 @@ class CTAPBasicsTestCase(CTAPTestCase):
         self.assertEqual(Aaguid.NONE, info.aaguid)
 
     def test_make_credential_self_attestation(self):
+        rp_id = secrets.token_hex(50)
+        self.basic_makecred_params['rp']['id'] = rp_id
         res = self.ctap2.make_credential(**self.basic_makecred_params)
 
         self.assertIsNone(res.ep_att)
@@ -30,6 +32,7 @@ class CTAPBasicsTestCase(CTAPTestCase):
         self.assertIsNone(res.att_stmt.get('x5c'))
         self.assertIsNone(res.large_blob_key)
         self.assertEqual(res.auth_data.FLAG.UP | res.auth_data.FLAG.ATTESTED, res.auth_data.flags)
+        self.assertEqual(self.rp_id_hash(rp_id), res.auth_data.rp_id_hash)
 
         self.assertEqual(ES256.ALGORITHM, res.att_stmt['alg'])
         self.assertIsNotNone(res.att_stmt['sig'])
@@ -38,6 +41,15 @@ class CTAPBasicsTestCase(CTAPTestCase):
         pubkey = res.auth_data.credential_data.public_key
         pubkey.verify(res.auth_data + self.client_data, res.att_stmt['sig'])
         self.assertEqual(64, len(res.auth_data.credential_data.credential_id))
+
+    def test_make_credential_rejects_up_false(self):
+        self.basic_makecred_params['options'] = {
+            'up': False
+        }
+
+        with self.assertRaises(CtapError) as e:
+            self.ctap2.make_credential(**self.basic_makecred_params)
+        self.assertEqual(CtapError.ERR.INVALID_OPTION, e.exception.code)
 
     def test_counter_increases_on_makecred(self):
         cred_res_1 = self.ctap2.make_credential(**self.basic_makecred_params)

@@ -225,6 +225,12 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
         self.basic_makecred_params['user']['id'] = secrets.token_bytes(userid_length)
 
     @classmethod
+    def rp_id_hash(cls, rp_id: str) -> bytes:
+        digester = hashes.Hash(hashes.SHA256())
+        digester.update(rp_id.encode())
+        return digester.finalize()
+
+    @classmethod
     def get_random_client_data(cls) -> bytes:
         return secrets.token_bytes(32)
 
@@ -413,9 +419,4 @@ class CredManagementBaseTestCase(CTAPTestCase, abc.ABC):
         token = be._get_token(ClientPin(self.ctap2), permissions=permissions,
                               rp_id=None, event=None, on_keepalive=None, allow_internal_uv=False)
         return CredentialManagement(self.ctap2, pin_uv_protocol=PinProtocolV2(), pin_uv_token=token)
-
-    def rp_id_hash(self, rp_id: str) -> bytes:
-        digester = hashes.Hash(hashes.SHA256())
-        digester.update(rp_id.encode())
-        return digester.finalize()
 
