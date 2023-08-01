@@ -125,7 +125,7 @@ I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/s
 
 There are two compatibility issues in the table above:
 1. Google Play Services on Android contains a complete webauthn implementation, but it appears to be
-   hardwired to use only "passkeys". If a set explicitly requrests a non-discoverable credential,
+   hardwired to use only "passkeys". If a site explicitly requests a non-discoverable credential,
    you will be prompted to use an NFC security key, but this is only CTAP1 and not CTAP2. There's
    nothing fundamentally preventing this from working on Android but the current state of Chrome
    and Fennec are that it doesn't, because both use the broken Play Services library.
