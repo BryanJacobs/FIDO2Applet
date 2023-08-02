@@ -30,7 +30,7 @@ public class VSim {
         return (Simulator) f.get(sc);
     }
 
-    public static void installApplet(Simulator sim, byte[] params) {
+    public static synchronized void installApplet(Simulator sim, byte[] params) {
         if (params.length > 255) {
             throw new IllegalArgumentException("Install parameters too long!");
         }
@@ -38,7 +38,11 @@ public class VSim {
         sim.selectApplet(appletAID);
     }
 
-    public static byte[] transmitCommand(Simulator sim, byte[] command) {
+    public static Simulator startForegroundSimulator() {
+        return new Simulator();
+    }
+
+    public static synchronized byte[] transmitCommand(Simulator sim, byte[] command) {
         return sim.transmitCommand(command);
     }
 

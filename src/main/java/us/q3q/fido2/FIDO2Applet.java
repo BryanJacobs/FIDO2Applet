@@ -756,21 +756,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         final short scratchPublicKeyOffset = bufferManager.getOffsetForHandle(scratchPublicKeyHandle);
         final byte[] scratchPublicKeyBuffer = bufferManager.getBufferForHandle(apdu, scratchPublicKeyHandle);
 
-        for (short i = 1; i <= MAX_ATTEMPTS_TO_GET_GOOD_KEY; i++) {
-            ecKeyPair.genKeyPair();
-
-            // Sometimes, when the stars (mis)align, we get points less than 32 bytes long.
-            // Let's roll the dice up to three times to make that happen less.
-            // We lose one bit of randomness in our keys - they have 2^31 * 254 possible values
-            short sLen = ((ECPrivateKey) ecKeyPair.getPrivate()).getS(scratchPublicKeyBuffer, scratchPublicKeyOffset);
-            short wLen = ((ECPublicKey) ecKeyPair.getPublic()).getW(scratchPublicKeyBuffer, scratchPublicKeyOffset);
-            if (sLen == KEY_POINT_LENGTH && wLen == (short)(2 * KEY_POINT_LENGTH + 1)
-                    && scratchPublicKeyBuffer[scratchPublicKeyOffset] == 0x04) {
-                break;
-            }
-            if (i == MAX_ATTEMPTS_TO_GET_GOOD_KEY) {
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INTEGRITY_FAILURE);
-            }
+        if (!makeGoodKeyPair(ecKeyPair, scratchPublicKeyBuffer, scratchPublicKeyOffset)) {
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INTEGRITY_FAILURE);
         }
 
         encodeCredentialID(apdu, (ECPrivateKey) ecKeyPair.getPrivate(),
@@ -983,6 +970,27 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         doSendResponse(apdu, outputLen);
+    }
+
+    private boolean makeGoodKeyPair(KeyPair keyPair, byte[] publicKeyBuffer, short publicKeyOffset) {
+        for (short i = 1; i <= MAX_ATTEMPTS_TO_GET_GOOD_KEY; i++) {
+            keyPair.genKeyPair();
+
+            if (publicKeyBuffer == null) {
+                // No memory to check key lengths
+                return true;
+            }
+            // Sometimes, when the stars (mis)align, we get points less than 32 bytes long.
+            // Let's roll the dice up to three times to make that happen less.
+            // We lose one bit of randomness in our keys - they have 2^31 * 254 possible values
+            short sLen = ((ECPrivateKey) keyPair.getPrivate()).getS(publicKeyBuffer, publicKeyOffset);
+            short wLen = ((ECPublicKey) keyPair.getPublic()).getW(publicKeyBuffer, publicKeyOffset);
+            if (sLen == KEY_POINT_LENGTH && wLen == (short)(2 * KEY_POINT_LENGTH + 1)
+                    && publicKeyBuffer[publicKeyOffset] == 0x04) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -2882,59 +2890,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             return;
         }
 
-        initKeyAgreementKeyIfNecessary();
-
         if (cla_ins == 0x00C0 || cla_ins == (short) 0x80C0) {
-            // continue outgoing response from buffer
-            if (transientStorage.getOutgoingContinuationRemaining() == 0) {
-                throwException(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
-            }
-
-            short outgoingOffset = transientStorage.getOutgoingContinuationOffset();
-            short outgoingRemaining = transientStorage.getOutgoingContinuationRemaining();
-            final boolean x5c = transientStorage.shouldStreamX5CLater();
-            short remainingValidInBufMem = outgoingRemaining;
-            short x5cidx = 0;
-            if (x5c) {
-                remainingValidInBufMem = transientStorage.getStoredIdx();
-                if (remainingValidInBufMem > outgoingOffset) {
-                    // We still have some reading from bufmem to do
-                    remainingValidInBufMem = (short)(remainingValidInBufMem - outgoingOffset);
-                } else {
-                    // We've already moved on to x5c data
-                    x5cidx = (short)(outgoingOffset - remainingValidInBufMem);
-                    remainingValidInBufMem = (short) 0;
-                }
-            }
-
-            short chunkSize = (short)(APDU.getOutBlockSize() - 2);
-            final short requestedChunkSize = apdu.setOutgoing();
-            if (requestedChunkSize < chunkSize) {
-                chunkSize = requestedChunkSize;
-            }
-
-            final short writeSize = chunkSize <= outgoingRemaining ? chunkSize : outgoingRemaining;
-            apdu.setOutgoingLength(writeSize);
-            short chunkToWrite = writeSize;
-            if (remainingValidInBufMem > 0) {
-                Util.arrayCopyNonAtomic(bufferMem, outgoingOffset,
-                        apduBytes, (short) 0, remainingValidInBufMem);
-                chunkToWrite -= remainingValidInBufMem;
-            }
-            if (x5c && chunkToWrite > 0) {
-                Util.arrayCopyNonAtomic(attestationData, x5cidx,
-                        apduBytes, remainingValidInBufMem, chunkToWrite);
-            }
-            apdu.sendBytes((short) 0, writeSize);
-            outgoingOffset += writeSize;
-            outgoingRemaining -= writeSize;
-            transientStorage.setOutgoingContinuation(outgoingOffset, outgoingRemaining);
-            if (outgoingRemaining >= 256) {
-                throwException(ISO7816.SW_BYTES_REMAINING_00);
-            } else if (outgoingRemaining > 0) {
-                throwException((short) (ISO7816.SW_BYTES_REMAINING_00 + outgoingRemaining));
-            }
-            transientStorage.clearOutgoingContinuation();
+            streamOutgoingContinuation(apdu, apduBytes);
             return;
         } else {
             transientStorage.clearOutgoingContinuation();
@@ -3014,6 +2971,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         if (amtRead == 0) {
             throwException(ISO7816.SW_DATA_INVALID);
         }
+
+        initKeyAgreementKeyIfNecessary();
 
         short lcEffective = (short)(lc + 1);
         byte cmdByte = apduBytes[apdu.getOffsetCdata()];
@@ -3097,6 +3056,64 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         transientStorage.resetChainIncomingReadOffset();
+    }
+
+    private void streamOutgoingContinuation(APDU apdu, byte[] apduBytes) {
+        // continue outgoing response from buffer
+        if (transientStorage.getOutgoingContinuationRemaining() == 0) {
+            // Nothing to send here, nothing left.
+            return;
+        }
+
+        short outgoingOffset = transientStorage.getOutgoingContinuationOffset();
+        short outgoingRemaining = transientStorage.getOutgoingContinuationRemaining();
+        final boolean x5c = transientStorage.shouldStreamX5CLater();
+        short remainingValidInBufMem = outgoingRemaining;
+        short x5cidx = 0;
+        if (x5c) {
+            remainingValidInBufMem = transientStorage.getStoredIdx();
+            if (remainingValidInBufMem > outgoingOffset) {
+                // We still have some reading from bufmem to do
+                remainingValidInBufMem = (short)(remainingValidInBufMem - outgoingOffset);
+            } else {
+                // We've already moved on to x5c data
+                x5cidx = (short)(outgoingOffset - remainingValidInBufMem);
+                remainingValidInBufMem = (short) 0;
+            }
+        }
+
+        short chunkSize = (short)(APDU.getOutBlockSize() - 2);
+        final short requestedChunkSize = apdu.setOutgoing();
+        if (requestedChunkSize < chunkSize) {
+            chunkSize = requestedChunkSize;
+        }
+
+        final short writeSize = chunkSize <= outgoingRemaining ? chunkSize : outgoingRemaining;
+        apdu.setOutgoingLength(writeSize);
+        short chunkToWrite = writeSize;
+        if (remainingValidInBufMem > 0) {
+            short writeFromBufMem = remainingValidInBufMem;
+            if (writeFromBufMem > chunkToWrite) {
+                writeFromBufMem = chunkToWrite;
+            }
+            Util.arrayCopyNonAtomic(bufferMem, outgoingOffset,
+                    apduBytes, (short) 0, writeFromBufMem);
+            chunkToWrite -= writeFromBufMem;
+        }
+        if (x5c && chunkToWrite > 0) {
+            Util.arrayCopyNonAtomic(attestationData, x5cidx,
+                    apduBytes, remainingValidInBufMem, chunkToWrite);
+        }
+        apdu.sendBytes((short) 0, writeSize);
+        outgoingOffset += writeSize;
+        outgoingRemaining -= writeSize;
+        transientStorage.setOutgoingContinuation(outgoingOffset, outgoingRemaining);
+        if (outgoingRemaining >= 256) {
+            throwException(ISO7816.SW_BYTES_REMAINING_00);
+        } else if (outgoingRemaining > 0) {
+            throwException((short) (ISO7816.SW_BYTES_REMAINING_00 + outgoingRemaining));
+        }
+        transientStorage.clearOutgoingContinuation();
     }
 
     private void handleAppletSelect(APDU apdu) {
@@ -5000,11 +5017,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * Forcibly refresh per-boot data. This includes the PIN token and the ephemeral EC pair used for
      * DH between the platform and the authenticator.
+     * TRASHES BUFFERMEM
      */
     private void forceInitKeyAgreementKey() {
         P256Constants.setCurve((ECKey) authenticatorKeyAgreementKey.getPrivate());
         P256Constants.setCurve((ECKey) authenticatorKeyAgreementKey.getPublic());
-        authenticatorKeyAgreementKey.genKeyPair();
+        if (!makeGoodKeyPair(authenticatorKeyAgreementKey, bufferMem, (short) 0)) {
+            throwException(ISO7816.SW_DATA_INVALID);
+        }
         keyAgreement.init(authenticatorKeyAgreementKey.getPrivate());
 
         transientStorage.setPinProtocolInUse((byte) 0, (byte) 0);

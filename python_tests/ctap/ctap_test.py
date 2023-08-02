@@ -38,6 +38,7 @@ class LogPrintHandler:
 
 
 class JCardSimTestCase(TestCase, abc.ABC):
+    PCSC_MODE = False
 
     q_in: ClassVar[Queue]
     q_out: ClassVar[Queue]
@@ -111,7 +112,10 @@ class JCardSimTestCase(TestCase, abc.ABC):
         cls.start_jvm()
         from us.q3q.fido2 import VSim
 
-        sim = VSim.startBackgroundSimulator()
+        if cls.PCSC_MODE:
+            sim = VSim.startBackgroundSimulator()
+        else:
+            sim = VSim.startForegroundSimulator()
         VSim.installApplet(sim, bytes())
         startup_q.put(None)
         while True:
@@ -184,7 +188,6 @@ class FakeSCConnection:
 
 class CTAPTestCase(JCardSimTestCase, abc.ABC):
     VIRTUAL_DEVICE_NAME = "Virtual PCD"
-    PCSC_MODE = False
     device: CtapPcscDevice
     ctap2: Ctap2
     client_data: bytes
