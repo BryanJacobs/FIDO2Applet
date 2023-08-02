@@ -195,11 +195,20 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * Authenticator-specific master key, decrypted (if necessary) and loaded into transient storage for use
      */
-    private final AESKey wrappingKey;
+    private final AESKey highSecurityWrappingKey;
     /**
-     * random IV for authenticator private wrapping
+     * Authenticator-specific master key used for situations where a PIN cannot be presented.
+     * This key is never used for resident keys, or credProtect level 3 keys
      */
-    private static byte[] wrappingIV;
+    private final AESKey lowSecurityWrappingKey;
+    /**
+     * random IV for authenticator private wrapping with highSecurityWrappingKey
+     */
+    private static byte[] highSecurityWrappingIV;
+    /**
+     * random IV for authenticator private wrapping with lowSecurityWrappingKey
+     */
+    private static byte[] lowSecurityWrappingIV;
     /**
      * random IV for authenticator private wrapping of NON discoverable credentials
      */
@@ -760,10 +769,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INTEGRITY_FAILURE);
         }
 
+        // Non-resident credProtect Level 3 creds still need to use the high security key (to require PIN auth)
+        final boolean credMayUseLowSecurity = credProtectLevel < 3;
         encodeCredentialID(apdu, (ECPrivateKey) ecKeyPair.getPrivate(),
                 scratchRPIDHashBuffer, scratchRPIDHashOffset,
                 scratchCredBuffer, scratchCredOffset,
-                transientStorage.hasRKOption());
+                transientStorage.hasRKOption(), credMayUseLowSecurity);
 
         // if we're making a resident key, we need to, you know, save that for later
         if (transientStorage.hasRKOption()) {
@@ -1017,7 +1028,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private void loadWrappingKeyIfNoPIN() {
         if (!pinSet) {
-            wrappingKey.setKey(wrappingKeySpace, (short) 0);
+            highSecurityWrappingKey.setKey(wrappingKeySpace, (short) 0);
         }
     }
 
@@ -1422,11 +1433,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param rpIdHashOffset Index of RP ID hash in corresponding buffer
      * @param outBuffer Buffer into which to write the encoded credential - must have CREDENTIAL_ID_LEN bytes available
      * @param outOffset Offset at which to encode the credential ID into the output buffer
+     * @param isToBeResident true if the credential is going to be a discoverable one
+     * @param lowSecurity true if the credential is allowed to be encoded with the low-security wrapping key
      */
     private void encodeCredentialID(APDU apdu, ECPrivateKey privKey,
                                     byte[] rpIdHashBuffer, short rpIdHashOffset,
                                     byte[] outBuffer, short outOffset,
-                                    boolean isToBeResident) {
+                                    boolean isToBeResident, boolean lowSecurity) {
         final short scratchHandle = bufferManager.allocate(apdu, KEY_POINT_LENGTH, BufferManager.ANYWHERE);
         final byte[] scratch = bufferManager.getBufferForHandle(apdu, scratchHandle);
         final short scratchOff = bufferManager.getOffsetForHandle(scratchHandle);
@@ -1443,8 +1456,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             outBuffer[(short)(i * 2 + 1 + outOffset)] = rpIdHashBuffer[(short)(rpIdHashOffset + i)];
         }
 
-        byte[] iv = isToBeResident ? wrappingIV : externalCredentialIV;
-        symmetricWrapper.init(wrappingKey, Cipher.MODE_ENCRYPT,
+        if (isToBeResident) {
+            lowSecurity = false;
+        }
+
+        AESKey key = lowSecurity ? lowSecurityWrappingKey : highSecurityWrappingKey;
+        byte[] iv = lowSecurity ? lowSecurityWrappingIV :
+                (isToBeResident ? highSecurityWrappingIV : externalCredentialIV);
+        symmetricWrapper.init(key, Cipher.MODE_ENCRYPT,
                 iv, (short) 0, (short) iv.length);
         final short encryptedBytes = symmetricWrapper.doFinal(outBuffer, outOffset, CREDENTIAL_ID_LEN,
                 outBuffer, outOffset);
@@ -2455,7 +2474,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         extractCredentialMixed(credentialBuffer, credentialIndex,
                 outputBuffer, outputOffset,
-                isResident);
+                isResident, false);
+
+        boolean matches = true;
 
         // Reverse byte mixing performed in encodeCredential
         // for performance, we will first check all the RP ID bytes...
@@ -2464,8 +2485,27 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 // This is a tiny side-channel timing leak: if the given credential has more RP ID bytes in common
                 // with the one we're checking against, we exit sooner. BUT! That can only be meaningfully applied
                 // if the wrapping key is already unlocked in memory, so we won't worry about it.
-                return false;
+                matches = false;
+                break;
             }
+        }
+
+        if (!matches && !isResident) {
+            // Try again with the low-security key
+            extractCredentialMixed(credentialBuffer, credentialIndex,
+                    outputBuffer, outputOffset,
+                    isResident, true);
+            matches = true;
+            for (short i = 0; i < RP_HASH_LEN; i++) {
+                if (outputBuffer[(short)(i * 2 + 1 + outputOffset)] != rpIdBuf[(short)(rpIdHashIdx + i)]) {
+                    matches = false;
+                    break;
+                }
+            }
+        }
+
+        if (!matches) {
+            return false;
         }
 
         // Now that we know the RP ID bytes are correct, unmix the private key into the first 32 bytes,
@@ -2485,11 +2525,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param outputBuffer Buffer to contain the mixed credential bytes
      * @param outputOffset Offset into output buffer
      * @param isResident true if the credential represents a resident/discoverable credential
+     * @param lowSecurity true if the low-security key should be used for nonresident
      */
     private void extractCredentialMixed(byte[] credentialBuffer, short credentialIndex,
-                                        byte[] outputBuffer, short outputOffset, boolean isResident) {
-        final byte[] iv = isResident ? wrappingIV : externalCredentialIV;
-        symmetricUnwrapper.init(wrappingKey, Cipher.MODE_DECRYPT, iv, (short) 0, (short) iv.length);
+                                        byte[] outputBuffer, short outputOffset, boolean isResident,
+                                        boolean lowSecurity) {
+        final byte[] iv = (lowSecurity && !isResident) ? lowSecurityWrappingIV :
+                (isResident ? highSecurityWrappingIV : externalCredentialIV);
+        AESKey key = (lowSecurity && !isResident) ? lowSecurityWrappingKey : highSecurityWrappingKey;
+        symmetricUnwrapper.init(key, Cipher.MODE_DECRYPT, iv, (short) 0, (short) iv.length);
         symmetricUnwrap(credentialBuffer, credentialIndex, CREDENTIAL_ID_LEN,
                 outputBuffer, outputOffset);
     }
@@ -3138,7 +3182,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 bufferManager.initializeAPDU(apdu);
 
                 // ... aaand finally, the actual wrapping key, which we didn't init because we use the above buffers
-                resetWrappingKey(apdu);
+                resetWrappingKeys(apdu);
                 ok = true;
             } finally {
                 if (ok) {
@@ -3528,7 +3572,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 // (if it's the input buffer)... but we no longer need it
                 byte[] outBuf = apdu.getBuffer();
                 extractCredentialMixed(buffer, credIdIdx,
-                        outBuf, (short) 0, true);
+                        outBuf, (short) 0, true, false);
                 unmixRPID(outBuf, (short) 0);
                 short rpIdHashIdx = (short) 0;
 
@@ -3672,7 +3716,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         } else {
             // Continuing iteration, we get the RP ID hash from the previous credential
             extractCredentialMixed(residentKeyData, (short)((startCredIdx - 1) * CREDENTIAL_ID_LEN),
-                    rpIdHashBuf, rpIdHashIdx, true);
+                    rpIdHashBuf, rpIdHashIdx, true, false);
             unmixRPID(rpIdHashBuf, rpIdHashIdx);
         }
 
@@ -3866,7 +3910,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         // Unwrap the given RK so we can return its decrypted RP hash
         extractCredentialMixed(residentKeyData, (short)(CREDENTIAL_ID_LEN * rkIndex),
-                outBuf, writeOffset, true);
+                outBuf, writeOffset, true, false);
         unmixRPID(outBuf, writeOffset);
         writeOffset += RP_HASH_LEN;
 
@@ -3882,7 +3926,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * Initializes symmetric unwrapper using the IV appropriate to the given resident key
      */
     private void initSymmetricUnwrapperForRK(short rkIndex) {
-        symmetricUnwrapper.init(wrappingKey, Cipher.MODE_DECRYPT,
+        symmetricUnwrapper.init(highSecurityWrappingKey, Cipher.MODE_DECRYPT,
                 residentKeyIVs, (short) (rkIndex * RESIDENT_KEY_IV_LEN), RESIDENT_KEY_IV_LEN);
     }
 
@@ -3890,7 +3934,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * Initializes symmetric wrapper using the IV appropriate to the given resident key
      */
     private void initSymmetricWrapperForRK(short rkIndex) {
-        symmetricWrapper.init(wrappingKey, Cipher.MODE_ENCRYPT,
+        symmetricWrapper.init(highSecurityWrappingKey, Cipher.MODE_ENCRYPT,
                 residentKeyIVs, (short) (rkIndex * RESIDENT_KEY_IV_LEN), RESIDENT_KEY_IV_LEN);
     }
 
@@ -3996,15 +4040,16 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             pinRetryCounter.reset(pinIdx);
 
             random.generateData(pinKDFSalt, (short) 0, (short) pinKDFSalt.length);
-            random.generateData(wrappingIV, (short) 0, (short) wrappingIV.length);
+            random.generateData(highSecurityWrappingIV, (short) 0, (short) highSecurityWrappingIV.length);
+            random.generateData(lowSecurityWrappingIV, (short) 0, (short) lowSecurityWrappingIV.length);
             random.generateData(externalCredentialIV, (short) 0, (short) externalCredentialIV.length);
-            if (Util.arrayCompare(wrappingIV, (short) 0,
-                    externalCredentialIV, (short) 0, (short) wrappingIV.length) == 0) {
+            if (Util.arrayCompare(highSecurityWrappingIV, (short) 0,
+                    externalCredentialIV, (short) 0, (short) highSecurityWrappingIV.length) == 0) {
                 // Something is very, very, VERY wrong with our random number generator.
                 throwException(ISO7816.SW_DATA_INVALID);
             }
 
-            resetWrappingKey(apdu);
+            resetWrappingKeys(apdu);
 
             counter.clear();
 
@@ -4027,15 +4072,18 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     }
 
     /**
-     * Resets the "wrapping key" to a random value. THIS INVALIDATES ALL ISSUED CREDENTIALS.
+     * Resets the "wrapping keys" to a random value. THIS INVALIDATES ALL ISSUED CREDENTIALS.
      *
      * After call, symmetric crypto is available with the new (random) key.
      *
      * @param apdu Request/response object
      */
-    private void resetWrappingKey(APDU apdu) {
+    private void resetWrappingKeys(APDU apdu) {
         random.generateData(wrappingKeySpace, (short) 0, (short) wrappingKeySpace.length);
-        wrappingKey.setKey(wrappingKeySpace, (short) 0);
+        lowSecurityWrappingKey.setKey(wrappingKeySpace, (short) 0);
+
+        random.generateData(wrappingKeySpace, (short) 0, (short) wrappingKeySpace.length);
+        highSecurityWrappingKey.setKey(wrappingKeySpace, (short) 0);
         random.generateData(wrappingKeyValidation, (short) 0, (short) 32);
 
         // Put the HMAC-SHA256 of the first half of wrappingKeyValidation into the second half
@@ -4535,9 +4583,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         // Use PBKDF on the hash to derive a potential PIN key
         PBKDF2(apdu, buf, off, keyBuf, keyOff);
 
-        // Use wrapping key because it's always transient, and it's garbage right now anyhow
-        wrappingKey.setKey(keyBuf, keyOff);
-        pinUnwrapper.init(wrappingKey, Cipher.MODE_DECRYPT, wrappingIV, (short) 0, (short) wrappingIV.length);
+        // Use high security wrapping key because it's always transient, and it's garbage right now anyhow
+        highSecurityWrappingKey.setKey(keyBuf, keyOff);
+        pinUnwrapper.init(highSecurityWrappingKey, Cipher.MODE_DECRYPT,
+                highSecurityWrappingIV, (short) 0, (short) highSecurityWrappingIV.length);
 
         pinUnwrapper.doFinal(wrappingKeySpace, (short) 0, (short) wrappingKeySpace.length,
                 keyBuf, keyOff);
@@ -4561,18 +4610,18 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             // Good PIN!
             pinRetryCounter.reset(pinRetryIndex);
             transientStorage.setPinProtocolInUse(pinProtocol, pinPermissions);
-            wrappingKey.setKey(keyBuf, keyOff);
+            highSecurityWrappingKey.setKey(keyBuf, keyOff);
             transientStorage.clearPinTriesSinceReset();
             bufferManager.release(apdu, keyBufHandle, bufLen);
             return;
         }
 
         // BAD PIN
-        wrappingKey.clearKey();
+        highSecurityWrappingKey.clearKey();
         forceInitKeyAgreementKey();
         if (pinRetryCounter.getRetryCount(pinRetryIndex) == 0) {
             // You've gone and done it now. You've failed so many times that the authenticator will permanently lock itself.
-            resetWrappingKey(apdu); // there won't be a situation where we can use this again, so clear it for safety
+            resetWrappingKeys(apdu); // there won't be a situation where we can use this again, so clear it for safety
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_BLOCKED);
         }
         if (transientStorage.getPinTriesSinceReset() >= PIN_TRIES_PER_RESET) {
@@ -4883,7 +4932,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         bufferManager.release(apdu, keyBufHandle, bufLen);
 
-        pinWrapper.init(pinWrapKey, Cipher.MODE_ENCRYPT, wrappingIV, (short) 0, (short) wrappingIV.length);
+        pinWrapper.init(pinWrapKey, Cipher.MODE_ENCRYPT,
+                highSecurityWrappingIV, (short) 0, (short) highSecurityWrappingIV.length);
 
         // re-encrypt the current wrapping key using the PIN
         // and ATOMICALLY replace the old value with the new one at the same time as we change the PIN itself
@@ -4891,7 +4941,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         boolean ok = false;
         try {
             if (pinSet) {
-                wrappingKey.getKey(wrappingKeySpace, (short) 0);
+                highSecurityWrappingKey.getKey(wrappingKeySpace, (short) 0);
             }
 
             pinSet = true;
@@ -4902,7 +4952,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             pinWrapper.doFinal(wrappingKeySpace, (short) 0, (short) wrappingKeySpace.length,
                     wrappingKeySpace, (short) 0);
 
-            wrappingKey.clearKey();
+            highSecurityWrappingKey.clearKey();
             pinWrapKey.clearKey();
 
             forceInitKeyAgreementKey();
@@ -5153,9 +5203,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         wrappingKeyValidation = new byte[64];
         hmacWrapperBytesUV = new byte[32];
         hmacWrapperBytesNoUV = new byte[32];
-        wrappingIV = new byte[16];
+        highSecurityWrappingIV = new byte[16];
+        lowSecurityWrappingIV = new byte[16];
         externalCredentialIV = new byte[16];
-        wrappingKey = getTransientAESKey(); // Our most important treasure, from which all other crypto is born...
+        highSecurityWrappingKey = getTransientAESKey(); // Our most important treasure, from which all other crypto is born...
+        lowSecurityWrappingKey = getPersistentAESKey(); // Not really a treasure
         // Resident key data, of course, must all be in flash. Losing that on reset would be Bad
         residentKeyIVs = new byte[NUM_RESIDENT_KEY_SLOTS * RESIDENT_KEY_IV_LEN];
         residentKeyData = new byte[NUM_RESIDENT_KEY_SLOTS * CREDENTIAL_ID_LEN];
@@ -5463,15 +5515,16 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         // - the salt we use for deriving keys from PINs
         random.generateData(pinKDFSalt, (short) 0, (short) pinKDFSalt.length);
         // - the IV we use for encrypting and decrypting blobs sent by the authenticator TO the authenticator
-        random.generateData(wrappingIV, (short) 0, (short) wrappingIV.length);
+        random.generateData(highSecurityWrappingIV, (short) 0, (short) highSecurityWrappingIV.length);
+        random.generateData(lowSecurityWrappingIV, (short) 0, (short) lowSecurityWrappingIV.length);
         // - the IV we use for encrypting externally-held credentials
         random.generateData(externalCredentialIV, (short) 0, (short) externalCredentialIV.length);
         // - the keys we use for converting a credential private key into an hmac-secret ... uh ... secret
         random.generateData(hmacWrapperBytesUV, (short) 0, (short) hmacWrapperBytesUV.length);
         random.generateData(hmacWrapperBytesNoUV, (short) 0, (short) hmacWrapperBytesNoUV.length);
 
-        if (Util.arrayCompare(wrappingIV, (short) 0,
-                externalCredentialIV, (short) 0, (short) wrappingIV.length) == 0) {
+        if (Util.arrayCompare(highSecurityWrappingIV, (short) 0,
+                externalCredentialIV, (short) 0, (short) highSecurityWrappingIV.length) == 0) {
             // We can't work without a real random number generator
             throwException(ISO7816.SW_DATA_INVALID);
         }

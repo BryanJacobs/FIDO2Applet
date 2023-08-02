@@ -25,18 +25,31 @@ protect private keying material.
 This app is different. In this app, when you set a PIN, the authenticator
 enables the `alwaysUv` option - requiring the PIN for all credential
 creation and use. The "wrapping key" - without which the authenticator
-is useless - is encrypted using a key derived from the PIN. In other words,
-if you could read all the authenticator's memory when a PIN is set, you'd
-only find encrypted data.
+cannot accesss its resident/discoverable credentials - is encrypted
+using a key derived from the PIN. In other words, if you could read all
+the authenticator's memory when a PIN is set, you would only find
+encrypted data.
+
+Any "level 3" protected credential also uses that high-security key,
+even when non-discoverable.
 
 ## Details: Security Levels
 
-On boot, the device generates an AES256 key, the "wrapping key".
+On boot, the device generates two AES256 keys: the "high security
+wrapping key" and the "low security wrapping key".
 
 Each individual credential issued by the app is a SecP256r1 keypoint,
 generated randomly on-device for that credential. The cred private key
 is then AES256-CBC encrypted along with the RP ID, using a random
-IV, and the result is used as the "credential ID".
+IV, and the result is used as the "credential ID". Which wrapping key
+is used depends on how the credential is generated:
+
+- credentials stored on the authenticator itself ("discoverable") use
+  the high security key
+- credentials created with `credProtect` level 3, "require user
+  verification for any discovery" also use the high security key
+- other credentials (non-discoverable, `credProtect` level zero
+  through two) use the low security key
 
 When using resident keys, the cred private key is only stored encrypted
 (after being initially generated). When not using resident keys, the
@@ -44,21 +57,24 @@ cred private key isn't stored on the authenticator at all.
 
 This means relying parties are holding their own encrypted private
 keys. The keypair itself provides approximately 128 bits of
-brute-force resistance. The wrapping key provides a strong 256 bits.
+brute-force resistance. The wrapping keys provide a strong ~255 bits.
 
-The wrapping key is - when a PIN is set - encrypted using a "PIN key"
-produced by running five (by default) rounds of PBKDF2 over the first
-sixteen bytes of a SHA-256 of the user's PIN, with a 28-byte random
-salt. This means that "unwrapping" the wrapping key, were an attacker
-to gain access to it, would require a targeted attack whose brute-force
-difficulty is at most 128 bits, and is likely set by the entropy of
-the user's PIN.
+The high security wrapping key is - when a PIN is set - encrypted using
+a "PIN key" produced by running five (by default) rounds of PBKDF2 over
+the first sixteen bytes of a SHA-256 of the user's PIN, with a 28-byte
+random salt. This means that "unwrapping" the wrapping key, were an
+attacker to gain access to it, would require a targeted attack whose
+brute-force difficulty is at most 128 bits, and is likely set by the
+entropy of the user's PIN.
+
+The low security wrapping key is stored on the authenticator in the clear.
 
 **Use a strong PIN** if you care about security in the event your device
 is entirely compromised. Despite the name, there is no requirement that
 PINs be numeric. You can use any sequence of characters up to 63 bytes long.
 
-Your PIN is used for challenge-response to the authenticator at least once
+To use the resident keys or high-security non-resident ones, your PIN is
+used for challenge-response to the authenticator at least once
 per power-up, and it's done encrypted over an ECDH channel. The
 authenticator returns a  32-byte "pinToken", also encrypted. From then on
 proof of possession of the PIN is via challenge-response using 16 bytes of
@@ -70,9 +86,9 @@ someone's PIN except when it's being initially set, and even then it's sent
 encrypted with ECDH. The least secure part of it is when the **initial** PIN
 is being set - so do that first!
 
-The wrapping key is stored in RAM from when you enter your PIN until you reset
-the card, so if you want to be very secure, power the card down each time you
-finish using it.
+The high security wrapping key is stored in RAM from when you enter your PIN
+until you reset the card, so if you want to be very secure, power the card
+down each time you finish using it.
 
 ### hmac-secret keys
 
@@ -156,6 +172,10 @@ your actual credentials for sites - the private keys, the RP IDs,
 etc. They might - if your device doesn't support transient memory
 for EC private keys AND was inopportunely powered off the last time
 you used it - be able to use the most recently used keypair you did.
+
+However, if they were to also get a hold of a non-discoverable credential for
+a site that uses credProtect levels zero, one, or two, they could impersonate
+you to that site.
 
 #### Decrypting the wrapping key
 

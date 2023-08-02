@@ -222,8 +222,7 @@ the app will be locked and you won't be able to use it without clearing everythi
 
 ## I'm getting "operation denied" for certain requests
 
-The authenticator will refuse to create credProtect=2 discoverable credentials, or any
-credProtect=3 credentials, without a PIN set. This is to avoid needing to store the
-credProtect status of the credential alongside it.
+The authenticator will refuse to create credProtect=3 non-discoverable credentials without a PIN set.
+This is to avoid needing to store the credProtect level in the credential ID itself.
 
 If you want to use this authenticator with those relying parties, set a PIN.
