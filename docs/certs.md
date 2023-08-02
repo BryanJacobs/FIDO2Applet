@@ -1,6 +1,6 @@
 # Installing the Applet for Basic Attestation
 
-A default install of the FIDO2Applet will use "self attestation". This prevents any potential
+A default install of the FIDO2Applet will use "self attestation". This prevents any
 CTAP1/U2F functionality (U2F requires attestation certificates). The authenticator will
 have a CTAP2 AAGUID of all zeros.
 
@@ -9,19 +9,17 @@ an AAGUID, a certificate chain, and a private key before using the applet. Only 
 certificates (ECDSA) are supported for the authenticator's own certificate; any algorithm
 may be used for CAs further up the chain.
 
-These may be provided via Applet install parameters, although the maximum length in that case
-is a very restrictive <250 bytes, or via a vendor CTAP command (command byte 0x46). In order
+These may be provided via a vendor CTAP command (command byte 0x46). In order
 to enable the vendor CTAP command, you must provide an install parameter of a single byte,
-`0x01`. By default, the vendor command will be rejected to avoid inadvertently allowing an attacker
-to switch the authenticator to basic attestation mode.
+`0x01`. By default, the vendor command will be rejected to avoid inadvertently allowing
+an attacker to switch the authenticator to basic attestation mode.
 
 The vendor CTAP command will be rejected if the authenticator already contains a certificate,
 or if the authenticator has been used to make any credentials since the last reset, so it must
 be installed FIRST. Note that the AAGUID and certificate are not cleared by resetting the
 authenticator; once installed, they persist until the applet is deleted, and cannot be changed.
 
-The syntax for the parameters, whether provided at install time or as data to the vendor command,
-is as follows:
+The syntax for the data to the vendor command is as follows:
 
 1. 16 byte AAGUID
 1. 32 byte ECDSA private key point (aka the S-value)
@@ -34,6 +32,11 @@ Notes on length:
 - You'll be using APDU chaining, so the maximum total size is a hair under 65535 bytes
 - Certificates will be stored directly into an on-flash byte array, so the maximum is also
   limited by the available flash
+- Keep the first certificate to a few hundred bytes or U2F/CTAP1 registration requests will fail:
+  the device only has a 1024 byte transmission buffer
 
 Advice: keep your certificates *as short as possible*, since the longer they are, the more
-flash you'll use and the slower the makeCredential operation will be.
+flash you'll use and the slower the makeCredential/register operations will be.
+
+You can install a self-signed certificate easily using the `install_attestation_cert.py` script in
+the repository root.

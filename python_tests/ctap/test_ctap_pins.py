@@ -74,6 +74,35 @@ class CTAPPINTestCase(CTAPTestCase):
 
         self.assertEqual(CtapError.ERR.PIN_INVALID, e.exception.code)
 
+    def test_eight_retries_reported(self):
+        info = self.cp.get_pin_retries()
+
+        self.assertEqual((8, False), info)
+
+    def test_wrong_pin_decrements_retry_count_across_soft_reset(self):
+        first_pin = secrets.token_hex(16)
+        second_pin = secrets.token_hex(16)
+        self.cp.set_pin(first_pin)
+        with self.assertRaises(CtapError) as e:
+            self.cp.change_pin("12345", second_pin)
+        self.assertEqual(CtapError.ERR.PIN_INVALID, e.exception.code)
+
+        before_reset = self.cp.get_pin_retries()
+        self.softResetCard()
+        after_reset = self.cp.get_pin_retries()
+
+        self.assertEqual((7, False), before_reset)
+        self.assertEqual((7, False), after_reset)
+
+    def test_uv_not_supported(self):
+        pin = secrets.token_hex(10)
+        self.cp.set_pin(pin)
+
+        with self.assertRaises(CtapError) as e:
+            self.cp.get_uv_token()
+
+        self.assertEqual(CtapError.ERR.NOT_ALLOWED, e.exception.code)
+
     @parameterized.expand([
         ("short", 1, False),
         ("minimal", 2, True),
@@ -116,13 +145,3 @@ class CTAPPINTestCase(CTAPTestCase):
 
         with self.assertRaises(PinRequiredError):
             client.make_credential(options=self.get_high_level_make_cred_options())
-
-    def test_pin_set_and_not_provided_underyling_impl(self):
-        pin = secrets.token_hex(30)
-        ClientPin(self.ctap2).set_pin(pin)
-
-        with self.assertRaises(CtapError) as e:
-            self.ctap2.make_credential(**self.basic_makecred_params)
-
-        self.assertEqual(CtapError.ERR.PUAT_REQUIRED, e.exception.code)
-

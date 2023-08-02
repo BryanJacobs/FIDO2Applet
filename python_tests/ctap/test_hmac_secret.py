@@ -4,7 +4,7 @@ from parameterized import parameterized
 from fido2.client import UserInteraction
 from fido2.ctap2 import ClientPin
 from fido2.ctap2.extensions import HmacSecretExtension
-from fido2.webauthn import ResidentKeyRequirement, AuthenticatorAssertionResponse
+from fido2.webauthn import ResidentKeyRequirement, AuthenticatorAssertionResponse, UserVerificationRequirement
 
 from .ctap_test import CTAPTestCase, FixedPinUserInteraction
 
@@ -39,7 +39,7 @@ class HMACSecretTestCase(CTAPTestCase):
 
         assertion_before = no_pin_client.get_assertion(
             self.get_high_level_assertion_opts_from_cred(cred,
-                                                        extensions={
+                                                         extensions={
                                                             "hmacGetSecret": {
                                                                 "salt1": salt1,
                                                                 "salt2": salt2,
@@ -53,6 +53,7 @@ class HMACSecretTestCase(CTAPTestCase):
                                                 user_interaction=FixedPinUserInteraction(pin))
         assertion_after = pin_client.get_assertion(
             self.get_high_level_assertion_opts_from_cred(cred,
+                                                         user_verification=UserVerificationRequirement.REQUIRED,
                                                          extensions={
                                                              "hmacGetSecret": {
                                                                  "salt1": salt1,

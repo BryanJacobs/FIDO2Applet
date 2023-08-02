@@ -151,7 +151,7 @@ public final class BufferManager {
     }
 
     /**
-     * Gets an opaque memory allocation handle. Throws an exception is sufficient space is not available.
+     * Gets an opaque memory allocation handle. Throws an exception if sufficient space is not available.
      *
      * @param apdu Request/response object
      * @param amt Number of bytes to allocate in a contiguous region

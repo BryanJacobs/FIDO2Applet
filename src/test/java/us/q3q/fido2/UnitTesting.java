@@ -100,7 +100,7 @@ public class UnitTesting {
 
     @Test
     public void checkIncorrectCLA() {
-        ResponseAPDU response = send(0x00, 0x01, 0x00, 0x00);
+        ResponseAPDU response = send(0x00, 0x09, 0x00, 0x00);
 
         assertEquals(ISO7816.SW_CLA_NOT_SUPPORTED, response.getSW());
     }
@@ -147,7 +147,7 @@ public class UnitTesting {
 
         byte[] respWithoutStatus = new byte[resp.length-2];
         System.arraycopy(resp, 0, respWithoutStatus, 0, resp.length-2);
-        assertEquals("FIDO_2_0", new String(respWithoutStatus));
+        assertEquals("U2F_V2", new String(respWithoutStatus));
     }
 
 }

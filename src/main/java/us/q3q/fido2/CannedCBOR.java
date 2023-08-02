@@ -13,21 +13,37 @@ public abstract class CannedCBOR {
             0x46, 0x49, 0x44, 0x4F, 0x5F, 0x32, 0x5F, 0x30
           //   F     I     D     O     _     2     _     0
     };
+
     static final byte[] HMAC_SECRET_EXTENSION_ID = {
             0x68, 0x6D, 0x61, 0x63, 0x2D, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, // hmac-secret
     };
     static final byte[] CRED_PROTECT_EXTENSION_ID = {
             0x63, 0x72, 0x65, 0x64, 0x50, 0x72, 0x6F, 0x74, 0x65, 0x63, 0x74, // credProtect
     };
+
+    static final byte[] VERSIONS_WITH_U2F = {
+            (byte) 0x84, // array - four items
+                0x68, // string - eight bytes long
+                    0x46, 0x49, 0x44, 0x4F, 0x5F, 0x32, 0x5F, 0x30, // FIDO_2_0
+                0x68, // string - eight bytes long
+                    0x46, 0x49, 0x44, 0x4F, 0x5F, 0x32, 0x5F, 0x31, // FIDO_2_1
+                0x6C, // string - twelve bytes long
+                    0x46, 0x49, 0x44, 0x4F, 0x5F, 0x32, 0x5F, 0x31, 0x5F, 0x50, 0x52, 0x45, // FIDO_2_1_PRE
+                0x66, // string - six bytes long
+                    0x55, 0x32, 0x46, 0x5F, 0x56, 0x32, // U2F_V2
+    };
+
+    static final byte[] VERSIONS_WITHOUT_U2F = {
+            (byte) 0x83, // array - three items
+                0x68, // string - eight bytes long
+                    0x46, 0x49, 0x44, 0x4F, 0x5F, 0x32, 0x5F, 0x30, // FIDO_2_0
+                0x68, // string - eight bytes long
+                    0x46, 0x49, 0x44, 0x4F, 0x5F, 0x32, 0x5F, 0x31, // FIDO_2_1
+                0x6C, // string - twelve bytes long
+                    0x46, 0x49, 0x44, 0x4F, 0x5F, 0x32, 0x5F, 0x31, 0x5F, 0x50, 0x52, 0x45, // FIDO_2_1_PRE
+    };
+
     static final byte[] AUTH_INFO_START = {
-            FIDOConstants.CTAP2_OK,
-            (byte) 0xA9, // Map - nine keys
-                0x01, // map key: versions
-                    (byte) 0x82, // array - two items
-                        0x68, // string - eight bytes long
-                        0x46, 0x49, 0x44, 0x4F, 0x5F, 0x32, 0x5F, 0x30, // FIDO_2_0
-                        0x68, // string - eight bytes long
-                        0x46, 0x49, 0x44, 0x4F, 0x5F, 0x32, 0x5F, 0x31, // FIDO_2_1
                 0x02, // map key: extensions
                     (byte) 0x82, // array - two items
                         0x6B, // string - eleven bytes long
@@ -46,7 +62,7 @@ public abstract class CannedCBOR {
                             (byte) 0xF5, // true
                         0x62, // string: two bytes long
                             0x75, 0x70, // up
-                            (byte) 0xF5, // true
+                            (byte) 0xF4, // false
                         0x68, // string - eight bytes long
                             0x61, 0x6c, 0x77, 0x61, 0x79, 0x73, 0x55, 0x76, // alwaysUv
     };

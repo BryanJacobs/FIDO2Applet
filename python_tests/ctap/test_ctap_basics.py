@@ -12,7 +12,7 @@ from .ctap_test import CTAPTestCase
 class CTAPBasicsTestCase(CTAPTestCase):
     def test_info_supported_versions(self):
         info = self.ctap2.get_info()
-        self.assertEqual(["FIDO_2_0", "FIDO_2_1"], info.versions)
+        self.assertEqual(["FIDO_2_0", "FIDO_2_1", "FIDO_2_1_PRE"], info.versions)
 
     def test_info_supported_extensions(self):
         info = self.ctap2.get_info()

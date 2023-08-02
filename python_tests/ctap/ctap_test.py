@@ -3,22 +3,28 @@ import enum
 import os
 import random
 import secrets
+from datetime import datetime, timedelta
 from multiprocessing import Queue, Process
 from typing import ClassVar, Optional, Any, Type
 from unittest import TestCase
 
+from cryptography import x509
+from cryptography.hazmat._oid import NameOID
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives._serialization import Encoding
 from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey, EllipticCurvePrivateKey
 from fido2.client import UserInteraction, Fido2Client, _Ctap2ClientBackend
 from fido2.cose import ES256
+from fido2.ctap1 import Ctap1
 from fido2.ctap2 import Ctap2, ClientPin, AttestationResponse, AssertionResponse, CredentialManagement, PinProtocolV2
+from fido2.ctap2.base import args
 from fido2.ctap2.extensions import Ctap2Extension
-from fido2.pcsc import CtapPcscDevice, logger
+from fido2.pcsc import CtapPcscDevice
 from fido2.webauthn import ResidentKeyRequirement, PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, \
-    PublicKeyCredentialRpEntity, PublicKeyCredentialParameters, PublicKeyCredentialType, AuthenticatorSelectionCriteria, \
-    UserVerificationRequirement, PublicKeyCredentialDescriptor, AuthenticatorAttestationResponse, \
-    PublicKeyCredentialRequestOptions
+    PublicKeyCredentialRpEntity, PublicKeyCredentialParameters, PublicKeyCredentialType, \
+    AuthenticatorSelectionCriteria, UserVerificationRequirement, PublicKeyCredentialDescriptor, \
+    AuthenticatorAttestationResponse, PublicKeyCredentialRequestOptions
 
 import fido2.features
 
@@ -28,6 +34,7 @@ fido2.features.webauthn_json_mapping.enabled = False
 class CommandType(enum.Enum):
     APPLET_REINSTALL = 0
     DIRECT_COMMUNICATE = 1
+    SOFT_RESET = 2
 
 
 class LogPrintHandler:
@@ -100,6 +107,9 @@ class JCardSimTestCase(TestCase, abc.ABC):
             sim.reset()
             VSim.installApplet(sim, command)
             return None
+        elif command_type == CommandType.SOFT_RESET:
+            VSim.softReset(sim)
+            return None
         elif command_type == CommandType.DIRECT_COMMUNICATE:
             result = VSim.transmitCommand(sim, bytes(command))
             return [(x + 256) % 256 for x in result]
@@ -160,6 +170,10 @@ class JCardSimTestCase(TestCase, abc.ABC):
         if self.q_in.full():
             self.q_in.get()
 
+    def softResetCard(self) -> None:
+        self.q_out.put((CommandType.SOFT_RESET, None))
+        self.q_in.get(block=True)
+
 
 class FakeSCConnection:
     q_in: Queue
@@ -219,6 +233,7 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
             )
 
         self.ctap2 = Ctap2(self.device)
+        self.ctap1 = Ctap1(self.device)
         self.client_data = self.get_random_client_data()
         self.basic_makecred_params["client_data_hash"] = self.client_data
         rpid_length = random.randint(1, 16)
@@ -328,7 +343,8 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
     def get_high_level_assertion_opts_from_cred(self, cred: Optional[AuthenticatorAttestationResponse] = None,
                                                 client_data: Optional[bytes] = None, rp_id: Optional[str] = None,
                                                 extensions: Optional[
-                                                    dict[str, Any]] = None) -> PublicKeyCredentialRequestOptions:
+                                                    dict[str, Any]] = None,
+                                                user_verification: Optional[UserVerificationRequirement] = None) -> PublicKeyCredentialRequestOptions:
         if extensions is None:
             extensions = {}
         if client_data is None:
@@ -340,52 +356,123 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
             assertion_allow_credentials = [
                 self.get_descriptor_from_cred(cred)
             ]
+        if user_verification is None:
+            user_verification = UserVerificationRequirement.DISCOURAGED
         return PublicKeyCredentialRequestOptions(
             challenge=client_data,
             rp_id=rp_id,
             allow_credentials=assertion_allow_credentials,
-            user_verification=UserVerificationRequirement.DISCOURAGED,
+            user_verification=user_verification,
             extensions=extensions
         )
 
 
-class BasicAttestationTestCase(CTAPTestCase, abc.ABC):
+class BasicAttestationTestCase(CTAPTestCase):
+    VENDOR_COMMAND_SWITCH_ATT = 0x46
+
     public_key: EllipticCurvePublicKey
+    ca_public_key: EllipticCurvePublicKey
     aaguid: bytes
     cert: bytes
+
+    def install_attestation_cert(self):
+        self.ctap2.send_cbor(
+            self.VENDOR_COMMAND_SWITCH_ATT,
+            args(self.gen_attestation_cert())
+        )
 
     def _short_to_bytes(self, b: int) -> list[int]:
         return [(b & 0xFF00) >> 8, b & 0x00FF]
 
-    def gen_attestation_cert(self, cert_data: Optional[bytes] = None) -> bytes:
-        self.aaguid = secrets.token_bytes(16)
-
-        private_key = ec.generate_private_key(ec.SECP256R1())
+    def get_x509_certs(self, private_key: EllipticCurvePrivateKey, name: Optional[str] = None,
+                       country: Optional[str] = "US", org: Optional[str] = "ACME") -> list[bytes]:
         self.public_key = private_key.public_key()
 
-        if cert_data is None:
-            cert_len = random.randint(1, 14)
-            cert_data = secrets.token_bytes(cert_len)
-        else:
-            cert_len = len(cert_data)
+        if name is None:
+            name = secrets.token_hex(4)
 
-        self.cert = cert_data
-        if cert_len <= 23:
-            cert_len_cbor = [0x40 + cert_len]
-        elif cert_len <= 255:
-            cert_len_cbor = [0x58, cert_len]
-        elif cert_len <= 65535:
-            cert_len_cbor = [0x59] + self._short_to_bytes(cert_len)
-        else:
-            raise NotImplementedError()
-        cert_cbor = bytes([0x81] + cert_len_cbor) + self.cert
+        now = datetime.now()
+
+        ca_privkey = ec.generate_private_key(ec.SECP256R1())
+        ca_pubkey = ca_privkey.public_key()
+        self.ca_public_key = ca_pubkey
+
+        ca_name = x509.Name([
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, org),
+            x509.NameAttribute(NameOID.COMMON_NAME, "AuthCA"),
+        ])
+        ca_cert_bytes = (
+            x509.CertificateBuilder()
+            .subject_name(ca_name)
+            .issuer_name(ca_name)
+            .serial_number(x509.random_serial_number())
+            .public_key(ca_pubkey)
+            .not_valid_before(now - timedelta(days=1))
+            .not_valid_after(now + timedelta(days=3650))
+            .sign(private_key=ca_privkey, algorithm=hashes.SHA256())
+            .public_bytes(Encoding.DER)
+        )
+
+        this_cert_name = x509.Name([
+            x509.NameAttribute(NameOID.COUNTRY_NAME, country),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, org),
+            x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "Authenticator Attestation"),
+            x509.NameAttribute(NameOID.COMMON_NAME, name),
+        ])
+
+        authenticator_cert_bytes = (
+            x509.CertificateBuilder()
+                .subject_name(this_cert_name)
+                .issuer_name(ca_name)
+                .serial_number(x509.random_serial_number())
+                .public_key(self.public_key)
+                .not_valid_before(now - timedelta(days=1))
+                .not_valid_after(now + timedelta(days=3650))
+                .add_extension(
+                    x509.BasicConstraints(ca=False, path_length=None), critical=True,
+                )
+                #.add_extension(x509.UnrecognizedExtension(
+                #    x509.ObjectIdentifier("1.3.6.1.4.1.45724.1.1.4"),
+                #    value= < DER bytes >
+                #))
+                .sign(private_key=ca_privkey, algorithm=hashes.SHA256())
+                .public_bytes(Encoding.DER)
+        )
+        return [authenticator_cert_bytes, ca_cert_bytes]
+
+    def gen_attestation_cert(self, cert_bytes: Optional[list[bytes]] = None, name: Optional[str] = None,
+                             aaguid: Optional[bytes] = None) -> bytes:
+        if aaguid is None:
+            aaguid = secrets.token_bytes(16)
+
+        self.aaguid = aaguid
+        private_key = ec.generate_private_key(ec.SECP256R1())
+
+        if cert_bytes is None:
+            cert_bytes = self.get_x509_certs(private_key, name)
+
+        num_certs = len(cert_bytes)
+        self.cert = cert_bytes[0]
+        cert_cbor_bytes = [0x80 + num_certs]
+        for cert_data in cert_bytes:
+            cert_len = len(cert_data)
+            if cert_len <= 23:
+                cert_len_cbor = [0x40 + cert_len]
+            elif cert_len <= 255:
+                cert_len_cbor = [0x58, cert_len]
+            elif cert_len <= 65535:
+                cert_len_cbor = [0x59] + self._short_to_bytes(cert_len)
+            else:
+                raise NotImplementedError()
+            cert_cbor_bytes += cert_len_cbor
+            cert_cbor_bytes += cert_data
+        cert_cbor = bytes(cert_cbor_bytes)
 
         s = private_key.private_numbers().private_value
         private_bytes = s.to_bytes(length=32)
         self.assertEqual(32, len(private_bytes))
         cbor_len_bytes = bytes(self._short_to_bytes(len(cert_cbor)))
         res = self.aaguid + private_bytes + cbor_len_bytes + cert_cbor
-        self.assertEqual(16 + 32 + cert_len + len(cert_len_cbor) + 3, len(res))
         return res
 
 

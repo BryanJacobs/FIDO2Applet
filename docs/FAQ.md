@@ -86,15 +86,16 @@ chosen, it can't be both fully CTAP2.0 compatible and CTAP2.1 compatible at the 
 Another more minor difference is that CTAP2.0 allows PINs of 64 bytes or longer.
 This authenticator and CTAP2.1 cap PINs at 63 bytes long.
 
-## Why don't you implement U2F/CTAP1?
+## How does the security model handle U2F?
 
 U2F doesn't support PINs.
 
 [The security model](security_model.md) requires PINs.
 
-It would be possible to implement U2F commands in non-standards-compliant ways,
-but implementing them the normal way would require turning off the `alwaysUv`
-key feature for U2F-accessible credentials.
+The compromise is that the authenticator will not make credProtect=3 credentials
+available over U2F, and U2F is entirely disabled when the `alwaysUv` option is
+enabled. This is accomplished by encrypting the U2F credentials with the "low security"
+wrapping key.
 
 ## Isn't PBKDF2 on a smartcard a fig leaf?
 

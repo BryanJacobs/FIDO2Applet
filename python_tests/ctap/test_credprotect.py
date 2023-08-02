@@ -4,7 +4,7 @@ from fido2.client import ClientError
 from fido2.ctap import CtapError
 from fido2.ctap2 import ClientPin
 from fido2.ctap2.extensions import CredProtectExtension
-from fido2.webauthn import ResidentKeyRequirement
+from fido2.webauthn import ResidentKeyRequirement, UserVerificationRequirement
 from parameterized import parameterized
 
 from .ctap_test import CTAPTestCase, FixedPinUserInteraction, CredManagementBaseTestCase
@@ -12,8 +12,8 @@ from .ctap_test import CTAPTestCase, FixedPinUserInteraction, CredManagementBase
 
 class CredProtectTestCase(CTAPTestCase):
 
-    def cred_protect_using_client(self, client, level, policy,
-                                      resident, create_success, discoverable_afterwards, usable_afterwards):
+    def cred_protect_using_client(self, client, level, policy, use_pin: UserVerificationRequirement,
+                                  resident, discoverable_afterwards, usable_afterwards):
         resident_key = ResidentKeyRequirement.REQUIRED if resident else ResidentKeyRequirement.DISCOURAGED
 
         def do(thing, expectation):
@@ -24,72 +24,95 @@ class CredProtectTestCase(CTAPTestCase):
                     thing()
                 return e.exception.cause
 
-        res = do(lambda: client.make_credential(options=self.get_high_level_make_cred_options(
+        res = client.make_credential(options=self.get_high_level_make_cred_options(
             resident_key,
             {
                 "credentialProtectionPolicy": policy
             }
-        )), expectation=create_success)
-        if create_success:
-            self.assertEqual(level, res.attestation_object.auth_data.extensions.get('credProtect'))
+        ))
+        self.assertEqual(level, res.attestation_object.auth_data.extensions.get('credProtect'))
 
-            if discoverable_afterwards is not None:
-                opts = self.get_high_level_assertion_opts_from_cred(cred=None)
-                assert_res = do(lambda: client.get_assertion(opts), expectation=discoverable_afterwards)
-                if not discoverable_afterwards:
-                    self.assertEqual(CtapError.ERR.NO_CREDENTIALS, assert_res.code)
+        if discoverable_afterwards is not None:
+            opts = self.get_high_level_assertion_opts_from_cred(cred=None, user_verification=use_pin)
+            assert_res = do(lambda: client.get_assertion(opts), expectation=discoverable_afterwards)
+            if not discoverable_afterwards:
+                self.assertEqual(CtapError.ERR.NO_CREDENTIALS, assert_res.code)
 
-            if usable_afterwards is not None:
-                opts = self.get_high_level_assertion_opts_from_cred(cred=res)
-                assert_res = do(lambda: client.get_assertion(opts), expectation=usable_afterwards)
-                if not usable_afterwards:
-                    self.assertEqual(CtapError.ERR.NO_CREDENTIALS, assert_res.code)
-        else:
-            self.assertEqual(CtapError.ERR.PUAT_REQUIRED, res.code)
+        if usable_afterwards is not None:
+            opts = self.get_high_level_assertion_opts_from_cred(cred=res, user_verification=use_pin)
+            assert_res = do(lambda: client.get_assertion(opts), expectation=usable_afterwards)
+            if not usable_afterwards:
+                self.assertEqual(CtapError.ERR.NO_CREDENTIALS, assert_res.code)
 
     @parameterized.expand([
-        ("Fails with nonresident level 3", 3, CredProtectExtension.POLICY.REQUIRED,
-            False, False, None, None),
+        ("Unusable afterwards with nonresident level 3", 3, CredProtectExtension.POLICY.REQUIRED,
+            False, False, False),
         ("Succeeds with nonresident level 2", 2, CredProtectExtension.POLICY.OPTIONAL_WITH_LIST,
-            False, True, False, True),
+            False, False, True),
         ("Succeeds with nonresident level 1", 1, CredProtectExtension.POLICY.OPTIONAL,
-            False, True, False, True),
+            False, False, True),
         ("Succeeds with resident level 3, unusable afterwards", 3, CredProtectExtension.POLICY.REQUIRED,
-            True, True, False, False),
-        ("Succeeds with resident level 2, but non-discoverable", 2, CredProtectExtension.POLICY.OPTIONAL_WITH_LIST,
-            True, True, False, True),
+            True, False, False),
+        ("Non-discoverable with resident level 2", 2, CredProtectExtension.POLICY.OPTIONAL_WITH_LIST,
+            True, False, True),
         ("Succeeds with resident level 1", 1, CredProtectExtension.POLICY.OPTIONAL,
-            True, True, True, True),
+            True, True, True),
     ])
     def test_cred_protect_without_pin(self, _, level, policy,
-                                      resident, create_success, discoverable_afterwards, usable_afterwards):
-        client = self.get_high_level_client(extensions=[CredProtectExtension])
-        self.cred_protect_using_client(client, level, policy,
-                                       resident, create_success, discoverable_afterwards, usable_afterwards)
+                                      resident, discoverable_afterwards, usable_afterwards):
+        self.cred_protect_using_client(self.get_high_level_client(extensions=[CredProtectExtension]), level, policy,
+                                       UserVerificationRequirement.DISCOURAGED,
+                                       resident, discoverable_afterwards, usable_afterwards)
 
     @parameterized.expand([
         ("Succeeds with nonresident level 3", 3, CredProtectExtension.POLICY.REQUIRED,
-         False, True, False, True),
+         False, False, True),
         ("Succeeds with nonresident level 2", 2, CredProtectExtension.POLICY.OPTIONAL_WITH_LIST,
-         False, True, False, True),
+         False, False, True),
         ("Succeeds with nonresident level 1", 1, CredProtectExtension.POLICY.OPTIONAL,
-         False, True, False, True),
+         False, False, True),
         ("Succeeds with resident level 3", 3, CredProtectExtension.POLICY.REQUIRED,
-         True, True, True, True),
+         True, True, True),
         ("Succeeds with resident level 2", 2, CredProtectExtension.POLICY.OPTIONAL_WITH_LIST,
-         True, True, True, True),
+         True, True, True),
         ("Succeeds with resident level 1", 1, CredProtectExtension.POLICY.OPTIONAL,
-         True, True, True, True),
+         True, True, True),
     ])
     def test_cred_protect_with_pin(self, _, level, policy,
-                                   resident, create_success, discoverable_afterwards, usable_afterwards):
+                                   resident, discoverable_afterwards, usable_afterwards):
         pin = secrets.token_hex(8)
         ClientPin(self.ctap2).set_pin(pin)
-        client = self.get_high_level_client(extensions=[CredProtectExtension],
-                                            user_interaction=FixedPinUserInteraction(pin))
+        ux = FixedPinUserInteraction(pin)
 
-        self.cred_protect_using_client(client, level, policy,
-                                       resident, create_success, discoverable_afterwards, usable_afterwards)
+        self.cred_protect_using_client(self.get_high_level_client(extensions=[CredProtectExtension],
+                                                                  user_interaction=ux),
+                                       level, policy, UserVerificationRequirement.REQUIRED,
+                                       resident, discoverable_afterwards, usable_afterwards)
+
+    @parameterized.expand([
+        ("Unusable afterwards with nonresident level 3", 3, CredProtectExtension.POLICY.REQUIRED,
+         False, False, False),
+        ("Non-discoverable with nonresident level 2", 2, CredProtectExtension.POLICY.OPTIONAL_WITH_LIST,
+         False, False, True),
+        ("Succeeds with nonresident level 1", 1, CredProtectExtension.POLICY.OPTIONAL,
+         False, False, True),
+        ("Unusable afterwards with resident level 3", 3, CredProtectExtension.POLICY.REQUIRED,
+         True, False, False),
+        ("Non-discoverable with resident level 2", 2, CredProtectExtension.POLICY.OPTIONAL_WITH_LIST,
+         True, False, True),
+        ("Succeeds with resident level 1", 1, CredProtectExtension.POLICY.OPTIONAL,
+         True, True, True),
+    ])
+    def test_cred_protect_pin_on_creation_but_not_use(self, _, level, policy,
+                                   resident, discoverable_afterwards, usable_afterwards):
+        pin = secrets.token_hex(8)
+        ClientPin(self.ctap2).set_pin(pin)
+        ux = FixedPinUserInteraction(pin)
+
+        self.cred_protect_using_client(self.get_high_level_client(extensions=[CredProtectExtension],
+                                                                  user_interaction=ux),
+                                       level, policy, UserVerificationRequirement.DISCOURAGED,
+                                       resident, discoverable_afterwards, usable_afterwards)
 
 
 class CredProtectRKVisTestCase(CredManagementBaseTestCase):

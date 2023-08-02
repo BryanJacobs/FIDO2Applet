@@ -61,9 +61,9 @@ I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/s
 
 | Feature                                   | Status                                                  |
 |-------------------------------------------|---------------------------------------------------------|
-| CTAP1/U2F                                 | Not implemented                                         |
-| CTAP2.0 core                              | Implemented, many caveats                               |
-| CTAP2.1 core                              | Implemented, many caveats                               |
+| CTAP1/U2F                                 | Implemented (see [install guide](docs/certs.md))        |
+| CTAP2.0 core                              | Implemented                                             |
+| CTAP2.1 core                              | Implemented                                             |
 | Resident keys                             | Implemented, default 50 slots                           |
 | User Presence                             | User always considered present: not standards compliant |
 | ECDSA (SecP256r1)                         | Implemented                                             |
@@ -73,12 +73,12 @@ I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/s
 | CTAP2.0 hmac-secret extension             | Implemented                                             |
 | CTAP2.1 hmac-secret extension             | Implemented                                             |
 | CTAP2.1 alwaysUv option                   | Implemented                                             |
-| CTAP2.1 credProtect option                | Implemented, one caveat                                 |
+| CTAP2.1 credProtect option                | Implemented                                             |
 | CTAP2.1 PIN Protocol 1                    | Implemented                                             |
 | CTAP2.1 PIN Protocol 2                    | Implemented                                             |
 | CTAP2.1 credential management             | Implemented                                             |
 | CTAP2.1 enterprise attestation            | Not implemented                                         |
-| CTAP2.1 authenticator config              | Implemented (no settings modifiable)                    |
+| CTAP2.1 authenticator config              | Implemented                                             |
 | CTAP2.1 credBlob extension                | Not implemented                                         |
 | CTAP2.1 authenticatorLargeBlobs extension | Not implemented                                         |
 | CTAP2.1 largeBlobKey extension            | Not implemented                                         |
@@ -107,28 +107,28 @@ I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/s
 | OMNI Ring (Infineon SLE78) | Working |
 | jCardSim                   | Working |
 
-| Application         | Status                          |
-|---------------------|---------------------------------|
-| Chrome on Android   | Unsupported (Play Services [1]) |
-| Chrome on Linux     | Unsupported (USBHID only [2])   |
-| Chrome on Windows   | Working                         |
-| Fennec on Android   | Unsupported (Play Services [1]) |
-| WebView on Android  | Working                         |
-| Firefox on Linux    | Unsupported (USBHID only [2])   |
-| Firefox on Windows  | Working                         |
-| MS Edge on Windows  | Working                         |
-| Safari on iOS       | Untested                        |
-| OpenSSH             | Working                         |
-| pam_u2f             | Working                         |
-| systemd-cryptenroll | Working                         |
-| python-fido2        | Working                         |
+| Application         | Status                         |
+|---------------------|--------------------------------|
+| Chrome on Android   | CTAP1 Only (Play Services [1]) |
+| Chrome on Linux     | Unsupported (USBHID only [2])  |
+| Chrome on Windows   | Working                        |
+| Fennec on Android   | CTAP1 Only (Play Services [1]) |
+| WebView on Android  | Working                        |
+| Firefox on Linux    | Unsupported (USBHID only [2])  |
+| Firefox on Windows  | Working                        |
+| MS Edge on Windows  | Working                        |
+| Safari on iOS       | Untested                       |
+| OpenSSH             | Working                        |
+| pam_u2f             | Working                        |
+| systemd-cryptenroll | Working                        |
+| python-fido2        | Working                        |
 
 There are two compatibility issues in the table above:
 1. Google Play Services on Android contains a complete webauthn implementation, but it appears to be
    hardwired to use only "passkeys". If a site explicitly requests a non-discoverable credential,
    you will be prompted to use an NFC security key, but this is only CTAP1 and not CTAP2. There's
    nothing fundamentally preventing this from working on Android but the current state of Chrome
-   and Fennec are that it doesn't, because both use the broken Play Services library.
+   and Fennec are that CTAP2 doesn't, because both use the broken Play Services library.
 1. Some browsers support FIDO2 in theory but only allow USB security keys - this implementation
    is for PC/SC, and doesn't implement USB HID, so it will only work with FIDO2
    implementations that can handle e.g. NFC tokens instead of being restricted to USB. This prevents,

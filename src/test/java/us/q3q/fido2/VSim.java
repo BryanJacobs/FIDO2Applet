@@ -46,6 +46,11 @@ public class VSim {
         return sim.transmitCommand(command);
     }
 
+    public static synchronized void softReset(Simulator sim) {
+        sim.reset();
+        sim.selectApplet(appletAID);
+    }
+
     public static void main(String[] args) throws Exception {
         Simulator sim = startBackgroundSimulator();
 

@@ -32,6 +32,7 @@ public abstract class FIDOConstants {
     public static final byte CLIENT_PIN_SET_PIN = 0x03;
     public static final byte CLIENT_PIN_CHANGE_PIN = 0x04;
     public static final byte CLIENT_PIN_GET_PIN_TOKEN = 0x05;
+    public static final byte CLIENT_PIN_GET_PIN_TOKEN_USING_UV_WITH_PERMISSIONS = 0x06;
     public static final byte CLIENT_PIN_GET_PIN_TOKEN_USING_PIN_WITH_PERMISSIONS = 0x09;
 
     // Credential management subcommands
