@@ -57,6 +57,14 @@ class CTAPPINTestCase(CTAPTestCase):
 
         self.assertEqual(CtapError.ERR.MISSING_PARAMETER, e.exception.code)
 
+    def test_toggling_alwaysUv_survives_soft_reset(self):
+        Config(self.ctap2).toggle_always_uv()
+
+        self.softResetCard()
+
+        info = self.ctap2.get_info()
+        self.assertTrue(info.options.get("alwaysUv"))
+
     def test_toggle_alwaysUv_without_acfg_perm(self):
         pin = secrets.token_hex(10)
         Config(self.ctap2).toggle_always_uv()

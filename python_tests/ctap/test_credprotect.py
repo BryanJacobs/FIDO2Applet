@@ -32,7 +32,7 @@ class CredProtectTestCase(CTAPTestCase):
         ))
         self.assertEqual(level, res.attestation_object.auth_data.extensions.get('credProtect'))
 
-        self.softResetCard() # Ensure everything is cleared from memory
+        self.softResetCard()  # Ensure everything is cleared from memory
 
         if discoverable_afterwards is not None:
             opts = self.get_high_level_assertion_opts_from_cred(cred=None, user_verification=use_pin)

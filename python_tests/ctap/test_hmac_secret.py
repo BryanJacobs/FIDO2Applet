@@ -3,7 +3,7 @@ import secrets
 from parameterized import parameterized
 from fido2.client import UserInteraction
 from fido2.ctap2 import ClientPin
-from fido2.ctap2.extensions import HmacSecretExtension
+from fido2.ctap2.extensions import HmacSecretExtension, CredBlobExtension
 from fido2.webauthn import ResidentKeyRequirement, AuthenticatorAssertionResponse, UserVerificationRequirement
 
 from .ctap_test import CTAPTestCase, FixedPinUserInteraction
@@ -26,6 +26,34 @@ class HMACSecretTestCase(CTAPTestCase):
     def get_hmacs_from_result(self, assertion: AuthenticatorAssertionResponse) -> tuple[str, str]:
         return (assertion.extension_results['hmacGetSecret'].get('output1'),
                assertion.extension_results['hmacGetSecret'].get('output2'))
+
+    def test_hmac_and_credblob_together(self):
+        blob = secrets.token_bytes(32)
+        client = self.get_high_level_client(extensions=[HmacSecretExtension, CredBlobExtension])
+        cred = client.make_credential(options=self.get_high_level_make_cred_options(
+            resident_key=ResidentKeyRequirement.REQUIRED,
+            extensions={
+                "hmacCreateSecret": True,
+                "credBlob": blob
+            }
+        ))
+        salt1 = secrets.token_bytes(32)
+        salt2 = secrets.token_bytes(32)
+
+        assertion = client.get_assertion(
+            self.get_high_level_assertion_opts_from_cred(cred,
+                                                         extensions={
+                                                             "hmacGetSecret": {
+                                                                 "salt1": salt1,
+                                                                 "salt2": salt2,
+                                                             },
+                                                             "getCredBlob": True
+                                                         })
+        )
+
+        hm1, hm2 = self.get_hmacs_from_result(assertion.get_response(0))
+        self.assertNotEqual(hm1, hm2)
+        self.assertEqual(blob, assertion.get_response(0).authenticator_data.extensions.get("credBlob"))
 
     def test_uv_and_non_uv_yield_different_values(self):
         no_pin_client = self.get_high_level_client(extensions=[HmacSecretExtension])

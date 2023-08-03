@@ -18,9 +18,6 @@
     [
       {"userVerificationMethod": "none"}
     ],
-    [
-      {"userVerificationMethod": "presence_internal"}
-    ],
     [{
       "userVerificationMethod": "passcode_external",
       "caDesc": {
@@ -36,14 +33,14 @@
   "tcDisplay": [],
   "attestationRootCertificates": [],
   "authenticatorGetInfo": {
-      "versions": [ "FIDO_2_0", "FIDO_2_1" ],
-      "extensions": [ "credProtect", "hmac-secret" ],
+      "versions": [ "FIDO_2_0", "FIDO_2_1", "FIDO_2_1_PRE" ],
+      "extensions": [ "credBlob", "credProtect", "hmac-secret" ],
       "aaguid": "00000000000000000000000000000000",
       "options": {
+        "ep": true,
         "rk": true,
         "clientPin": false,
-        "up": true,
-        "alwaysUv": true,
+        "alwaysUv": false,
         "credMgmt": true,
         "authnrCfg": true,
         "makeCredUvNotRqd": false,
@@ -53,7 +50,6 @@
       "pinUvAuthProtocols": [1, 2],
       "maxCredentialCountInList": 10,
       "maxCredentialIdLength": 64,
-      "defaultCredProtect": 3,
       "firmwareVersion": 1,
       "remainingDiscoverableCredentials": 50
   }

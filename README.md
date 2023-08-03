@@ -75,7 +75,7 @@ I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/s
 | CTAP2.1 credential management             | Implemented                                             |
 | CTAP2.1 enterprise attestation            | Implemented but always rejected                         |
 | CTAP2.1 authenticator config              | Implemented                                             |
-| CTAP2.1 credBlob extension                | Not implemented                                         |
+| CTAP2.1 credBlob extension                | Implemented, discoverable creds only                    |
 | CTAP2.1 authenticatorLargeBlobs extension | Not implemented                                         |
 | CTAP2.1 largeBlobKey extension            | Not implemented                                         |
 | CTAP2.1 bio-stuff                         | Not implemented (doesn't make sense in this context?)   |

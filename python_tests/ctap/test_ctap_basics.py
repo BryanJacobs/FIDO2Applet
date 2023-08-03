@@ -16,7 +16,7 @@ class CTAPBasicsTestCase(CTAPTestCase):
 
     def test_info_supported_extensions(self):
         info = self.ctap2.get_info()
-        self.assertEqual(["credProtect", "hmac-secret"], info.extensions)
+        self.assertEqual(["credBlob", "credProtect", "hmac-secret"], info.extensions)
 
     def test_info_aaguid_none(self):
         info = self.ctap2.get_info()

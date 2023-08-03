@@ -50,3 +50,16 @@ class AttestationModeSwitchTestCase(BasicAttestationTestCase):
         info_after = self.ctap2.get_info()
         self.assertFalse("U2F_V2" in info_before.versions)
         self.assertTrue("U2F_V2" in info_after.versions)
+
+    def test_switching_survives_soft_reset(self):
+        cert_bytes = secrets.token_bytes(100)
+        cert = self.gen_attestation_cert([cert_bytes])
+        self.ctap2.send_cbor(
+            self.VENDOR_COMMAND_SWITCH_ATT,
+            args(cert)
+        )
+
+        self.softResetCard()
+
+        info = self.ctap2.get_info()
+        self.assertTrue("U2F_V2" in info.versions)
