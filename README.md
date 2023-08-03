@@ -11,10 +11,6 @@ ones you carry with you on the key (`-O resident`). You can securely unlock
 a LUKS encrypted disk with `systemd-cryptenroll`. You can log in to a Linux
 system locally with [pam-u2f](https://github.com/Yubico/pam-u2f).
 
-This applet does **not** presently implement U2F support, for
-[valid reasons](docs/FAQ.md). Note that `pam-u2f`, despite its name,
-actually uses `libfido2` and will work fine.
-
 In order to run this, you will need
 [a compatible smartcard](docs/requirements.md). Some smartcards which
 describe themselves as running Javacard 3.0.1 also work - see the
