@@ -32,6 +32,8 @@ class CredProtectTestCase(CTAPTestCase):
         ))
         self.assertEqual(level, res.attestation_object.auth_data.extensions.get('credProtect'))
 
+        self.softResetCard() # Ensure everything is cleared from memory
+
         if discoverable_afterwards is not None:
             opts = self.get_high_level_assertion_opts_from_cred(cred=None, user_verification=use_pin)
             assert_res = do(lambda: client.get_assertion(opts), expectation=discoverable_afterwards)
@@ -98,13 +100,26 @@ class CredProtectTestCase(CTAPTestCase):
          False, False, True),
         ("Unusable afterwards with resident level 3", 3, CredProtectExtension.POLICY.REQUIRED,
          True, False, False),
-        ("Non-discoverable with resident level 2", 2, CredProtectExtension.POLICY.OPTIONAL_WITH_LIST,
-         True, False, True),
-        ("Succeeds with resident level 1", 1, CredProtectExtension.POLICY.OPTIONAL,
-         True, True, True),
     ])
     def test_cred_protect_pin_on_creation_but_not_use(self, _, level, policy,
                                    resident, discoverable_afterwards, usable_afterwards):
+        pin = secrets.token_hex(8)
+        ClientPin(self.ctap2).set_pin(pin)
+        ux = FixedPinUserInteraction(pin)
+
+        self.cred_protect_using_client(self.get_high_level_client(extensions=[CredProtectExtension],
+                                                                  user_interaction=ux),
+                                       level, policy, UserVerificationRequirement.DISCOURAGED,
+                                       resident, discoverable_afterwards, usable_afterwards)
+
+    @parameterized.expand([
+        ("Resident level 2 unusable without PIN", 2, CredProtectExtension.POLICY.OPTIONAL_WITH_LIST,
+         True, False, False),
+        ("Resident level 1 unusable without PIN", 1, CredProtectExtension.POLICY.OPTIONAL,
+         True, False, False),
+    ])
+    def test_deviations_from_expectations(self, _, level, policy,
+                                          resident, discoverable_afterwards, usable_afterwards):
         pin = secrets.token_hex(8)
         ClientPin(self.ctap2).set_pin(pin)
         ux = FixedPinUserInteraction(pin)

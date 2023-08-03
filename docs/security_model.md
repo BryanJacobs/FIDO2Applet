@@ -23,15 +23,14 @@ of their software and the tamper-proofness of their hardware to
 protect private keying material.
 
 This app is different. In this app, when you set a PIN, the authenticator
-enables the `alwaysUv` option - requiring the PIN for all credential
-creation and use. The "wrapping key" - without which the authenticator
-cannot accesss its resident/discoverable credentials - is encrypted
-using a key derived from the PIN. In other words, if you could read all
-the authenticator's memory when a PIN is set, you would only find
-encrypted data.
+"wrapping key" - without which the authenticator cannot accesss its
+resident/discoverable credentials or external "level 3" credentials -
+is encrypted using a key derived from the PIN. In other words, if
+you could read all the authenticator's memory when a PIN is set, you
+would only find encrypted data.
 
-Any "level 3" protected credential also uses that high-security key,
-even when non-discoverable.
+Note that any "level 3" protected credential uses the
+high-security key, even when non-discoverable.
 
 ## Details: Security Levels
 
@@ -228,3 +227,29 @@ of PBKDF2. Those were written because PBKDF2 isn't part of the Javacard API
 at all, and although HMA-SHA256 is it's not implemented on any of my cards.
 
 Open source is open.
+
+## That's all too complicated! Show me a table!
+
+| Usage / Creation                      | L1D        | L2D        | L3D      | L1 | L2 | L3       |
+|---------------------------------------|------------|------------|----------|----|----|----------|
+| Provided, no PIN set                  | OK         | OK         | Software | OK | OK | Software |
+| Provided, PIN set, but unused         | Crypto (!) | Crypto (!) | Crypto   | OK | OK | Crypto   |
+| Provided, PIN set, used since unplug  | OK         | OK         | Software | OK | OK | Software |
+| Provided, PIN used                    | OK         | OK         | OK       | OK | OK | OK       |
+| Discovery, no PIN set                 | OK         | Software   | Software | NA | NA | NA       |
+| Discovery, PIN set, but unused        | Crypto (!) | Crypto     | Crypto   | NA | NA | NA       |
+| Discovery, PIN set, used since unplug | OK         | Software   | Software | NA | NA | NA       |
+| Discovery, PIN used                   | OK         | OK         | OK       | NA | NA | NA       |
+
+1. "L1D" is a credProtect level 1 discoverable credential
+1. Non-discoverable keys can't be discovered, of course
+1. "Crypto" means the scenario is prevented by the availability of the relevant key
+1. "Software" means the scenario is prevented by code inside the applet itself
+1. Three scenarios in the table above show undesirable outcomes
+
+So the difference between setting a PIN and not is that you get better protection of all L3
+credentials, and L1/L2 discoverable credentials. On the other hand, setting a PIN will prevent L1D
+and L2D credentials from being usable without it...
+
+Providing your PIN for any reason will decrypt the high-security wrapping key until the next time
+you unplug the authenticator.

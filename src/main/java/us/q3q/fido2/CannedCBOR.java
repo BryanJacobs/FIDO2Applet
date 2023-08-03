@@ -56,7 +56,10 @@ public abstract class CannedCBOR {
 
     static final byte[] AUTH_INFO_SECOND = {
                 0x04, // map key: options
-                    (byte) 0xA8, // map: eight entries
+                    (byte) 0xA9, // map: nine entries
+                        0x62, // string: two bytes long
+                            0x65, 0x70, // ep
+                            (byte) 0xF4, // false
                         0x62, // string: two bytes long
                             0x72, 0x6B, // rk
                             (byte) 0xF5, // true

@@ -666,6 +666,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     pinProtocol = buffer[readIdx++];
                     checkPinProtocolSupported(apdu, pinProtocol);
                     continue;
+                case 0x0A: // enterpriseAttestation
+                    // This is always disabled, so we reject the parameter
+                    sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
+                    break;
                 default:
                     break;
             }
@@ -1732,19 +1736,19 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
             }
 
-            if (pinSet && pinInfoBuffer[(short)(pinInfoIdx + 1)] == 1 && transientStorage.hasUVOption()) {
+            final boolean pinProvided = pinInfoBuffer[(short)(pinInfoIdx + 1)] == 1;
+
+            if (pinSet && pinProvided && transientStorage.hasUVOption()) {
                 // When a PIN is set and provided, the "uv" input option MUST NOT be set.
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_OPTION);
             }
 
             // Report PIN-validation failures before we report lack of matching creds
-            if (pinSet) {
+            if (pinSet && pinProvided) {
                 if (transientStorage.getPinProtocolInUse() != pinInfoBuffer[pinInfoIdx]) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
                 }
             }
-
-            final boolean pinProvided = pinInfoBuffer[(short)(pinInfoIdx + 1)] == 1;
 
             if (pinProvided) {
                 if (permissionsRpId[0] == 0x00) {

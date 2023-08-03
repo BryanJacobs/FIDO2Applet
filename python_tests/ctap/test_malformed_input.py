@@ -35,6 +35,14 @@ class CTAPMalformedInputTestCase(CTAPTestCase):
             self.ctap2.make_credential(**self.basic_makecred_params)
         self.assertEqual(CtapError.ERR.CBOR_UNEXPECTED_TYPE, e.exception.code)
 
+    def test_bogus_makecred_options(self):
+        self.basic_makecred_params['options'] = {'frobble': 23}
+        self.ctap2.make_credential(**self.basic_makecred_params)
+
+    def test_bogus_getassert_options(self):
+        cred = self.ctap2.make_credential(**self.basic_makecred_params)
+        self.get_assertion_from_cred(cred, options={'bogus': 123})
+
     def test_rejects_non_string_type_in_array(self):
         self.basic_makecred_params['key_params'].append({
             "type": 3949,
