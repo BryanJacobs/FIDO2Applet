@@ -2,8 +2,8 @@
 
 ## Overview
 
-This repository contains sources for a FIDO2 CTAP2.1 compatible(-ish)
-applet targeting the Javacard Classic system, version 3.0.4. In a
+This repository contains sources for a feature complete, FIDO2 CTAP2.1
+compatible applet targeting the Javacard Classic system, version 3.0.4. In a
 nutshell, this lets you take a smartcard, install an app onto it,
 and have it work as a FIDO2 authenticator device with a variety of
 features. You can generate and use OpenSSH `ecdsa-sk` type keys, including
@@ -11,7 +11,12 @@ ones you carry with you on the key (`-O resident`). You can securely unlock
 a LUKS encrypted disk with `systemd-cryptenroll`. You can log in to a Linux
 system locally with [pam-u2f](https://github.com/Yubico/pam-u2f).
 
-In order to run this, you will need
+100% of the FIDO2 CTAP2.1 spec is covered, with the exception of features
+that aren't physically on an ordinary smartcard, such as biometrics or
+other on-board user verification. The implementation is not 100% standards
+compliant, but you can expect very good results generally.
+
+In order to run this outside a simulator, you will need
 [a compatible smartcard](docs/requirements.md). Some smartcards which
 describe themselves as running Javacard 3.0.1 also work - see the
 detailed requirements.
@@ -55,38 +60,37 @@ I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/s
 
 ## Implementation Status
 
-| Feature                                   | Status                                                  |
-|-------------------------------------------|---------------------------------------------------------|
-| CTAP1/U2F                                 | Implemented (see [install guide](docs/certs.md))        |
-| CTAP2.0 core                              | Implemented                                             |
-| CTAP2.1 core                              | Implemented                                             |
-| Resident keys                             | Implemented, default 50 slots                           |
-| User Presence                             | User always considered present: not standards compliant |
-| ECDSA (SecP256r1)                         | Implemented                                             |
-| Self attestation                          | Implemented                                             |
-| Basic attestation with ECDSA certs        | Implemented (see [install guide](docs/certs.md))        |
-| Other crypto, like ed25519                | Not implemented                                         |
-| CTAP2.0 hmac-secret extension             | Implemented                                             |
-| CTAP2.1 hmac-secret extension             | Implemented                                             |
-| CTAP2.1 alwaysUv option                   | Implemented                                             |
-| CTAP2.1 credProtect option                | Implemented                                             |
-| CTAP2.1 PIN Protocol 1                    | Implemented                                             |
-| CTAP2.1 PIN Protocol 2                    | Implemented                                             |
-| CTAP2.1 credential management             | Implemented                                             |
-| CTAP2.1 enterprise attestation            | Implemented but always rejected                         |
-| CTAP2.1 authenticator config              | Implemented                                             |
-| CTAP2.1 minPinLength extension            | Implemented, zero RPID storage capacity                 |
-| CTAP2.1 credBlob extension                | Implemented, discoverable creds only                    |
-| CTAP2.1 authenticatorLargeBlobs extension | Not implemented                                         |
-| CTAP2.1 largeBlobKey extension            | Not implemented                                         |
-| CTAP2.1 bio-stuff                         | Not implemented (doesn't make sense in this context?)   |
-| APDU chaining                             | Supported                                               |
-| Extended APDUs                            | Supported                                               |
-| Performance                               | Adequate (sub-3-second common operations)               |
-| Resource consumption                      | Reasonably optimized for avoiding flash wear            |
-| Bugs                                      | Yes                                                     |
-| Code quality                              | No                                                      |
-| Security                                  | Theoretical, but see "bugs" row above                   |
+| Feature                            | Status                                                  |
+|------------------------------------|---------------------------------------------------------|
+| CTAP1/U2F                          | Implemented (see [install guide](docs/certs.md))        |
+| CTAP2.0 core                       | Implemented                                             |
+| CTAP2.1 core                       | Implemented                                             |
+| Resident keys                      | Implemented, default 50 slots (max 255)                 |
+| User Presence                      | User always considered present: not standards compliant |
+| ECDSA (SecP256r1)                  | Implemented                                             |
+| Self attestation                   | Implemented                                             |
+| Basic attestation with ECDSA certs | Implemented (see [install guide](docs/certs.md))        |
+| Other crypto, like ed25519         | Not implemented - availability depends on hardware      |
+| CTAP2.1 hmac-secret extension      | Implemented                                             |
+| CTAP2.1 alwaysUv option            | Implemented                                             |
+| CTAP2.1 credProtect option         | Implemented                                             |
+| CTAP2.1 PIN Protocol 1             | Implemented                                             |
+| CTAP2.1 PIN Protocol 2             | Implemented                                             |
+| CTAP2.1 credential management      | Implemented                                             |
+| CTAP2.1 enterprise attestation     | Implemented but never provided to RPs                   |
+| CTAP2.1 authenticator config       | Implemented                                             |
+| CTAP2.1 minPinLength extension     | Implemented, zero RPID storage capacity                 |
+| CTAP2.1 credBlob extension         | Implemented, discoverable creds only                    |
+| CTAP2.1 largeBlobKey extension     | Implemented                                             |
+| CTAP2.1 authenticatorLargeBlobs    | Implemented, default 1024 bytes storage (max 4k)        |
+| CTAP2.1 bio-stuff                  | Not implemented (doesn't make sense in this context?)   |
+| APDU chaining                      | Supported                                               |
+| Extended APDUs                     | Supported                                               |
+| Performance                        | Adequate (sub-3-second common operations)               |
+| Resource consumption               | Reasonably optimized for avoiding flash wear            |
+| Bugs                               | Yes                                                     |
+| Code quality                       | No                                                      |
+| Security                           | Theoretical, but see "bugs" row above                   |
 
 ## Software Compatibility
 
@@ -125,8 +129,11 @@ There are two compatibility issues in the table above:
    hardwired to use only "passkeys". If a site explicitly requests a non-discoverable credential,
    you will be prompted to use an NFC security key, but this is only CTAP1 and not CTAP2. There's
    nothing fundamentally preventing this from working on Android but the current state of Chrome
-   and Fennec are that CTAP2 doesn't, because both use the broken Play Services library.
+   and Fennec are that CTAP2 doesn't, because both use the broken Play Services library. It's also
+   worth noting that if you install an untrusted attestation certificate, some implementations will
+   reject your created U2F/CTAP1 credentials.
 1. Some browsers support FIDO2 in theory but only allow USB security keys - this implementation
    is for PC/SC, and doesn't implement USB HID, so it will only work with FIDO2
    implementations that can handle e.g. NFC tokens instead of being restricted to USB. This prevents,
-   for example, Firefox on Linux from using FIDO2Applet. 
+   for example, Firefox on Linux from using FIDO2Applet. Phyiscally USB-connected smartcards are
+   still PC/SC devices, not HID ones!

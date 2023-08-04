@@ -277,8 +277,8 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
             **kwargs
         )
 
-    def get_assertion(self, rp_id: str, client_data: Optional[bytes] = None):
-        return self.get_assertion_from_cred(cred=None, rp_id=rp_id, client_data=client_data)
+    def get_assertion(self, rp_id: str, client_data: Optional[bytes] = None, **kwargs):
+        return self.get_assertion_from_cred(cred=None, rp_id=rp_id, client_data=client_data, **kwargs)
 
     def get_high_level_client(self, extensions: Optional[list[Type[Ctap2Extension]]] = None,
                               user_interaction: UserInteraction = None,

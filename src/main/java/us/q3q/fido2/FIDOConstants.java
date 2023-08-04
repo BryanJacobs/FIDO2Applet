@@ -13,6 +13,7 @@ public abstract class FIDOConstants {
     public static final byte CMD_GET_NEXT_ASSERTION = 0x08;
     public static final byte CMD_CREDENTIAL_MANAGEMENT = 0x0A;
     public static final byte CMD_AUTHENTICATOR_SELECTION = 0x0B;
+    public static final byte CMD_LARGE_BLOBS = 0x0C;
     public static final byte CMD_AUTHENTICATOR_CONFIG = 0x0D;
     public static final byte CMD_CREDENTIAL_MANAGEMENT_PREVIEW = 0x41;
 
@@ -71,7 +72,7 @@ public abstract class FIDOConstants {
     public static final byte CTAP2_ERR_INVALID_CBOR = 0x12; //	 	Error when parsing CBOR.
     public static final byte CTAP2_ERR_MISSING_PARAMETER = 0x14; //	 	Missing non-optional parameter.
     public static final byte CTAP2_ERR_LIMIT_EXCEEDED = 0x15; //	 	Limit for number of items exceeded.
-    public static final byte CTAP2_ERR_UNSUPPORTED_EXTENSION = 0x16; //	 	Unsupported extension.
+    public static final byte CTAP2_ERR_LARGE_BLOB_STORAGE_FULL = 0x18; // Large blob storage is full
     public static final byte CTAP2_ERR_CREDENTIAL_EXCLUDED = 0x19; //	 	Valid credential found in the exclude list.
     public static final byte CTAP2_ERR_PROCESSING = 0x21; //	 	Processing (Lengthy operation is in progress).
     public static final byte CTAP2_ERR_INVALID_CREDENTIAL = 0x22; //	 	Credential not valid for the authenticator.
@@ -81,8 +82,6 @@ public abstract class FIDOConstants {
     public static final byte CTAP2_ERR_UNSUPPORTED_ALGORITHM = 0x26; //	 	Authenticator does not support requested algorithm.
     public static final byte CTAP2_ERR_OPERATION_DENIED = 0x27; //	 	Not authorized for requested operation.
     public static final byte CTAP2_ERR_KEY_STORE_FULL = 0x28; //	 	Internal key storage is full.
-    public static final byte CTAP2_ERR_NOT_BUSY = 0x29; //	 	Authenticator cannot cancel as it is not busy.
-    public static final byte CTAP2_ERR_NO_OPERATION_PENDING = 0x2A; //	 	No outstanding operations.
     public static final byte CTAP2_ERR_UNSUPPORTED_OPTION = 0x2B; //	 	Unsupported option.
     public static final byte CTAP2_ERR_INVALID_OPTION = 0x2C; //	 	Not a valid option for current operation.
     public static final byte CTAP2_ERR_KEEPALIVE_CANCEL = 0x2D; //	 	Pending keep alive was cancelled.

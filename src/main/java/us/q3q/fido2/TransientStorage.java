@@ -13,13 +13,16 @@ public final class TransientStorage {
     private final byte[] tempBytes;
     private static final byte IDX_PIN_RETRIES_SINCE_RESET = 0; // 1 byte
     /**
-     * Used for storing found indices in searches, and also for storing the
-     * original output length (not including x5c) when streaming makeCredential
-     * results
+     * Used for:
+     * - storing found indices in searches
+     * - storing the original output length (not including x5c) when streaming makeCredential results
+     * - storing the expected next index (12 bits) and four bits of the total length of a largeBlobStore write
      */
     private static final byte IDX_TEMP_BUF_IDX_STORAGE = 1; // 2 bytes
     /**
-     * Used for storing found lengths in searches
+     * Used for:
+     * - storing found lengths in searches
+     * - storing eight bits of the total length of a largeBlobStore write
      */
     private static final byte IDX_TEMP_BUF_IDX_LEN = 3; // 1 byte
     /**
@@ -60,33 +63,38 @@ public final class TransientStorage {
 
     // boolean bit indices held in BOOLEAN_OMNIBUS byte above
     /**
+     * 2-bit value for follow-up management. Possible values:
+     * - 00: default state
+     * - 01: write of large blob store in progress
+     * - 10: x5c streaming in progress, no lbk follows
+     * - 11: x5c streaming in progress, lbk follows
+     * Set to true when certificate data should follow response
+     */
+    private static final byte BOOL_IDX_STREAM_STATEKEEPING = 0;
+    /**
      * set when authenticator key initialized
      */
-    private static final byte BOOL_IDX_RESET_PLATFORM_KEY_SET = 0;
+    private static final byte BOOL_IDX_RESET_PLATFORM_KEY_SET = 2;
     /**
      * set if the "up" (User Presence) option is enabled
      */
-    private static final byte BOOL_IDX_OPTION_UP = 1;
+    private static final byte BOOL_IDX_OPTION_UP = 3;
     /**
      * set if the "uv" (User Validation) option is enabled
      */
-    private static final byte BOOL_IDX_OPTION_UV = 2;
+    private static final byte BOOL_IDX_OPTION_UV = 4;
     /**
      * set if the "rk" (Resident Key) option is enabled
      */
-    private static final byte BOOL_IDX_OPTION_RK = 3;
+    private static final byte BOOL_IDX_OPTION_RK = 5;
     /**
      * For reset "protection" feature, checks if a reset request has been received since the last authenticator powerup
      */
-    private static final byte BOOL_IDX_RESET_RECEIVED_SINCE_POWERON = 4;
+    private static final byte BOOL_IDX_RESET_RECEIVED_SINCE_POWERON = 6;
     /**
      * Set to true when the authenticator app is fully disabled until next reselect
      */
-    private static final byte BOOL_IDX_AUTHENTICATOR_DISABLED = 5;
-    /**
-     * Set to true when certificate data should follow response
-     */
-    private static final byte BOOL_IDX_X5C_LATER = 6;
+    private static final byte BOOL_IDX_AUTHENTICATOR_DISABLED = 7;
 
     public TransientStorage() {
         // Pin-retries-since-reset counter, which must be cleared on RESET, not on deselect, is stored in this array
@@ -121,11 +129,47 @@ public final class TransientStorage {
     }
 
     public boolean shouldStreamX5CLater() {
-        return getBoolByIdx(BOOL_IDX_X5C_LATER);
+        return (tempBytes[IDX_BOOLEAN_OMNIBUS] & 0x02) != 0;
     }
 
-    public void setStreamX5CLater(boolean newState) {
-        setBoolByIdx(BOOL_IDX_X5C_LATER, newState);
+    public void setStreamX5CLater(boolean withLBK) {
+        byte val = (byte)(withLBK ? 0x03 : 0x02);
+        tempBytes[IDX_BOOLEAN_OMNIBUS] =
+                (byte)((tempBytes[IDX_BOOLEAN_OMNIBUS] & 0xFC) | val);
+    }
+
+    public boolean shouldStreamLBKLater() {
+        return (tempBytes[IDX_BOOLEAN_OMNIBUS] & 0x03) == 0x03;
+    }
+
+    public void setInLargeBlobWrite(short expectedOffset, short totalLength) {
+        tempBytes[IDX_BOOLEAN_OMNIBUS] =
+                (byte)((tempBytes[IDX_BOOLEAN_OMNIBUS] & 0xFC) | 0x01);
+
+        // Divvy up the offset and length, so each gets twelve bits
+        // idx stores twelve bits of offset and upper four bits of length
+        short mixedIdx = (short)((expectedOffset & 0x0FFF) | ((totalLength & 0x0F00) << 4));
+        Util.setShort(tempBytes, IDX_TEMP_BUF_IDX_STORAGE, mixedIdx);
+
+        // len stores eight bits of length
+        tempBytes[IDX_TEMP_BUF_IDX_LEN] = (byte)(totalLength & 0x00FF);
+    }
+
+    public short getLargeBlobWriteOffset() {
+        if ((tempBytes[IDX_BOOLEAN_OMNIBUS] & 0x03) != 0x01) {
+            return -1;
+        }
+        return (short)(Util.getShort(tempBytes, IDX_TEMP_BUF_IDX_STORAGE) & 0x0FFF);
+    }
+
+    public short getLargeBlobWriteTotalLength() {
+        if ((tempBytes[IDX_BOOLEAN_OMNIBUS] & 0x03) != 0x01) {
+            return -1;
+        }
+        short mixedVal = Util.getShort(tempBytes, IDX_TEMP_BUF_IDX_STORAGE);
+        byte lowerByte = tempBytes[IDX_TEMP_BUF_IDX_LEN];
+        byte upperByte = (byte)(mixedVal >> 12);
+        return (short)((upperByte << 8) | (lowerByte & 0xFF));
     }
 
     public void clearIterationPointers() {
@@ -236,7 +280,8 @@ public final class TransientStorage {
 
     public void clearOutgoingContinuation() {
         setOutgoingContinuation((short) 0, (short) 0);
-        setBoolByIdx(BOOL_IDX_X5C_LATER, false);
+        // clear state keeping bits too
+        tempBytes[IDX_BOOLEAN_OMNIBUS] = (byte)(tempBytes[IDX_BOOLEAN_OMNIBUS] & 0xFC);
     }
 
     public short getOutgoingContinuationOffset() {

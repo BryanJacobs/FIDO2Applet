@@ -165,6 +165,11 @@ on-device wrapping key. Without doing that, they can read incidentals like:
 - how long each key's user ID is
 - how many different RPs in total have resident keys on the device
 - the credProtect level of each resident key
+- the length and contents of the stored "large blob array" (note:
+  the FIDO standard requires that the platform encrypt the contents
+  of the large blob array, so the authenticator implementation here
+  does not. What can be read is what the getLargeBlobs operation
+  returns without authentication anyhow...)
 
 What they can't do without decrypting the wrapping key is get at
 your actual credentials for sites - the private keys, the RP IDs,

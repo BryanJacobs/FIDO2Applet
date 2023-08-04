@@ -50,28 +50,19 @@ authenticator was useless - in other words, a true second factor.
 
 So I wrote a CTAP2 implementation that [had that property](security_model.md).
 
-## You say there are "caveats" for some implementation bits. What are those?
+## The implementation says you're not "standards compliant". Why?
 
 Well, first off, this app doesn't attempt to do a full CBOR parse, so its error
 statuses often aren't perfect and it's generally tolerant of invalid input.
 
 Secondly, the CTAP API requires user presence detection, but there's really no
 way to do that on Javacard 3.0.4. We can't even use the "presence timeout"
-that is described in the spec for NFC devices. So you're always treated as
-being present, which is to some extent offset by the fact that anything real
-requires you type your PIN (if one is set)... Additionally, this app will not
-clear CTAP2.1 PIN token permissions on use.
+that is described in the spec for NFC devices: there's no timer! So you're
+always treated as being present, which is to some extent offset by the fact
+that anything real requires you type your PIN (if one is set)... Additionally,
+this app will not clear CTAP2.1 PIN token permissions on use.
 
 So set a PIN, and unplug your card when you're not using it.
-
-Thirdly, implementing credProtect by storing values for non-discoverable
-credentials is a royal pain: it would require the key's generated credential IDs
-to be longer than the minimum 64 bytes. Rather than do that, this implementation
-just rejects the creation of level-three non-discoverable credentials while a PIN
-is unset. Discoverable credentials are always fine, although of course you can't
-USE level 3 credentials without setting a PIN...
-
-So, again, set a PIN.
 
 Finally, the CTAP2.0 and CTAP2.1 standards are actually mutually incompatible. When
 a getAssertion call is made with an `allowList` given, CTAP2.0 says that the
@@ -116,7 +107,8 @@ It will store:
 - up to 32 characters of the RP ID, again AES256 encrypted
 - a max 64-byte-long user ID, again AES256 encrypted
 - the 64-byte public key associated with the credential, again AES256 encrypted
-- A 16-byte random IV used for encrypting the RP ID, user ID, and public key
+- Several 16-byte random IVs used for encrypting the RP ID, user ID, public key,
+  large blob key, and the credential itself
 - the length of the RP ID, unencrypted
 - the length of the user ID, unencrypted
 - a boolean set to true on the first credential from a given RP ID, used
@@ -190,7 +182,9 @@ to be given trouble by software bugs than by your flash write endurance. Flash i
 writable buffer space if your smartcard has at least 2k of RAM, is only used for long request
 chaining if your smartcard has 1k of RAM, and is only used for "ordinary" requests if you're under
 around 200 bytes of RAM. Great care has been taken to make sure the most common operations like
-getPinToken and getKeyAgreement don't write to flash.
+getPinToken and getKeyAgreement don't write to flash unnecessarily.
+
+Note that operations like writing the largeBlobStore will, of course, use flash.
 
 If you want to assess exactly what is and is not in RAM on your particular Javacard, you can install
 the applet and send APDUs like the following:

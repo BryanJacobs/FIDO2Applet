@@ -16,7 +16,7 @@ class CTAPBasicsTestCase(CTAPTestCase):
 
     def test_info_supported_extensions(self):
         info = self.ctap2.get_info()
-        self.assertEqual(["credBlob", "credProtect", "hmac-secret"], info.extensions)
+        self.assertEqual(["credBlob", "credProtect", "hmac-secret", "largeBlobKey"], info.extensions)
 
     def test_info_aaguid_none(self):
         info = self.ctap2.get_info()
@@ -129,7 +129,7 @@ class CTAPBasicsTestCase(CTAPTestCase):
         self.assertEqual(CtapError.ERR.CREDENTIAL_EXCLUDED, e2.exception.code)
 
     def test_multiple_matching_rks(self):
-        creds_to_make = 3
+        creds_to_make = 5
         self.basic_makecred_params['options'] = {
             'rk': True
         }
@@ -146,9 +146,10 @@ class CTAPBasicsTestCase(CTAPTestCase):
         with self.assertRaises(CtapError) as e:
             self.ctap2.get_next_assertion()
         self.assertEqual(CtapError.ERR.NO_CREDENTIALS, e.exception.code)
-        self.assertEqual(sorted([x.auth_data.credential_data.credential_id for x in creds]),
-                         sorted([x.credential['id'] for x in asserts])
-                         )
+        self.assertEqual(
+            [x.auth_data.credential_data.credential_id for x in creds][::-1],
+            [x.credential['id'] for x in asserts]
+        )
 
     def test_makecred_rk_disallowed_by_exclude_list(self):
         non_resident_cred = self.ctap2.make_credential(**self.basic_makecred_params)

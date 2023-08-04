@@ -13,6 +13,7 @@ class AttestationModeSwitchTestCase(BasicAttestationTestCase):
         super().setUp(bytes([0x01]))
 
     @parameterized.expand([
+        ("tiny", 3),
         ("very short", 140),
         ("short", 300),
         ("medium", 900),
@@ -36,6 +37,37 @@ class AttestationModeSwitchTestCase(BasicAttestationTestCase):
 
         cred_res = self.ctap2.make_credential(**self.basic_makecred_params)
         self.assertEqual(self.cert, cred_res.att_stmt['x5c'][0])
+        self.assertIsNone(cred_res.large_blob_key)
+
+    @parameterized.expand([
+        ("tiny", 3),
+        ("very short", 140),
+        ("short", 300),
+        ("medium", 900),
+        ("long", 2000),
+        ("very long", 8000),
+    ])
+    def test_applying_cert_len_with_large_blob(self, _, length):
+        info_before = self.ctap2.get_info()
+        self.assertEqual(Aaguid.NONE, info_before.aaguid)
+
+        cert_bytes = secrets.token_bytes(length)
+        cert = self.gen_attestation_cert([cert_bytes])
+
+        self.ctap2.send_cbor(
+            self.VENDOR_COMMAND_SWITCH_ATT,
+            args(cert)
+        )
+
+        info_after = self.ctap2.get_info()
+        self.assertEqual(self.aaguid, info_after.aaguid)
+
+        self.basic_makecred_params['options'] = {'rk': True}
+        self.basic_makecred_params['extensions'] = {'largeBlobKey': True}
+        cred_res = self.ctap2.make_credential(**self.basic_makecred_params)
+        self.assertEqual(self.cert, cred_res.att_stmt['x5c'][0])
+        self.assertIsNotNone(cred_res.large_blob_key)
+        self.assertEqual(32, len(cred_res.large_blob_key))
 
     def test_u2f_supported_after_switch(self):
         info_before = self.ctap2.get_info()

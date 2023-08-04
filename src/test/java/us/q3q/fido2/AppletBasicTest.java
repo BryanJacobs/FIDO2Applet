@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 /**
  * Example (only example) unit tests with jcardsim
  */
-public class UnitTesting {
+public class AppletBasicTest {
 
     CardSimulator simulator;
     AID appletAID = AIDUtil.create("F000000001");
@@ -147,7 +147,7 @@ public class UnitTesting {
 
         byte[] respWithoutStatus = new byte[resp.length-2];
         System.arraycopy(resp, 0, respWithoutStatus, 0, resp.length-2);
-        assertEquals("U2F_V2", new String(respWithoutStatus));
+        assertEquals("FIDO_2_0", new String(respWithoutStatus));
     }
 
 }

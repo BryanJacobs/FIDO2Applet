@@ -3,6 +3,7 @@ from typing import Optional
 
 from fido2.ctap import CtapError
 from fido2.ctap2 import Config, ClientPin, PinProtocolV2
+from fido2.ctap2.extensions import MinPinLengthExtension
 from parameterized import parameterized
 
 from .ctap_test import CTAPTestCase
@@ -144,3 +145,9 @@ class SetMinPinTestCase(CTAPTestCase):
             self.get_cfg().set_min_pin_length(force_change_pin=True)
 
         self.assertEqual(CtapError.ERR.PIN_NOT_SET, e.exception.code)
+
+    def test_accepts_extension_on_makecred(self):
+        client = self.get_high_level_client([MinPinLengthExtension])
+        client.make_credential(self.get_high_level_make_cred_options(extensions={
+            "minPinLength": True
+        }))
