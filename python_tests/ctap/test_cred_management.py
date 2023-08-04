@@ -7,7 +7,7 @@ from fido2.ctap2 import ClientPin, Config, PinProtocolV2
 from .ctap_test import CTAPTestCase
 
 
-class CTAPPINTestCase(CTAPTestCase):
+class CredManagementTestCase(CTAPTestCase):
 
     cp: ClientPin
 
@@ -55,7 +55,7 @@ class CTAPPINTestCase(CTAPTestCase):
         with self.assertRaises(CtapError) as e:
             Config(self.ctap2).toggle_always_uv()
 
-        self.assertEqual(CtapError.ERR.MISSING_PARAMETER, e.exception.code)
+        self.assertEqual(CtapError.ERR.PUAT_REQUIRED, e.exception.code)
 
     def test_toggling_alwaysUv_survives_soft_reset(self):
         Config(self.ctap2).toggle_always_uv()

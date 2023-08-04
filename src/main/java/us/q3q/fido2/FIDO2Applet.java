@@ -130,6 +130,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * True if the device has been locked with a PIN; false in initial boot state before PIN set
      */
     private boolean pinSet;
+    /**
+     * Minimum number of UTF-8 code points in PIN
+     */
+    private byte minPinLength = 4;
+    /**
+     * Require a PIN change before getting a new PIN token
+     */
+    private boolean forcePinChange = false;
 
 
     // Fields for negotiating auth with the platform
@@ -3565,12 +3573,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      *
      * @param apdu Request/response object
      * @param reqBuffer Buffer containing incoming request
-     * @param lcEffective Length of incoming request, as sent by the platform
+     * @param lc Length of incoming request, as sent by the platform
      */
-    private void authenticatorConfigSubcommand(APDU apdu, byte[] reqBuffer, short lcEffective) {
+    private void authenticatorConfigSubcommand(APDU apdu, byte[] reqBuffer, short lc) {
         short readIdx = (short) 1;
 
-        if (lcEffective < 2) {
+        if (lc < 2) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
         }
 
@@ -3583,14 +3591,86 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
         }
 
+        short cmdByteIdx = readIdx++;
+        short cmdParamsIdx = -1;
+        short cmdParamsLen = 0;
+        short authIndex = -1;
+
+        byte pinProtocol = 1;
+
+        for (short i = 1; i < numOptions; i++) {
+            switch (reqBuffer[readIdx++]) {
+                case 0x02: // map key: subCommandParams
+                    cmdParamsIdx = readIdx;
+                    readIdx = consumeAnyEntity(apdu, reqBuffer, readIdx, lc);
+                    cmdParamsLen = (short)(readIdx - cmdParamsIdx);
+                    break;
+                case 0x03: // map key: pinUvAuthProtocol
+                    pinProtocol = reqBuffer[readIdx++];
+                    checkPinProtocolSupported(apdu, pinProtocol);
+                    break;
+                case 0x04: // map key: pinUvAuthParam
+                    if (pinProtocol == 1) {
+                        if (reqBuffer[readIdx++] != 0x50) { // byte array, 16 bytes long
+                            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                        }
+                    } else {
+                        if (reqBuffer[readIdx++] != 0x58) { // byte array, one-byte length
+                            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                        }
+                        if (reqBuffer[readIdx++] != 0x20) { // 32 bytes long
+                            sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_LENGTH);
+                        }
+                    }
+                    authIndex = readIdx;
+                    break;
+                default:
+                    sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
+            }
+        }
+
+        if (pinSet || alwaysUv) {
+            if (authIndex == -1) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
+            }
+            if ((transientStorage.getPinPermissions() & FIDOConstants.PERM_AUTH_CONFIG) == 0x00) {
+                // PIN token doesn't have appropriate permissions for authenticator config
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+            }
+
+            // Create verification buffer
+            final short bufferSize = (short)(32 + cmdParamsLen + 1 + 1);
+            final short scratchHandle = bufferManager.allocate(apdu, bufferSize, BufferManager.ANYWHERE);
+            final byte[] scratchBuffer = bufferManager.getBufferForHandle(apdu, scratchHandle);
+            final short scratchOffset = bufferManager.getOffsetForHandle(scratchHandle);
+            Util.arrayFillNonAtomic(scratchBuffer, scratchOffset, (short) 32, (byte) 0xFF);
+            scratchBuffer[(short)(scratchOffset + 32)] = 0x0D;
+            scratchBuffer[(short)(scratchOffset + 33)] = reqBuffer[cmdByteIdx];
+            if (cmdParamsLen > 0) {
+                Util.arrayCopyNonAtomic(reqBuffer, cmdParamsIdx,
+                        scratchBuffer, (short)(scratchOffset + 34), cmdParamsLen);
+            }
+
+            checkPinToken(apdu, scratchBuffer, scratchOffset, bufferSize,
+                    reqBuffer, authIndex, pinProtocol);
+
+            // Whew, done.
+            bufferManager.release(apdu, scratchHandle, bufferSize);
+        }
+
+        // Rewind to the command byte
+        readIdx = cmdByteIdx;
+
         switch (reqBuffer[readIdx++]) {
             case FIDOConstants.AUTH_CONFIG_ENABLE_ENTERPRISE_ATTESTATION:
-            case FIDOConstants.AUTH_CONFIG_SET_MIN_PIN_LENGTH:
-                // We don't actually allow any of these things
+                // We don't actually allow enabling this
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
                 break;
+            case FIDOConstants.AUTH_CONFIG_SET_MIN_PIN_LENGTH:
+                setMinPin(apdu, reqBuffer, cmdParamsIdx, cmdParamsLen);
+                break;
             case FIDOConstants.AUTH_CONFIG_TOGGLE_ALWAYS_UV:
-                toggleAlwaysUv(apdu, reqBuffer, readIdx);
+                toggleAlwaysUv(apdu);
                 break;
             default:
                 // Spec says this is INVALID_PARAMETER, not CTAP2 INVALID_SUBCOMMAND
@@ -3599,51 +3679,102 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
     }
 
-    private void toggleAlwaysUv(APDU apdu, byte[] buffer, short readIdx) {
-        if (pinSet || alwaysUv) { // yes, you can't turn this off without a PIN
-            if (buffer[readIdx++] != 0x03) { // map key: pinUvAuthProtocol
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
-            }
-            byte pinProtocol = buffer[readIdx++];
-            checkPinProtocolSupported(apdu, pinProtocol);
-
-            if (buffer[readIdx++] != 0x04) { // map key: pinUvAuthParam
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
-            }
-            if (pinProtocol == 1) {
-                if (buffer[readIdx++] != 0x50) { // byte array, 16 bytes long
-                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
-                }
-            } else {
-                if (buffer[readIdx++] != 0x58) { // byte array, one-byte length
-                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
-                }
-                if (buffer[readIdx++] != 0x20) { // 32 bytes long
-                    sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_LENGTH);
-                }
-            }
-
-            if ((transientStorage.getPinPermissions() & FIDOConstants.PERM_AUTH_CONFIG) == 0x00) {
-                // PIN token doesn't have appropriate permissions for authenticator config
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
-            }
-
-            // Create verification buffer
-            final short bufferSize = (short)(32 + 1 + 1);
-            final short scratchHandle = bufferManager.allocate(apdu, bufferSize, BufferManager.ANYWHERE);
-            final byte[] scratchBuffer = bufferManager.getBufferForHandle(apdu, scratchHandle);
-            final short scratchOffset = bufferManager.getOffsetForHandle(scratchHandle);
-            Util.arrayFillNonAtomic(scratchBuffer, scratchOffset, (short) 32, (byte) 0xFF);
-            scratchBuffer[(short)(scratchOffset + 32)] = 0x0D;
-            scratchBuffer[(short)(scratchOffset + 33)] = FIDOConstants.AUTH_CONFIG_TOGGLE_ALWAYS_UV;
-
-            checkPinToken(apdu, scratchBuffer, scratchOffset, bufferSize,
-                    buffer, readIdx, pinProtocol);
-
-            // Whew, done.
-            bufferManager.release(apdu, scratchHandle, bufferSize);
+    /**
+     * Sets the minimum allowable PIN length
+     *
+     * @param apdu         Request/response context object
+     * @param buffer       Incoming request buffer
+     * @param readIdx      Index of command arguments in request buffer
+     * @param cmdParamsLen Length of command options
+     */
+    private void setMinPin(APDU apdu, byte[] buffer, short readIdx, short cmdParamsLen) {
+        if (cmdParamsLen == 0) {
+            // This is technically a fine command, but it does nothing
+            apdu.getBuffer()[0] = FIDOConstants.CTAP2_OK;
+            sendNoCopy(apdu, (short) 1);
+            return;
         }
 
+        byte newMinPINLength = minPinLength;
+        boolean newForceChangePIN = false;
+
+        short numEntries = getMapEntryCount(apdu, buffer[readIdx++]);
+        for (short i = 0; i < numEntries; i++) {
+            switch (buffer[readIdx++]) {
+                case 0x01: // newMinPinLength
+                    byte lenByte = buffer[readIdx++];
+                    if (lenByte == 0x18) {
+                        newMinPINLength = buffer[readIdx++];
+                    } else if (lenByte < 0x18) {
+                        newMinPINLength = lenByte;
+                    } else {
+                        sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
+                    }
+                    break;
+                case 0x02: // minPinLengthRPIDs
+                    if (buffer[readIdx++] != (byte) 0x80) { // empty array
+                        sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_KEY_STORE_FULL);
+                    }
+                    break;
+                case 0x03: // forceChangePIN
+                    switch (buffer[readIdx++]) {
+                        case (byte) 0xF4: // false
+                            break; // nothing to do here
+                        case (byte) 0xF5: // true
+                            newForceChangePIN = true;
+                            break;
+                        default:
+                            sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
+                    }
+                    break;
+                default:
+                    sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
+            }
+        }
+
+        if (newMinPINLength < minPinLength) {
+            // min PIN can go up but not down
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_POLICY_VIOLATION);
+        }
+
+        if (newMinPINLength > 63) {
+            // not a great idea.
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_POLICY_VIOLATION);
+        }
+
+        if (!pinSet && newForceChangePIN) {
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_NOT_SET);
+        }
+
+        JCSystem.beginTransaction();
+        boolean ok = false;
+        try {
+            if (newMinPINLength > minPinLength && pinSet) {
+                forcePinChange = true; // ALWAYS force a PIN change because we don't know the PIN length
+            }
+            minPinLength = newMinPINLength;
+            if (!forcePinChange) {
+                forcePinChange = newForceChangePIN;
+            }
+            ok = true;
+        } finally {
+            if (ok) {
+                JCSystem.commitTransaction();
+            } else {
+                JCSystem.abortTransaction();
+            }
+        }
+
+        apdu.getBuffer()[0] = FIDOConstants.CTAP2_OK;
+        sendNoCopy(apdu, (short) 1);
+    }
+
+    /**
+     * Toggle the state of the alwaysUv (require User Verification) option
+     *
+     * @param apdu Request/response context object
+     */
+    private void toggleAlwaysUv(APDU apdu) {
         alwaysUv = !alwaysUv;
 
         apdu.getBuffer()[0] = FIDOConstants.CTAP2_OK;
@@ -4448,6 +4579,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             numResidentRPs = 0;
 
             pinSet = false;
+            minPinLength = 4;
+            forcePinChange = false;
             alwaysUv = false;
             pinRetryCounter.reset(pinIdx);
 
@@ -4516,7 +4649,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         short offset = 0;
 
         buffer[offset++] = FIDOConstants.CTAP2_OK;
-        buffer[offset++] = (byte) 0xAA; // Map - ten keys
+        buffer[offset++] = (byte) 0xAF; // Map - fifteen keys
         buffer[offset++] = 0x01; // map key: versions
 
         if (alwaysUv || attestationData == null || filledAttestationData < attestationData.length) {
@@ -4536,30 +4669,26 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         offset = Util.arrayCopyNonAtomic(CannedCBOR.AUTH_INFO_SECOND, (short) 0,
                 buffer, offset, (short) CannedCBOR.AUTH_INFO_SECOND.length);
 
-        if (alwaysUv) { // alwaysUv
-            buffer[offset++] = (byte) 0xF5; // true
-        } else {
-            buffer[offset++] = (byte) 0xF4; // false
-        }
+        buffer[offset++] = (byte)(alwaysUv ? 0xF5 : 0xF4); // clientPin
 
         offset = Util.arrayCopyNonAtomic(CannedCBOR.AUTH_INFO_THIRD, (short) 0,
                 buffer, offset, (short) CannedCBOR.AUTH_INFO_THIRD.length);
 
-        if (pinSet) { // clientPin
-            buffer[offset++] = (byte) 0xF5; // true
-        } else {
-            buffer[offset++] = (byte) 0xF4; // false
-        }
+        buffer[offset++] = (byte)(pinSet ? 0xF5 : 0xF4); // clientPin
 
         offset = encodeIntLenTo(buffer, offset, (short) CannedCBOR.PIN_UV_AUTH_TOKEN.length, false);
         offset = Util.arrayCopyNonAtomic(CannedCBOR.PIN_UV_AUTH_TOKEN, (short) 0,
                 buffer, offset, (short) CannedCBOR.PIN_UV_AUTH_TOKEN.length);
-        buffer[offset++] = (byte) 0xF5; // true
+        buffer[offset++] = (byte) 0xF5; // pinUvAuthToken = true
+
+        offset = encodeIntLenTo(buffer, offset, (short) CannedCBOR.SET_MIN_PIN_LENGTH.length, false);
+        offset = Util.arrayCopyNonAtomic(CannedCBOR.SET_MIN_PIN_LENGTH, (short) 0,
+                buffer, offset, (short) CannedCBOR.SET_MIN_PIN_LENGTH.length);
+        buffer[offset++] = (byte) 0xF5; // setMinPINLength = true
 
         offset = encodeIntLenTo(buffer, offset, (short) CannedCBOR.MAKE_CRED_UV_NOT_REQD.length, false);
         offset = Util.arrayCopyNonAtomic(CannedCBOR.MAKE_CRED_UV_NOT_REQD, (short) 0,
                 buffer, offset, (short) CannedCBOR.MAKE_CRED_UV_NOT_REQD.length);
-
         buffer[offset++] = (byte) 0xF4; // makeCredUvNotRequired = false
 
         buffer[offset++] = 0x06; // map key: pinProtocols
@@ -4573,11 +4702,28 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         buffer[offset++] = 0x08; // map key: maxCredentialIdLength
         offset = encodeIntTo(buffer, offset, (byte) 64);
 
+        buffer[offset++] = 0x0A; // map key: algorithms
+        offset = Util.arrayCopyNonAtomic(CannedCBOR.ES256_ALG_TYPE, (short) 0,
+                buffer, offset, (short) CannedCBOR.ES256_ALG_TYPE.length);
+
+        buffer[offset++] = 0x0C; // map key: forcePinChange
+        buffer[offset++] = (byte)(forcePinChange ? 0xF5 : 0xF4);
+
+        buffer[offset++] = 0x0D; // map key: minPinLength
+        offset = encodeIntTo(buffer, offset, minPinLength);
+
         buffer[offset++] = 0x0E; // map key: firmwareVersion
         offset = encodeIntTo(buffer, offset, FIRMWARE_VERSION);
 
         buffer[offset++] = 0x0F; // map key: maxCredBlobLength
         offset = encodeIntTo(buffer, offset, (byte) MAX_CRED_BLOB_LEN);
+
+        buffer[offset++] = 0x10; // map key: maxRPIDsForSetMinPinLength
+        buffer[offset++] = 0x00; // zero
+
+        buffer[offset++] = 0x12; // map key: uvModality
+        buffer[offset++] = 0x19; // two-byte integer
+        offset = Util.setShort(buffer, offset, (short) 0x0200); // uvModality "none"
 
         buffer[offset++] = 0x14; // map key: remainingDiscoverableCredentials
         offset = encodeIntTo(buffer, offset, (byte)(NUM_RESIDENT_KEY_SLOTS - numResidentCredentials));
@@ -4853,6 +4999,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         bufferManager.informAPDUBufferAvailability(apdu, (short) 0xFF);
 
         testAndReadyPIN(apdu, pinBuffer, pinBufferOffset, pinProtocol, permissions);
+
+        if (forcePinChange) {
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_POLICY_VIOLATION);
+        }
+
         if (permRpIdLen != -1) {
             permissionsRpId[0] = 0x01; // RP ID restriction enabled
             Util.arrayCopyNonAtomic(
@@ -5206,17 +5357,46 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
         }
 
-        short realPinLength = 0;
-        for (; realPinLength < 64; realPinLength++) {
-            if (scratch[(short)(scratchOff + realPinLength)] == 0x00) {
+        short realPinLengthBytes = 0;
+        short realPinLengthPoints = 0;
+        short byteInCPCountDown = 0;
+        // TODO: count codepoints, not bytes
+        for (; realPinLengthBytes < 64; realPinLengthBytes++) {
+            byte curByte = scratch[(short)(scratchOff + realPinLengthBytes)];
+            if (curByte == 0x00) {
                 break;
             }
+            if (byteInCPCountDown > 0) {
+                if ((curByte & 0xC0) != 0x80) {
+                    // invalid follow-up byte
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_POLICY_VIOLATION);
+                }
+                byteInCPCountDown--;
+            } else {
+                realPinLengthPoints++;
+                if ((curByte & 0x80) == 0x00) {
+                    // one byte long
+                } else if ((curByte & 0xE0) == 0xC0) {
+                    // two bytes long
+                    byteInCPCountDown = 1;
+                } else if ((curByte & 0xF0) == 0xE0) {
+                    // three bytes long
+                    byteInCPCountDown = 2;
+                } else if ((curByte & 0xF8) == 0xF0) {
+                    // four bytes long - who uses one of these in their PIN?!
+                    byteInCPCountDown = 3;
+                }
+            }
         }
-        if (realPinLength < 4 || realPinLength > 63) {
+        if (byteInCPCountDown > 0) {
+            // invalid UTF-8
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_POLICY_VIOLATION);
+        }
+        if (realPinLengthPoints < minPinLength || realPinLengthPoints > 63) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_POLICY_VIOLATION);
         }
 
-        rawSetPIN(apdu, scratch, scratchOff, realPinLength);
+        rawSetPIN(apdu, scratch, scratchOff, realPinLengthBytes);
 
         byte[] outBuf = apdu.getBuffer();
         outBuf[0] = FIDOConstants.CTAP2_OK;

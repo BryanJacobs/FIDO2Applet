@@ -62,7 +62,7 @@ public abstract class CannedCBOR {
 
     static final byte[] AUTH_INFO_SECOND = {
                 0x04, // map key: options
-                    (byte) 0xA9, // map: nine entries
+                    (byte) 0xAA, // map: ten entries
                         0x62, // string: two bytes long
                             0x65, 0x70, // ep
                             (byte) 0xF4, // false
@@ -90,6 +90,11 @@ public abstract class CannedCBOR {
     static final byte[] MAKE_CRED_UV_NOT_REQD = {
             0x6D, 0x61, 0x6B, 0x65, 0x43, 0x72, 0x65, 0x64, 0x55, 0x76, 0x4E, 0x6F, 0x74, 0x52, 0x71, 0x64
     };
+
+    static final byte[] SET_MIN_PIN_LENGTH = {
+            0x73, 0x65, 0x74, 0x4D, 0x69, 0x6E, 0x50, 0x49, 0x4E, 0x4C, 0x65, 0x6E, 0x67, 0x74, 0x68, // setMinPINLength
+    };
+
     static final byte[] PIN_UV_AUTH_TOKEN = {
             0x70, 0x69, 0x6E, 0x55, 0x76, 0x41, 0x75, 0x74, 0x68, 0x54, 0x6F, 0x6B, 0x65, 0x6E
     };
@@ -160,5 +165,17 @@ public abstract class CannedCBOR {
     static final byte[] PUBLIC_KEY_TYPE = {
             0x70, 0x75, 0x62, 0x6C, 0x69, 0x63, 0x2D, 0x6B, 0x65, 0x79
           //   p     u     b     l     i     c     -     k     e     y
+    };
+
+    static final byte[] ES256_ALG_TYPE = {
+            (byte) 0x81, // array - one item
+                (byte) 0xA2, // map - two entries
+                    0x63, // string - three bytes long
+                        0x61, 0x6C, 0x67, // alg
+                        0x26, // -7 (alg ID for ES256)
+                    0x64, // string - four bytes long
+                        0x74, 0x79, 0x70, 0x65, // type
+                        0x6A, // string - ten bytes long
+                            0x70, 0x75, 0x62, 0x6C, 0x69, 0x63, 0x2D, 0x6B, 0x65, 0x79, // public-key
     };
 }

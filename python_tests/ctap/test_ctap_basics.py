@@ -22,6 +22,14 @@ class CTAPBasicsTestCase(CTAPTestCase):
         info = self.ctap2.get_info()
         self.assertEqual(Aaguid.NONE, info.aaguid)
 
+    def test_info_uv_modality_hint(self):
+        info = self.ctap2.get_info()
+        self.assertEqual(0x0200, info.uv_modality)
+
+    def test_info_supported_algs_hint(self):
+        info = self.ctap2.get_info()
+        self.assertEqual([{'alg': -7, "type": "public-key"}], info.algorithms)
+
     def test_make_credential_self_attestation(self):
         rp_id = secrets.token_hex(50)
         self.basic_makecred_params['rp']['id'] = rp_id
