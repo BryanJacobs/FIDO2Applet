@@ -30,6 +30,7 @@ class HMACSecretTestCase(CTAPTestCase):
     def test_hmac_and_credblob_together(self):
         blob = secrets.token_bytes(32)
         client = self.get_high_level_client(extensions=[HmacSecretExtension, CredBlobExtension])
+        hmac_only_client = self.get_high_level_client(extensions=[HmacSecretExtension])
         cred = client.make_credential(options=self.get_high_level_make_cred_options(
             resident_key=ResidentKeyRequirement.REQUIRED,
             extensions={
@@ -39,6 +40,17 @@ class HMACSecretTestCase(CTAPTestCase):
         ))
         salt1 = secrets.token_bytes(32)
         salt2 = secrets.token_bytes(32)
+        hmac_alone_assertion = hmac_only_client.get_assertion(
+            self.get_high_level_assertion_opts_from_cred(cred,
+                                                         extensions={
+                                                             "hmacGetSecret": {
+                                                                 "salt1": salt1,
+                                                                 "salt2": salt2,
+                                                             }
+                                                         })
+        )
+        self.assertIsNone(hmac_alone_assertion.get_response(0).authenticator_data.extensions.get("credBlob"))
+        correct_hm1, correct_hm2 = self.get_hmacs_from_result(hmac_alone_assertion.get_response(0))
 
         assertion = client.get_assertion(
             self.get_high_level_assertion_opts_from_cred(cred,
@@ -52,7 +64,8 @@ class HMACSecretTestCase(CTAPTestCase):
         )
 
         hm1, hm2 = self.get_hmacs_from_result(assertion.get_response(0))
-        self.assertNotEqual(hm1, hm2)
+        self.assertEqual(correct_hm1, hm1)
+        self.assertEqual(correct_hm2, hm2)
         self.assertEqual(blob, assertion.get_response(0).authenticator_data.extensions.get("credBlob"))
 
     def test_uv_and_non_uv_yield_different_values(self):
