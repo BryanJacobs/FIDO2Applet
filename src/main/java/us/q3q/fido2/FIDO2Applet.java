@@ -2745,7 +2745,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         boolean matches = false;
 
-        if (allowHighSecurity) {
+        if (allowHighSecurity && (!pinSet || transientStorage.getPinProtocolInUse() != 0)) {
             extractCredentialMixed(credentialBuffer, credentialIndex,
                     outputBuffer, outputOffset,
                     rkNum, false);
