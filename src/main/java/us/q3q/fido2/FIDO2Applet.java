@@ -719,8 +719,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                                 Util.arrayCompare(buffer, readIdx,
                                         CannedCBOR.LARGE_BLOB_EXTENSION_ID, (short) 0, sLen) == 0) {
                             readIdx += sLen;
-                            if (buffer[readIdx++] != (byte) 0xF5) { // largeBlobKey must be true if present
+                            if (buffer[readIdx] == (byte) 0xF4) {
+                                // largeBlobKey must be true if present
                                 sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
+                            } else if (buffer[readIdx] != (byte) 0xF5) {
+                                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                             }
                             largeBlobKeyRequested = true;
                         } else {
@@ -1883,8 +1886,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                                 byte valueByte = buffer[readIdx++];
                                 if (valueByte == (byte) 0xF5) { // true
                                     stateKeepingBuffer[(short)(stateKeepingIdx + 1)] |= 0x04;
-                                } else {
+                                } else if (valueByte == (byte) 0xF4) {
                                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_OPTION);
+                                } else {
+                                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                                 }
                                 continue;
                             }

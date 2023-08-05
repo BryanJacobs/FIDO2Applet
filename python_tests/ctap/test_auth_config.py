@@ -7,7 +7,7 @@ from fido2.ctap2 import ClientPin, Config, PinProtocolV2
 from .ctap_test import CTAPTestCase
 
 
-class CredManagementTestCase(CTAPTestCase):
+class AuthenticatorConfigTestCase(CTAPTestCase):
 
     cp: ClientPin
 
