@@ -129,13 +129,64 @@ class CredProtectTestCase(CTAPTestCase):
                                        level, policy, UserVerificationRequirement.DISCOURAGED,
                                        resident, discoverable_afterwards, usable_afterwards)
 
+    def test_strong_protected_creds_ignored_on_exclude_list_without_pin(self):
+        policy = CredProtectExtension.POLICY.REQUIRED
+        client = self.get_high_level_client(extensions=[CredProtectExtension])
+        res = client.make_credential(options=self.get_high_level_make_cred_options(
+            ResidentKeyRequirement.DISCOURAGED,
+            {
+                "credentialProtectionPolicy": policy
+            }
+        ))
+        self.basic_makecred_params['exclude_list'] = [{
+            "type": "public-key",
+            "id": res.attestation_object.auth_data.credential_data.credential_id
+        }]
+
+        self.ctap2.make_credential(**self.basic_makecred_params)
+
+    def test_level_3_protected_creds_ignored_on_exclude_list_without_pin(self):
+        policy = CredProtectExtension.POLICY.REQUIRED
+        client = self.get_high_level_client(extensions=[CredProtectExtension])
+        res = client.make_credential(options=self.get_high_level_make_cred_options(
+            ResidentKeyRequirement.REQUIRED,
+            {
+                "credentialProtectionPolicy": policy
+            }
+        ))
+        self.basic_makecred_params['exclude_list'] = [{
+            "type": "public-key",
+            "id": res.attestation_object.auth_data.credential_data.credential_id
+        }]
+
+        self.ctap2.make_credential(**self.basic_makecred_params)
+
+    def test_level_2_protected_creds_effective_on_exclude_list_without_pin(self):
+        policy = CredProtectExtension.POLICY.OPTIONAL_WITH_LIST
+        client = self.get_high_level_client(extensions=[CredProtectExtension])
+        res = client.make_credential(options=self.get_high_level_make_cred_options(
+            ResidentKeyRequirement.REQUIRED,
+            {
+                "credentialProtectionPolicy": policy
+            }
+        ))
+        self.basic_makecred_params['exclude_list'] = [{
+            "type": "public-key",
+            "id": res.attestation_object.auth_data.credential_data.credential_id
+        }]
+
+        with self.assertRaises(CtapError) as e:
+            self.ctap2.make_credential(**self.basic_makecred_params)
+
+        self.assertEqual(CtapError.ERR.CREDENTIAL_EXCLUDED, e.exception.code)
+
 
 class CredProtectRKVisTestCase(CredManagementBaseTestCase):
     @parameterized.expand([
         ("Level 3", 3, CredProtectExtension.POLICY.REQUIRED),
         ("Level 2", 2, CredProtectExtension.POLICY.OPTIONAL_WITH_LIST),
         ("Level 1", 1, CredProtectExtension.POLICY.OPTIONAL),
-        ("Omitted", 0, None),
+        ("Omitted", 1, None),
     ])
     def test_cred_protect_level_rk_visibility(self, _, level, policy):
         client = self.get_high_level_client(extensions=[CredProtectExtension],

@@ -832,7 +832,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
                 if (checkCredential(buffer, credIdIdx, CREDENTIAL_ID_LEN,
                         scratchRPIDHashBuffer, scratchRPIDHashOffset,
-                        scratchCredBuffer, scratchCredOffset, (short) -1, true)) {
+                        scratchCredBuffer, scratchCredOffset, (short) -1, pinAuthSuccess)) {
                     // This credential is a valid non-discoverable cred.
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CREDENTIAL_EXCLUDED);
                 }
@@ -987,7 +987,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 initSymmetricWrapperForRK(targetRKSlot, RK_IV_CRED_BLOB);
                 symmetricWrap(residentKeyCredBlobs, (short)(targetRKSlot * MAX_CRED_BLOB_LEN), MAX_CRED_BLOB_LEN,
                         residentKeyCredBlobs, (short) (targetRKSlot * MAX_CRED_BLOB_LEN));
-                byte residentKeyFlagByte = (byte) (0x80 | credProtectLevel);
+                byte effectiveCPLevel = credProtectLevel;
+                if (effectiveCPLevel == 0) {
+                    // "default" creds are saved as level one
+                    effectiveCPLevel = 1;
+                }
+                byte residentKeyFlagByte = (byte) (0x80 | effectiveCPLevel);
                 if (!foundMatchingRK) {
                     // We're filling an empty slot
                     numResidentCredentials++;
