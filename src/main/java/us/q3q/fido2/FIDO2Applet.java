@@ -17,11 +17,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private static final byte FIRMWARE_VERSION = 0x01;
     /**
-     * If true, permit the creation of resident keys without a PIN being set or provided.
-     * This is "normal" for a FIDO2 authenticator, but means keys on the device could be
-     * accessed in the event of a software bug or hardware fault.
+     * If true, default the `alwaysUv` option to on, and prevent disabling it.
      */
-    private static final boolean ALLOW_RESIDENT_KEY_CREATION_WITHOUT_PIN = true;
+    private static final boolean FORCE_ALWAYS_UV = false;
     /**
      * If true, the authenticator will refuse to reset itself until the following three steps happen in order:
      * <p>
@@ -305,7 +303,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * Set to true when the use of a PIN is forced for all operations
      */
-    private boolean alwaysUv;
+    private boolean alwaysUv = FORCE_ALWAYS_UV;
     /**
      * Everything that needs to be hot in RAM instead of stored to the flash. All goes away on deselect or reset!
      */
@@ -786,10 +784,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 // PIN is set, but no PIN-auth option was provided
                 // OR: PIN not set, but we've been asked not to do this without one
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
-            }
-            if (!ALLOW_RESIDENT_KEY_CREATION_WITHOUT_PIN && transientStorage.hasRKOption()) {
-                // Don't allow storing resident keys without a PIN set
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
             }
         }
         loadWrappingKeyIfNoPIN();
@@ -1376,10 +1370,16 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 if (len >= (byte) 0x40 && len <= (byte) 0x57) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
                 }
+                if (len == 0x58) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+                }
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
             }
         } else {
             if (len != 0x58) { // byte array, one-byte length
+                if (len >= 0x40 && len <= 0x57) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+                }
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
             }
             if (buffer[readIdx++] != desiredLength) {
@@ -3601,7 +3601,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 }
             }
 
-            if (pinSet) {
+            if (pinSet || alwaysUv) {
                 if (pinUvAuthIdx == -1) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
                 }
@@ -4277,6 +4277,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param apdu Request/response context object
      */
     private void toggleAlwaysUv(APDU apdu) {
+        if (FORCE_ALWAYS_UV) {
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_OPERATION_DENIED);
+        }
         alwaysUv = !alwaysUv;
 
         apdu.getBuffer()[0] = FIDOConstants.CTAP2_OK;
@@ -5083,7 +5086,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             pinSet = false;
             minPinLength = 4;
             forcePinChange = false;
-            alwaysUv = false;
+            alwaysUv = FORCE_ALWAYS_UV;
             pinRetryCounter.reset(pinIdx);
             Util.arrayFillNonAtomic(largeBlobStore, (short) 0, LARGE_BLOB_STORE_MAX_SIZE, (byte) 0x00);
             Util.arrayCopyNonAtomic(CannedCBOR.INITIAL_LARGE_BLOB_ARRAY, (short) 0,

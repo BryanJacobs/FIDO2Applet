@@ -13,7 +13,7 @@ system locally with [pam-u2f](https://github.com/Yubico/pam-u2f).
 
 100% of the FIDO2 CTAP2.1 spec is covered, with the exception of features
 that aren't physically on an ordinary smartcard, such as biometrics or
-other on-board user verification. The implementation is not 100% standards
+other on-board user verification. The implementation is not 100.0% standards
 compliant, but you can expect very good results generally.
 
 In order to run this outside a simulator, you will need

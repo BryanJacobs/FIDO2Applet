@@ -294,27 +294,42 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
 
     def get_high_level_make_cred_options(self,
                                          resident_key: ResidentKeyRequirement = ResidentKeyRequirement.DISCOURAGED,
-                                         extensions=None, rp_id: Optional[str] = None,
+                                         extensions=None, rp_id: Optional[str] = None, rp_stuff: Optional[dict] = None,
+                                         user_stuff: Optional[dict] = None,
+                                         client_data: Optional[bytes] = None,
+                                         user_verification: Optional[UserVerificationRequirement] = None,
                                          user_id: Optional[bytes] = None) -> PublicKeyCredentialCreationOptions:
         if extensions is None:
             extensions = {}
 
+        if client_data is None:
+            client_data = self.client_data
+
         if rp_id is None:
             rp_id = self.rp_id
 
-        if user_id is None:
-            user_id = self.basic_makecred_params['user']['id']
+        if user_verification is None:
+            user_verification = UserVerificationRequirement.DISCOURAGED
+
+        if rp_stuff is None:
+            rp_stuff = {
+                "name": "An RP Name",
+                "id": rp_id
+            }
+
+        if user_stuff is None:
+            if user_id is None:
+                user_id = self.basic_makecred_params['user']['id']
+
+            user_stuff = {
+                "name": "Bob",
+                "id": user_id
+            }
 
         return PublicKeyCredentialCreationOptions(
-            rp=PublicKeyCredentialRpEntity(
-                name="An RP Name",
-                id=rp_id
-            ),
-            user=PublicKeyCredentialUserEntity(
-                name="Bob",
-                id=user_id
-            ),
-            challenge=self.client_data,
+            rp=PublicKeyCredentialRpEntity(**rp_stuff),
+            user=PublicKeyCredentialUserEntity(**user_stuff),
+            challenge=client_data,
             pub_key_cred_params=[
                 PublicKeyCredentialParameters(
                     type=PublicKeyCredentialType.PUBLIC_KEY,
@@ -324,7 +339,7 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
             extensions=extensions,
             authenticator_selection=AuthenticatorSelectionCriteria(
                 resident_key=resident_key,
-                user_verification=UserVerificationRequirement.DISCOURAGED
+                user_verification=user_verification
             )
         )
 
@@ -375,10 +390,10 @@ class BasicAttestationTestCase(CTAPTestCase):
     aaguid: bytes
     cert: bytes
 
-    def install_attestation_cert(self):
+    def install_attestation_cert(self, **kwargs):
         self.ctap2.send_cbor(
             self.VENDOR_COMMAND_SWITCH_ATT,
-            args(self.gen_attestation_cert())
+            args(self.gen_attestation_cert(**kwargs))
         )
 
     def _short_to_bytes(self, b: int) -> list[int]:
