@@ -5167,7 +5167,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param apdu Request/response object
      */
     private void sendAuthInfo(APDU apdu) {
-        byte[] buffer = bufferMem;
+        byte[] buffer = apdu.getBuffer();
 
         short offset = 0;
 
@@ -5228,7 +5228,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         buffer[offset++] = 0x0A; // ten
 
         buffer[offset++] = 0x08; // map key: maxCredentialIdLength
-        offset = encodeIntTo(buffer, offset, (byte) 64);
+        offset = encodeIntTo(buffer, offset, (byte) CREDENTIAL_ID_LEN);
+
+        // We're going to have too much for one 256-byte buffer
+        // So let's split into two halves, one directly APDU-written and one saved
+        short amountInApduBuf = offset;
+        buffer = bufferMem;
+        offset = 0;
 
         buffer[offset++] = 0x0A; // map key: algorithms
         offset = Util.arrayCopyNonAtomic(CannedCBOR.ES256_ALG_TYPE, (short) 0,
@@ -5256,7 +5262,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         buffer[offset++] = 0x14; // map key: remainingDiscoverableCredentials
         offset = encodeIntTo(buffer, offset, (byte)(NUM_RESIDENT_KEY_SLOTS - numResidentCredentials));
 
-        doSendResponse(apdu, offset);
+        apdu.setOutgoingAndSend((short) 0, amountInApduBuf);
+        setupChainedResponse((short) 0, offset);
     }
 
     /**

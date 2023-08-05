@@ -68,9 +68,9 @@ I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/s
 | Resident keys                      | Implemented, default 50 slots (max 255)                 |
 | User Presence                      | User always considered present: not standards compliant |
 | ECDSA (SecP256r1)                  | Implemented                                             |
+| Other crypto, like ed25519         | Not implemented - availability depends on hardware      |
 | Self attestation                   | Implemented                                             |
 | Basic attestation with ECDSA certs | Implemented (see [install guide](docs/certs.md))        |
-| Other crypto, like ed25519         | Not implemented - availability depends on hardware      |
 | CTAP2.1 hmac-secret extension      | Implemented                                             |
 | CTAP2.1 alwaysUv option            | Implemented                                             |
 | CTAP2.1 credProtect option         | Implemented                                             |
@@ -79,7 +79,7 @@ I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/s
 | CTAP2.1 credential management      | Implemented                                             |
 | CTAP2.1 enterprise attestation     | Implemented but never provided to RPs                   |
 | CTAP2.1 authenticator config       | Implemented                                             |
-| CTAP2.1 minPinLength extension     | Implemented, zero RPID storage capacity                 |
+| CTAP2.1 minPinLength extension     | Implemented but never provided to RPs                   |
 | CTAP2.1 credBlob extension         | Implemented, discoverable creds only                    |
 | CTAP2.1 largeBlobKey extension     | Implemented                                             |
 | CTAP2.1 authenticatorLargeBlobs    | Implemented, default 1024 bytes storage (max 4k)        |
@@ -135,5 +135,5 @@ There are two compatibility issues in the table above:
 1. Some browsers support FIDO2 in theory but only allow USB security keys - this implementation
    is for PC/SC, and doesn't implement USB HID, so it will only work with FIDO2
    implementations that can handle e.g. NFC tokens instead of being restricted to USB. This prevents,
-   for example, Firefox on Linux from using FIDO2Applet. Phyiscally USB-connected smartcards are
+   for example, Firefox on Linux from using FIDO2Applet. Physically USB-connected smartcards are
    still PC/SC devices, not HID ones!
