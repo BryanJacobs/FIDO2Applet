@@ -725,6 +725,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                             } else if (buffer[readIdx] != (byte) 0xF5) {
                                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                             }
+                            readIdx++;
                             largeBlobKeyRequested = true;
                         } else {
                             readIdx += sLen;
@@ -1906,6 +1907,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                             // We've got a case of hmac-secret extension params!
                             // store the index and revisit it later, when we've handled the PIN protocol
                             hmacSecretReadIdx = readIdx;
+                            if ((buffer[readIdx] & 0xF0) != 0xA0) {
+                                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                            }
                             readIdx = consumeAnyEntity(apdu, buffer, readIdx, lc);
                         }
 
