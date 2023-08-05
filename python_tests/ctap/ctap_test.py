@@ -207,6 +207,7 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
     client_data: bytes
     rp_id: str
     basic_makecred_params: dict[str, Any]
+    USE_EXT_APDU = False
 
     def setUp(self, install_params: Optional[bytes] = None) -> None:
         self.basic_makecred_params = {
@@ -231,6 +232,9 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
                 FakeSCConnection(self.q_in, self.q_out),
                 'fake_device'
             )
+
+        if self.USE_EXT_APDU:
+            self.device.use_ext_apdu = True
 
         self.ctap2 = Ctap2(self.device)
         self.ctap1 = Ctap1(self.device)
