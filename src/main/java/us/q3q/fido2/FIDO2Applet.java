@@ -791,7 +791,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         if (!pinAuthSuccess) {
-            if (alwaysUv || (pinSet && transientStorage.hasRKOption())) {
+            if (alwaysUv || (pinSet && transientStorage.hasRKOption() && !USE_LOW_SECURITY_FOR_SOME_RKS)) {
                 // PIN is set, but no PIN-auth option was provided
                 // OR: PIN not set, but we've been asked not to do this without one
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
@@ -837,7 +837,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     continue;
                 }
 
-                short rkIndex = scanRKsForExactCredential(buffer, credIdIdx);
+                final short rkIndex = scanRKsForExactCredential(buffer, credIdIdx);
 
                 if (checkCredential(buffer, credIdIdx, CREDENTIAL_ID_LEN,
                         scratchRPIDHashBuffer, scratchRPIDHashOffset,
@@ -2395,6 +2395,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         short scannedRKs = 0;
         for (short i = 0; i < NUM_RESIDENT_KEY_SLOTS; i++) {
             if ((residentKeyState[i] & 0x80) == 0) {
+                // Ignore deleted creds, of course
                 continue;
             }
 
@@ -3811,7 +3812,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         final short scratchCredOffset = 170;
 
         // Allow using low-security RKs over U2F, because why not?
-        short rkIndex = scanRKsForExactCredential(apduBuf, credIdOffset);
+        final short rkIndex = scanRKsForExactCredential(apduBuf, credIdOffset);
 
         final boolean match = checkCredential(apduBuf, credIdOffset, CREDENTIAL_ID_LEN,
                 apduBuf, rpIdHashOffset,
