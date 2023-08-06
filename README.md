@@ -50,9 +50,25 @@ the JVM. And hey, interoperability testing, right? You can test with `libfido2`,
 or Python libraries, or the official FIDO Standards Tests (Javascript). The
 applet should pass everything you throw at it.
 
+To set up and run these tests, use:
+
+```shell
+python -m venv venv
+./venv/bin/pip install -U -r requirements.txt
+env JC_HOME=<your jckit> ./venv/bin/python -m unittest discover -s python_tests
+```
+
+By default, these will use extremely fast interprocess communication with the JVM -
+no PC/SC, just direct method calls on the running applet. The tests take less than
+fifteen seconds to run, for me, even though there are almost two hundred cases.
+You can change a variety of settings in `python_tests/ctap/ctap_test.py`,
+such as enabling logging of all CTAP traffic, or making the JVM wait for a remote
+debugger on startup, or using a VSmartCard PC/SC connection instead of direct method
+invocation.
+
 ## Contributing
 
-If you want to, feel free!
+If you want to, feel free! Just raise a pull request or open an issue.
 
 ## Where to go Next
 
