@@ -496,8 +496,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         transientStorage.clearAssertIterationPointer();
         final short chainOff = transientStorage.getChainIncomingReadOffset();
+        boolean extendedAPDU = apdu.getOffsetCdata() == ISO7816.OFFSET_EXT_CDATA;
 
-        if (!forceBuffering && chainOff == 0 && lc <= 256) {
+        if (extendedAPDU || (!forceBuffering && chainOff == 0 && lc <= 256)) {
             // Single-buffer packed case
             // Shift down so meaningful data start at offset 0
             Util.arrayCopyNonAtomic(buffer, apdu.getOffsetCdata(),
@@ -2194,8 +2195,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         boolean lastSend = numMatchesThisRP == 1 && firstCredIdx == 0;
 
         // If the APDU buffer is big enough, use it, confident our response won't overlap the written space
-        final boolean apduBufferIsLarge = apdu.getBuffer().length >= 2048;
-        final byte memPositioning = apduBufferIsLarge ? BufferManager.UPPER_APDU : BufferManager.NOT_APDU_BUFFER;
+        final boolean extendedAPDU = apdu.getOffsetCdata() == ISO7816.OFFSET_EXT_CDATA;
+        final boolean apduBufferIsLarge = apdu.getBuffer().length >= 2048
+                || extendedAPDU;
+        final byte memPositioning = BufferManager.NOT_APDU_BUFFER;
 
         if (!lastSend && (startingAllowedMemory & BufferManager.UPPER_APDU) != 0) {
             // Tricky situation: MOVE the allocations we already made into non-APDU storage,
@@ -2417,6 +2420,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         ecKeyPair.getPrivate().clearKey();
 
         transientStorage.setAssertIterationPointer(potentialAssertionIterationPointer);
+
+        if (extendedAPDU) {
+            // Just send it.
+            sendNoCopy(apdu, outputIdx);
+            return;
+        }
 
         if (!apduBufferIsLarge) {
             // We didn't write our output to the APDU buffer, so it must be copied there - in whole or in part
@@ -2965,8 +2974,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         final boolean x5c = transientStorage.shouldStreamX5CLater();
         final boolean lbk = transientStorage.shouldStreamLBKLater();
-        final short apduBlockSize = (short)(APDU.getOutBlockSize() - 2);
-        final short expectedLen = apdu.setOutgoing();
+        final boolean isExtendedAPDU = apdu.getOffsetCdata() == ISO7816.OFFSET_EXT_CDATA;
+        short apduBlockSize = (short)(APDU.getOutBlockSize() - 2);
+        short expectedLen = apdu.setOutgoing();
+        if (isExtendedAPDU) {
+            // long APDUs are wonderful things, aren't they?
+            apduBlockSize = 16000;
+            expectedLen = 16000;
+        }
 
         short totalOutputLen = outputLen;
         if (x5c) {
@@ -3377,9 +3392,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 boolean done = false;
                 if (attestationData == null) {
                     // Initial attestation data
+                    boolean extended = apdu.getOffsetCdata() == ISO7816.OFFSET_EXT_CDATA;
+                    final short apOffset = (short)(extended ?
+                            0: (apdu.getOffsetCdata() + 1));
+                    final short lcEffective = extended ? lc : (short)(lc - apOffset);
                     done = initAttestationKeyStart(apdu, bufferMem,
-                            (short) (apdu.getOffsetCdata() + 1),
-                            (short)(lc - apdu.getOffsetCdata() - 1));
+                            apOffset,
+                            lcEffective
+                    );
                 } else {
                     // How did we get here?
                     throwException(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
@@ -3526,9 +3546,21 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 dumpMemoryTransienceInfo(apdu);
                 break;
             case FIDOConstants.CMD_INSTALL_CERTS:
-                reqBuffer = fullyReadReq(apdu, lc, amtRead, false);
-                initAttestationKeyStart(apdu, reqBuffer, apdu.getOffsetCdata(),
-                        (short)(lc - apdu.getOffsetCdata()));
+                boolean extended = apdu.getOffsetCdata() == ISO7816.OFFSET_EXT_CDATA;
+                short apOffset;
+                lcEffective = (short)(lc - 5);
+                if (extended) {
+                    reqBuffer = apduBytes;
+                    apOffset = (short)(apdu.getOffsetCdata() + 5);
+                    if (lc > 255) {
+                        apOffset += 1;
+                        lcEffective -= 1;
+                    }
+                } else {
+                    reqBuffer = fullyReadReq(apdu, lc, amtRead, false);
+                    apOffset = apdu.getOffsetCdata();
+                }
+                initAttestationKeyStart(apdu, reqBuffer, apOffset, lcEffective);
                 break;
             default:
                 sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_COMMAND);
@@ -5357,6 +5389,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private void sendAuthInfo(APDU apdu) {
         byte[] buffer = apdu.getBuffer();
+        boolean longResponse = apdu.getOffsetCdata() == ISO7816.OFFSET_EXT_CDATA;
 
         short offset = 0;
 
@@ -5425,12 +5458,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         buffer[offset++] = 0x08; // map key: maxCredentialIdLength
         offset = encodeIntTo(buffer, offset, (byte) CREDENTIAL_ID_LEN);
+        final short amountInApduBuf = offset;
 
-        // We're going to have too much for one 256-byte buffer
-        // So let's split into two halves, one directly APDU-written and one saved
-        short amountInApduBuf = offset;
-        buffer = bufferMem;
-        offset = 0;
+        if (!longResponse) {
+            // We're going to have too much for one 256-byte buffer
+            // So let's split into two halves, one directly APDU-written and one saved
+            buffer = bufferMem;
+            offset = 0;
+        }
 
         buffer[offset++] = 0x0A; // map key: algorithms
         offset = Util.arrayCopyNonAtomic(CannedCBOR.ES256_ALG_TYPE, (short) 0,
@@ -5463,8 +5498,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         buffer[offset++] = 0x14; // map key: remainingDiscoverableCredentials
         offset = encodeIntTo(buffer, offset, (byte)(NUM_RESIDENT_KEY_SLOTS - numResidentCredentials));
 
-        apdu.setOutgoingAndSend((short) 0, amountInApduBuf);
-        setupChainedResponse((short) 0, offset);
+        if (longResponse) {
+            sendNoCopy(apdu, offset);
+        } else {
+            sendNoCopy(apdu, amountInApduBuf);
+            setupChainedResponse((short) 0, offset);
+        }
     }
 
     /**

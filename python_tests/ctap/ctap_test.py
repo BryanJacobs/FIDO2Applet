@@ -396,9 +396,10 @@ class BasicAttestationTestCase(CTAPTestCase):
     cert: bytes
 
     def install_attestation_cert(self, **kwargs):
+        cert = self.gen_attestation_cert(**kwargs)
         self.ctap2.send_cbor(
             self.VENDOR_COMMAND_SWITCH_ATT,
-            args(self.gen_attestation_cert(**kwargs))
+            args(cert)
         )
 
     def _short_to_bytes(self, b: int) -> list[int]:
