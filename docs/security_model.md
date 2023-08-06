@@ -23,14 +23,12 @@ of their software and the tamper-proofness of their hardware to
 protect private keying material.
 
 This app is different. In this app, when you set a PIN, the authenticator
-"wrapping key" - without which the authenticator cannot accesss its
-resident/discoverable credentials or external "level 3" credentials -
-is encrypted using a key derived from the PIN. In other words, if
-you could read all the authenticator's memory when a PIN is set, you
-would only find encrypted data.
-
-Note that any "level 3" protected credential uses the
-high-security key, even when non-discoverable.
+"wrapping key" - without which the authenticator cannot access its
+security "level 3" credentials (or, with certain configurations, any
+resident/discoverable credentials) - is encrypted using a key derived from
+the PIN. In other words, if you could read all the authenticator's memory
+when a PIN is set, you would only find encrypted data for those
+high-security credentials.
 
 ## Details: Security Levels
 
@@ -43,10 +41,11 @@ is then AES256-CBC encrypted along with the RP ID, using a random
 IV, and the result is used as the "credential ID". Which wrapping key
 is used depends on how the credential is generated:
 
-- credentials stored on the authenticator itself ("discoverable") use
-  the high security key
 - credentials created with `credProtect` level 3, "require user
-  verification for any discovery" also use the high security key
+  verification for any discovery" always use the high security key
+- credentials stored on the authenticator itself ("discoverable") use
+  the high security if the tunable `USE_LOW_SECURITY_FOR_SOME_RKS` is
+  false
 - other credentials (non-discoverable, `credProtect` level zero
   through two) use the low security key
 
@@ -158,7 +157,7 @@ flash memory read or computation corrupted, this is the same as
 the "malware" case above. **If not**, then we are in an interesting
 situation.
 
-If you set the alwaysUv flag, the attacker needs to decrypt the
+If you set the force-always-uv flag, the attacker needs to decrypt the
 on-device wrapping key. Without doing that, they can read incidentals like:
 - how many different resident keys are currently stored on the device
 - how long each key's RP ID is, if less than 32 characters
@@ -235,21 +234,24 @@ Open source is open.
 
 ## That's all too complicated! Show me a table!
 
-| Usage / Creation                      | L1D        | L2D        | L3D      | L1 | L2 | L3       |
-|---------------------------------------|------------|------------|----------|----|----|----------|
-| Provided, no PIN set                  | OK         | OK         | Software | OK | OK | Software |
-| Provided, PIN set, but unused         | Crypto (!) | Crypto (!) | Crypto   | OK | OK | Crypto   |
-| Provided, PIN set, used since unplug  | OK         | OK         | Software | OK | OK | Software |
-| Provided, PIN used                    | OK         | OK         | OK       | OK | OK | OK       |
-| Discovery, no PIN set                 | OK         | Software   | Software | NA | NA | NA       |
-| Discovery, PIN set, but unused        | Crypto (!) | Crypto     | Crypto   | NA | NA | NA       |
-| Discovery, PIN set, used since unplug | OK         | Software   | Software | NA | NA | NA       |
-| Discovery, PIN used                   | OK         | OK         | OK       | NA | NA | NA       |
+| Usage / Creation                      | L1D     | L2D      | L3D      | L1 | L2 | L3       |
+|---------------------------------------|---------|----------|----------|----|----|----------|
+| Provided, no PIN set                  | OK      | OK       | Software | OK | OK | Software |
+| Provided, PIN set, but unused         | Setting | Setting  | Crypto   | OK | OK | Crypto   |
+| Provided, PIN set, used since unplug  | OK      | OK       | Software | OK | OK | Software |
+| Provided, PIN used                    | OK      | OK       | OK       | OK | OK | OK       |
+| Discovery, no PIN set                 | OK      | Software | Software | NA | NA | NA       |
+| Discovery, PIN set, but unused        | Setting | Setting  | Crypto   | NA | NA | NA       |
+| Discovery, PIN set, used since unplug | OK      | Software | Software | NA | NA | NA       |
+| Discovery, PIN used                   | OK      | OK       | OK       | NA | NA | NA       |
 
 1. "L1D" is a credProtect level 1 discoverable credential
 1. Non-discoverable keys can't be discovered, of course
 1. "Crypto" means the scenario is prevented by the availability of the relevant key
 1. "Software" means the scenario is prevented by code inside the applet itself
+1. "Setting" means the value of the `USE_LOW_SECURITY_FOR_SOME_RKS` value determines whether
+   the scenario is "OK", "Crypto", or "Software". With `false`, the outcome will not comply
+   with the FIDO standards (a PIN will be required where it should not be)
 1. Three scenarios in the table above show undesirable outcomes
 
 So the difference between setting a PIN and not is that you get better protection of all L3

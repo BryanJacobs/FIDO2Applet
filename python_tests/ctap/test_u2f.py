@@ -103,10 +103,34 @@ class U2FTestCase(BasicAttestationTestCase):
                                     key_handle=cred.attestation_object.auth_data.credential_data.credential_id)
         self.assertEqual(27264, e.exception.code)
 
-    def test_discoverable_not_usable_over_u2f(self):
+    def test_discoverable_low_security_usable_over_u2f(self):
         client = self.get_high_level_client()
         cred = client.make_credential(options=self.get_high_level_make_cred_options(
             resident_key=ResidentKeyRequirement.REQUIRED
+        ))
+        self.ctap1.authenticate(client_param=secrets.token_bytes(32),
+                                app_param=self.rp_hash,
+                                key_handle=cred.attestation_object.auth_data.credential_data.credential_id)
+
+    def test_discoverable_med_security_usable_over_u2f(self):
+        client = self.get_high_level_client()
+        cred = client.make_credential(options=self.get_high_level_make_cred_options(
+            resident_key=ResidentKeyRequirement.REQUIRED,
+            extensions={
+                "credentialProtectionPolicy": CredProtectExtension.POLICY.OPTIONAL_WITH_LIST
+            }
+        ))
+        self.ctap1.authenticate(client_param=secrets.token_bytes(32),
+                                app_param=self.rp_hash,
+                                key_handle=cred.attestation_object.auth_data.credential_data.credential_id)
+
+    def test_discoverable_high_security_not_usable_over_u2f(self):
+        client = self.get_high_level_client(extensions=[CredProtectExtension])
+        cred = client.make_credential(options=self.get_high_level_make_cred_options(
+            resident_key=ResidentKeyRequirement.REQUIRED,
+            extensions={
+                "credentialProtectionPolicy": CredProtectExtension.POLICY.REQUIRED
+            }
         ))
         with self.assertRaises(ApduError) as e:
             self.ctap1.authenticate(client_param=secrets.token_bytes(32),
@@ -114,12 +138,16 @@ class U2FTestCase(BasicAttestationTestCase):
                                     key_handle=cred.attestation_object.auth_data.credential_data.credential_id)
         self.assertEqual(27264, e.exception.code)
 
-    def test_discoverable_not_usable_over_u2f_with_pin(self):
+    def test_discoverable_high_security_not_usable_over_u2f_with_pin(self):
         pin = secrets.token_hex(8)
         ClientPin(self.ctap2).set_pin(pin)
-        client = self.get_high_level_client(user_interaction=FixedPinUserInteraction(pin))
+        client = self.get_high_level_client(user_interaction=FixedPinUserInteraction(pin),
+                                            extensions=[CredProtectExtension])
         cred = client.make_credential(options=self.get_high_level_make_cred_options(
-            resident_key=ResidentKeyRequirement.REQUIRED
+            resident_key=ResidentKeyRequirement.REQUIRED,
+            extensions={
+                "credentialProtectionPolicy": CredProtectExtension.POLICY.REQUIRED
+            }
         ))
         with self.assertRaises(ApduError) as e:
             self.ctap1.authenticate(client_param=secrets.token_bytes(32),

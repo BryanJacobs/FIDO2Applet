@@ -1,4 +1,5 @@
 import secrets
+import unittest
 
 from fido2.client import ClientError
 from fido2.ctap import CtapError
@@ -118,8 +119,14 @@ class CredProtectTestCase(CTAPTestCase):
         ("Resident level 1 unusable without PIN", 1, CredProtectExtension.POLICY.OPTIONAL,
          True, False, False),
     ])
+    @unittest.skip("Depends on RK security level")
     def test_deviations_from_expectations(self, _, level, policy,
                                           resident, discoverable_afterwards, usable_afterwards):
+        """
+        These are tests that describe deviations from CTAP standard expectations.
+
+        These tests will pass if USE_LOW_SECURIY_FOR_SOME_RKS is false (high security mode), and fail otherwise.
+        """
         pin = secrets.token_hex(8)
         ClientPin(self.ctap2).set_pin(pin)
         ux = FixedPinUserInteraction(pin)

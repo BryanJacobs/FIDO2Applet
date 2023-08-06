@@ -36,6 +36,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private static final boolean PROTECT_AGAINST_MALICIOUS_RESETS = false;
     /**
+     * If true, credProtect level 0/1/2 (but not 3) resident keys will use the "low security"
+     * wrapping key. This improves CTAP2.1 standards compliance, but means those resident keys
+     * could be accessed without your PIN in the event of a compromise of the authenticator or
+     * a software bug.
+     */
+    private static final boolean USE_LOW_SECURITY_FOR_SOME_RKS = !FORCE_ALWAYS_UV;
+    /**
      * Maximum size for the in-memory portion of the "scratch" working buffer. Larger will reduce flash use.
      * If this is larger than the available memory, all available memory will be used.
      */
@@ -830,27 +837,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     continue;
                 }
 
+                short rkIndex = scanRKsForExactCredential(buffer, credIdIdx);
+
                 if (checkCredential(buffer, credIdIdx, CREDENTIAL_ID_LEN,
                         scratchRPIDHashBuffer, scratchRPIDHashOffset,
-                        scratchCredBuffer, scratchCredOffset, (short) -1, pinAuthSuccess)) {
-                    // This credential is a valid non-discoverable cred.
+                        scratchCredBuffer, scratchCredOffset, rkIndex, (byte)(pinAuthSuccess ? 3 : 2))) {
+                    // This credential is valid. Fail early.
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CREDENTIAL_EXCLUDED);
                 }
-
-                // This might be a resident credential.
-                // If, and only if, it's present in our currently-valid resident credentials, then we'll fail early.
-
-                short rkIndex = scanRKsForExactCredential(buffer, credIdIdx, pinAuthSuccess);
-
-                if (rkIndex >= 0) {
-                    // The RK is present and valid, but is it for THIS relying party?
-                    if (checkCredential(buffer, credIdIdx, CREDENTIAL_ID_LEN,
-                            scratchRPIDHashBuffer, scratchRPIDHashOffset,
-                            scratchCredBuffer, scratchCredOffset, rkIndex, true)) {
-                        sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CREDENTIAL_EXCLUDED);
-                    }
-                }
-
             }
         }
 
@@ -868,12 +862,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         // Non-resident credProtect Level 3 creds still need to use the high security key (to require PIN auth)
-        final boolean credMayUseLowSecurity = credProtectLevel < 3;
+        final boolean credMayUseLowSecurityForDiscoverable = credProtectLevel < 3;
         if (!transientStorage.hasRKOption()) {
             if (!encodeCredentialID(apdu, (ECPrivateKey) ecKeyPair.getPrivate(),
                     scratchRPIDHashBuffer, scratchRPIDHashOffset,
                     scratchCredBuffer, scratchCredOffset,
-                    (short) -1, credMayUseLowSecurity)) {
+                    (short) -1, credMayUseLowSecurityForDiscoverable)) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
             }
         }
@@ -916,7 +910,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     if (checkCredential(
                             residentKeyData, (short) (i * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN,
                             scratchRPIDHashBuffer, scratchRPIDHashOffset,
-                            decodedCredBuffer, decodedCredOffset, i, true)) {
+                            decodedCredBuffer, decodedCredOffset, i, (byte)(pinAuthSuccess ? 3 : 1))) {
                         // This credential matches the RP we're looking at.
                         foundRPMatchInRKs = true;
 
@@ -1009,10 +1003,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 counter.pack(residentKeyCounters, (short)(4 * targetRKSlot));
 
                 // Finally store the cred
+                boolean lowSecForRK = USE_LOW_SECURITY_FOR_SOME_RKS && credProtectLevel < 3;
                 if (!encodeCredentialID(apdu, (ECPrivateKey) ecKeyPair.getPrivate(),
                         scratchRPIDHashBuffer, scratchRPIDHashOffset,
                         scratchCredBuffer, scratchCredOffset,
-                        targetRKSlot, credMayUseLowSecurity)) {
+                        targetRKSlot, lowSecForRK)) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
                 }
                 Util.arrayCopy(scratchCredBuffer, scratchCredOffset,
@@ -1638,16 +1633,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             outBuffer[(short)(i * 2 + 1 + outOffset)] = rpIdHashBuffer[(short)(rpIdHashOffset + i)];
         }
 
-        if (rkNum >= 0) {
+        if (rkNum >= 0 && !USE_LOW_SECURITY_FOR_SOME_RKS) {
             lowSecurity = false;
         }
 
         AESKey key = lowSecurity ? lowSecurityWrappingKey : highSecurityWrappingKey;
-        byte[] iv = lowSecurity ? lowSecurityWrappingIV :
-                (rkNum < 0 ? externalCredentialIV : residentKeyIVs);
+        byte[] iv = rkNum >= 0 ? residentKeyIVs :
+                (lowSecurity ? lowSecurityWrappingIV : externalCredentialIV);
         short ivOffset = rkNum < 0 ? (short) 0 :
                 (short)((rkNum * NUM_IVS_PER_RK + RK_IV_CRED) * RESIDENT_KEY_IV_LEN);
-
         symmetricWrapper.init(key, Cipher.MODE_ENCRYPT,
                 iv, ivOffset, RESIDENT_KEY_IV_LEN);
         final short encryptedBytes = symmetricWrapper.doFinal(outBuffer, outOffset, CREDENTIAL_ID_LEN,
@@ -2016,25 +2010,18 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
                     boolean acceptedMatch = false;
 
+                    // The FIDO compliance tests check that deleting a resident credential also makes
+                    // attempts to use it via the allowList fail. So we'll run through our stored keys and validate
+                    // that we have something matching this before we accept it
+                    rkMatch = scanRKsForExactCredential(buffer, pubKeyIdx);
+
                     // We need to check all the creds in the list when given an allowList
                     // Note that we do not allow the use of the high-security key for nonresident credentials...
                     // ... UNLESS a PIN was provided
                     if (checkCredential(buffer, pubKeyIdx, pubKeyLen, scratchRPIDHashBuffer, scratchRPIDHashIdx,
-                            credTempBuffer, credTempOffset, (short) -1, pinProvided)) {
+                            credTempBuffer, credTempOffset, rkMatch, (byte)(pinProvided ? 3 : 2))) {
                         // valid non-resident credential
                         acceptedMatch = true;
-                    } else {
-                        // The FIDO compliance tests check that deleting a resident credential also makes
-                        // attempts to use it via the allowList fail. So we'll run through our stored keys and validate
-                        // that we have something matching this before we accept it
-                        rkMatch = scanRKsForExactCredential(buffer, pubKeyIdx, pinProvided);
-
-                        if (rkMatch >= 0) {
-                            if (checkCredential(buffer, pubKeyIdx, pubKeyLen, scratchRPIDHashBuffer, scratchRPIDHashIdx,
-                                    credTempBuffer, credTempOffset, rkMatch, true)) {
-                                acceptedMatch = true;
-                            }
-                        }
                     }
 
                     if (acceptedMatch) {
@@ -2084,13 +2071,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 if (i != (short)(firstCredIdx - 1)) {
                     if (checkCredential(residentKeyData, (short) (i * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN,
                             scratchRPIDHashBuffer, scratchRPIDHashIdx,
-                            credTempBuffer, credTempOffset, i, true)) {
+                            credTempBuffer, credTempOffset, i, (byte)(pinAuthPerformed ? 3 : 1))) {
                         // Got a resident key hit!
-                        final byte credProtectLevel = (byte)(residentKeyState[i] & 0x03);
-                        if (!pinAuthPerformed && credProtectLevel > 1) {
-                            // Without PIN auth, ignore this high-security credential
-                            continue;
-                        }
 
                         numMatchesThisRP++;
 
@@ -2400,13 +2382,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      *
      * @param buffer Buffer containing encoded credential ID
      * @param credIdx Index of credential ID in input buffer
-     * @param pinAuthSuccess True if the user has verified themselves with a PIN
      *
      * @return index of RK if credential is present, valid, and its level usable with the
      *         amount of PIN auth performed; negative number otherwise
      */
-    private short scanRKsForExactCredential(byte[] buffer, short credIdx,
-                                            boolean pinAuthSuccess) {
+    private short scanRKsForExactCredential(byte[] buffer, short credIdx) {
         short scannedRKs = 0;
         for (short i = 0; i < NUM_RESIDENT_KEY_SLOTS; i++) {
             if ((residentKeyState[i] & 0x80) == 0) {
@@ -2417,10 +2397,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             if (Util.arrayCompare(buffer, credIdx,
                     residentKeyData, (short)(CREDENTIAL_ID_LEN * i), CREDENTIAL_ID_LEN) == 0) {
                 // Match! This credential is still valid in our RK list
-                if (pinAuthSuccess || (residentKeyState[i] & 0x03) < 3) {
-                    // credProtect Level 3 credentials are not usable unless the PIN is set
-                    return i;
-                }
+                return i;
             }
 
             if (++scannedRKs == numResidentCredentials) {
@@ -2735,22 +2712,43 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      *                     needs CREDENTIAL_ID_LEN bytes available
      * @param outputOffset Offset into the output buffer for write
      * @param rkNum if the credential was created as a resident/discoverable key, its index; -1 otherwise
-     * @param allowHighSecurity if true, this cred is checked with the high security wrapping key
+     * @param maximumCredProtectLevel only return credentials with this security level or lower
      *
      * @return true if the credential decrypts to match the given RP ID hash, false otherwise
      */
     private boolean checkCredential(byte[] credentialBuffer, short credentialIndex, short credentialLen,
                                     byte[] rpIdBuf, short rpIdHashIdx,
                                     byte[] outputBuffer, short outputOffset,
-                                    short rkNum, boolean allowHighSecurity) {
+                                    short rkNum, byte maximumCredProtectLevel) {
         if (credentialLen != CREDENTIAL_ID_LEN) {
             // Someone's playing silly games...
             return false;
         }
 
+        // Use these vars to avoid unnecessary decryption attempts
+        boolean potentiallyTryLowSecKey = true;
+        boolean potentiallyTryHighSecKey = maximumCredProtectLevel >= 3;
+
+        if (rkNum >= 0) {
+            // Check credProtect level first, for resident keys
+            byte credProtectLevel = (byte)(residentKeyState[rkNum] & 0x03); // cred protect level
+            if (credProtectLevel > maximumCredProtectLevel) {
+                // this cred is ignored because it's too high-security for this context
+                return false;
+            }
+            if (!USE_LOW_SECURITY_FOR_SOME_RKS || credProtectLevel > 2) {
+                // No point trying the low-sec key for credProtect=3 RKs, or if they're all "high security"
+                potentiallyTryLowSecKey = false;
+            }
+            if (USE_LOW_SECURITY_FOR_SOME_RKS && credProtectLevel < 3) {
+                // No point trying the high security key for "low security" RKs either
+                potentiallyTryHighSecKey = false;
+            }
+        }
+
         boolean matches = false;
 
-        if (allowHighSecurity && (!pinSet || transientStorage.getPinProtocolInUse() != 0)) {
+        if (potentiallyTryHighSecKey) {
             extractCredentialMixed(credentialBuffer, credentialIndex,
                     outputBuffer, outputOffset,
                     rkNum, false);
@@ -2770,8 +2768,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
         }
 
-        if (!matches && rkNum < 0) {
-            // Try again with the low-security key
+        if (!matches && potentiallyTryLowSecKey) {
+            // Try (again?) with the low-security key
             extractCredentialMixed(credentialBuffer, credentialIndex,
                     outputBuffer, outputOffset,
                     rkNum, true);
@@ -2811,11 +2809,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                                         byte[] outputBuffer, short outputOffset, short residentKeyNum,
                                         boolean lowSecurity) {
         boolean isResident = residentKeyNum >= 0;
-        final byte[] iv = (lowSecurity && !isResident) ? lowSecurityWrappingIV :
-                (isResident ? residentKeyIVs : externalCredentialIV);
+        final byte[] iv = isResident ? residentKeyIVs :
+            (lowSecurity ? lowSecurityWrappingIV : externalCredentialIV);
         final short ivOffset = !isResident ? (short) 0 :
                 (short)((residentKeyNum * NUM_IVS_PER_RK + RK_IV_CRED) * RESIDENT_KEY_IV_LEN);
-        AESKey key = (lowSecurity && !isResident) ? lowSecurityWrappingKey : highSecurityWrappingKey;
+        AESKey key = lowSecurity ? lowSecurityWrappingKey : highSecurityWrappingKey;
         symmetricUnwrapper.init(key, Cipher.MODE_DECRYPT, iv, ivOffset, RESIDENT_KEY_IV_LEN);
         symmetricUnwrap(credentialBuffer, credentialIndex, CREDENTIAL_ID_LEN,
                 outputBuffer, outputOffset);
@@ -3789,9 +3787,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         final byte[] scratchCredBuffer = apduBuf;
         final short scratchCredOffset = 170;
 
+        // Allow using low-security RKs over U2F, because why not?
+        short rkIndex = scanRKsForExactCredential(apduBuf, credIdOffset);
+
         final boolean match = checkCredential(apduBuf, credIdOffset, CREDENTIAL_ID_LEN,
                 apduBuf, rpIdHashOffset,
-                scratchCredBuffer, scratchCredOffset, (short) -1, false);
+                scratchCredBuffer, scratchCredOffset, rkIndex, (byte) 2);
 
         if (!match) {
             // Not a valid credential
@@ -4546,7 +4547,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                             residentKeyData, (short)(i * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN,
                             permissionsRpId, (short) 1,
                             scratchExtractedCredBuffer, scratchExtractedCredOffset,
-                            i, true
+                            i, (byte) 3
                     )) {
                         // permissions RP ID in use, but doesn't match RP of this credential
                         sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
@@ -4665,7 +4666,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         }
                         if (checkCredential(residentKeyData, (short)(otherRKIdx * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN,
                                 outBuf, rpIdHashIdx,
-                                outBuf, unpackedSecondCredIdx, otherRKIdx, true)) {
+                                outBuf, unpackedSecondCredIdx, otherRKIdx, (byte) 3)) {
                             // match. this is our promotion candidate!
                             rpHavingSameRP = otherRKIdx;
                             break;
@@ -4791,7 +4792,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             if (checkCredential(
                     residentKeyData, (short) (rkIndex * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN,
                     rpIdHashBuf, rpIdHashIdx,
-                    rpIdHashBuf, credIdIdx, rkIndex, true)) {
+                    rpIdHashBuf, credIdIdx, rkIndex, (byte) 3)) {
                 // Cred is for this RP ID, yay.
 
                 byte matchingCount = 1; // remember to count THIS cred as a match
@@ -4808,7 +4809,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                                 residentKeyData, (short)(otherCredIdx * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN,
                                 rpIdHashBuf, rpIdHashIdx,
                                 // okay to clobber decrypted data from other cred; it's unused
-                                rpIdHashBuf, credIdIdx, otherCredIdx, true
+                                rpIdHashBuf, credIdIdx, otherCredIdx, (byte) 3
                         )) {
                             matchingCount++;
                         }
