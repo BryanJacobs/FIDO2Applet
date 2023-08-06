@@ -4977,6 +4977,63 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     }
 
     /**
+     * We can create credentials with incorrect "unique RP" flags if:
+     * 1. we create a high-security RK
+     * 2. we create a low-security RK from the same RP, when the PIN isn't provided
+     * So we might have some keys which are incorrectly flagged as being from unique RPs...
+     * This method goes through and fixes those. It should only be called when the
+     * high-security key is available for use.
+     * This is, unfortunately, O(N^2) in the number of unique RPs.
+     */
+    private void updateRKStatekeeping(APDU apdu) {
+        short rp2Handle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.ANYWHERE);
+        byte[] rp2Buffer = bufferManager.getBufferForHandle(apdu, rp2Handle);
+        short rp2Offset = bufferManager.getOffsetForHandle(rp2Handle);
+
+        short rp1Handle = bufferManager.allocate(apdu, RP_HASH_LEN, BufferManager.ANYWHERE);
+        byte[] rp1Buffer = bufferManager.getBufferForHandle(apdu, rp1Handle);
+        short rp1Offset = bufferManager.getOffsetForHandle(rp1Handle);
+
+        byte numUniqueRPsFound = 0;
+
+        for (short rkIndex1 = 0; rkIndex1 < numResidentCredentials; rkIndex1++) {
+            if ((residentKeyState[rkIndex1] & 0xC0) != 0xC0) {
+                // definitely non-unique (or inactive) RP
+                continue;
+            }
+            numUniqueRPsFound++;
+            extractRKMixed(residentKeyData, (short)(CREDENTIAL_ID_LEN * rkIndex1),
+                    rp2Buffer, rp2Offset, rkIndex1);
+            unmixRPID(rp2Buffer, rp2Offset);
+            Util.arrayCopyNonAtomic(rp2Buffer, rp2Offset,
+                    rp1Buffer, rp1Offset, RP_HASH_LEN);
+            for (short rkIndex2 = (short)(rkIndex1 + 1); rkIndex2 < numResidentCredentials; rkIndex2++) {
+                if ((residentKeyState[rkIndex2] & 0xC0) != 0xC0) {
+                    // definitely non-unique (or inactive) RP
+                    continue;
+                }
+
+                // Two different RPs; compare!
+                extractRKMixed(residentKeyData, (short)(CREDENTIAL_ID_LEN * rkIndex2),
+                        rp2Buffer, rp2Offset, rkIndex2);
+                unmixRPID(rp2Buffer, rp2Offset);
+
+                if (Util.arrayCompare(rp1Buffer, rp1Offset,
+                        rp2Buffer, rp2Offset, RP_HASH_LEN) == 0) {
+                    // They're the same picture.
+                    // Mark second RPID non-unique
+                    residentKeyState[rkIndex2] = (byte)(residentKeyState[rkIndex2] & 0xAF);
+                }
+            }
+        }
+
+        numResidentRPs = numUniqueRPsFound;
+
+        bufferManager.release(apdu, rp1Handle, RP_HASH_LEN);
+        bufferManager.release(apdu, rp2Handle, CREDENTIAL_ID_LEN);
+    }
+
+    /**
      * Handles enumerating stored RPs on the authenticator
      *
      * @param apdu Request/response offset
@@ -4990,6 +5047,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         // if anything goes wrong, iteration will need to be restarted
         transientStorage.clearIterationPointers();
+
+        if (startOffset == 0 && !FORCE_ALWAYS_UV && USE_LOW_SECURITY_FOR_SOME_RKS) {
+            // "garbage collect" the RK state-keeping before we start
+            // the RK meta-info could be corrupted by creating RKs when the high-security key is unavailable...
+            updateRKStatekeeping(apdu);
+        }
 
         short scannedRKs = 0;
         short rkIndex;
