@@ -907,6 +907,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         continue;
                     }
 
+                    // Fixed maxCredProtectLevel=3 below would allow clobbering high-security credentials
+                    // even when we haven't PIN-authenticated...
                     if (checkCredential(
                             residentKeyData, (short) (i * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN,
                             scratchRPIDHashBuffer, scratchRPIDHashOffset,
@@ -958,6 +960,23 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             try {
                 random.generateData(residentKeyIVs, (short)(targetRKSlot * NUM_IVS_PER_RK * RESIDENT_KEY_IV_LEN),
                         (short)(RESIDENT_KEY_IV_LEN * NUM_IVS_PER_RK));
+                // Set flag byte first, so encryption stuff below can use it
+                byte effectiveCPLevel = credProtectLevel;
+                if (effectiveCPLevel == 0) {
+                    // "default" creds are saved as level one
+                    effectiveCPLevel = 1;
+                }
+                byte residentKeyFlagByte = (byte) (0x80 | effectiveCPLevel);
+                if (!foundMatchingRK) {
+                    // We're filling an empty slot
+                    numResidentCredentials++;
+                    if (!foundRPMatchInRKs) {
+                        residentKeyFlagByte |= 0x40;
+                    }
+                } else {
+                    residentKeyFlagByte = (byte)(residentKeyFlagByte | (residentKeyState[targetRKSlot] & 0x40));
+                }
+                residentKeyState[targetRKSlot] = residentKeyFlagByte;
                 residentKeyUserIdLengths[targetRKSlot] = (byte) userIdLen;
                 initSymmetricWrapperForRK(targetRKSlot, RK_IV_USER);
                 symmetricWrap(scratchUserIdBuffer, scratchUserIdOffset, MAX_USER_ID_LENGTH,
@@ -981,22 +1000,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 initSymmetricWrapperForRK(targetRKSlot, RK_IV_CRED_BLOB);
                 symmetricWrap(residentKeyCredBlobs, (short)(targetRKSlot * MAX_CRED_BLOB_LEN), MAX_CRED_BLOB_LEN,
                         residentKeyCredBlobs, (short) (targetRKSlot * MAX_CRED_BLOB_LEN));
-                byte effectiveCPLevel = credProtectLevel;
-                if (effectiveCPLevel == 0) {
-                    // "default" creds are saved as level one
-                    effectiveCPLevel = 1;
-                }
-                byte residentKeyFlagByte = (byte) (0x80 | effectiveCPLevel);
-                if (!foundMatchingRK) {
-                    // We're filling an empty slot
-                    numResidentCredentials++;
-                    if (!foundRPMatchInRKs) {
-                        residentKeyFlagByte |= 0x40;
-                    }
-                } else {
-                    residentKeyFlagByte = (byte)(residentKeyFlagByte | (residentKeyState[targetRKSlot] & 0x40));
-                }
-                residentKeyState[targetRKSlot] = residentKeyFlagByte;
                 if (!foundRPMatchInRKs) {
                     numResidentRPs++;
                 }
@@ -5013,7 +5016,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * Initializes symmetric unwrapper using the IV appropriate to the given resident key
      */
     private void initSymmetricUnwrapperForRK(short rkIndex, byte ivNum) {
-        symmetricUnwrapper.init(highSecurityWrappingKey, Cipher.MODE_DECRYPT, residentKeyIVs,
+        final byte credProt = (byte)(residentKeyState[rkIndex] & 0x03);
+        final boolean highSec = !USE_LOW_SECURITY_FOR_SOME_RKS || credProt > 2;
+        final AESKey key = highSec ? highSecurityWrappingKey : lowSecurityWrappingKey;
+        symmetricUnwrapper.init(key, Cipher.MODE_DECRYPT, residentKeyIVs,
                 (short) ((rkIndex * NUM_IVS_PER_RK + ivNum) * RESIDENT_KEY_IV_LEN), RESIDENT_KEY_IV_LEN);
     }
 
@@ -5021,7 +5027,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * Initializes symmetric wrapper using the IV appropriate to the given resident key
      */
     private void initSymmetricWrapperForRK(short rkIndex, byte ivNum) {
-        symmetricWrapper.init(highSecurityWrappingKey, Cipher.MODE_ENCRYPT, residentKeyIVs,
+        final byte credProt = (byte)(residentKeyState[rkIndex] & 0x03);
+        final boolean highSec = !USE_LOW_SECURITY_FOR_SOME_RKS || credProt > 2;
+        final AESKey key = highSec ? highSecurityWrappingKey : lowSecurityWrappingKey;
+        symmetricWrapper.init(key, Cipher.MODE_ENCRYPT, residentKeyIVs,
                 (short) ((rkIndex * NUM_IVS_PER_RK + ivNum) * RESIDENT_KEY_IV_LEN), RESIDENT_KEY_IV_LEN);
     }
 
