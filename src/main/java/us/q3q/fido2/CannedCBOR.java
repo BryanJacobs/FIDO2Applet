@@ -67,11 +67,6 @@ public abstract class CannedCBOR {
     };
 
     static final byte[] AUTH_INFO_SECOND = {
-                0x04, // map key: options
-                    (byte) 0xAB, // map: eleven entries
-                        0x62, // string: two bytes long
-                            0x65, 0x70, // ep
-                            (byte) 0xF4, // false
                         0x62, // string: two bytes long
                             0x72, 0x6B, // rk
                             (byte) 0xF5, // true
@@ -99,6 +94,10 @@ public abstract class CannedCBOR {
 
     static final byte[] SET_MIN_PIN_LENGTH = {
             0x73, 0x65, 0x74, 0x4D, 0x69, 0x6E, 0x50, 0x49, 0x4E, 0x4C, 0x65, 0x6E, 0x67, 0x74, 0x68, // setMinPINLength
+    };
+
+    static final byte[] MIN_PIN_LENGTH = {
+            0x6D, 0x69, 0x6E, 0x50, 0x69, 0x6E, 0x4C, 0x65, 0x6E, 0x67, 0x74, 0x68, // minPinLength
     };
 
     static final byte[] LARGE_BLOBS = {

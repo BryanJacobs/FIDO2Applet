@@ -28,7 +28,7 @@ class LargeBlobsTestCase(BasicAttestationTestCase):
         with self.assertRaises(CtapError) as e:
             self.ctap2.make_credential(**self.basic_makecred_params)
 
-        self.assertEqual(CtapError.ERR.INVALID_PARAMETER, e.exception.code)
+        self.assertEqual(CtapError.ERR.INVALID_OPTION, e.exception.code)
 
     def make_large_blob_key(self) -> AttestationResponse:
         params = copy.copy(self.basic_makecred_params)

@@ -18,6 +18,22 @@ class CTAPBasicsTestCase(CTAPTestCase):
         info = self.ctap2.get_info()
         self.assertEqual(["credBlob", "credProtect", "hmac-secret", "largeBlobKey"], info.extensions)
 
+    def test_info_supported_options(self):
+        info = self.ctap2.get_info()
+        self.assertEqual({
+            "alwaysUv": False,
+            "authnrCfg": True,
+            "clientPin": False,
+            "credMgmt": True,
+            "ep": False,
+            "largeBlobs": True,
+            "makeCredUvNotRqd": False,
+            "pinUvAuthToken": True,
+            "rk": True,
+            "setMinPINLength": True,
+            "up": False
+        }, info.options)
+
     def test_info_aaguid_none(self):
         info = self.ctap2.get_info()
         self.assertEqual(Aaguid.NONE, info.aaguid)

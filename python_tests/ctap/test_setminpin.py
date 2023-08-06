@@ -120,6 +120,7 @@ class SetMinPinTestCase(CTAPTestCase):
         info = self.ctap2.get_info()
 
         self.assertEqual(True, info.force_pin_change)
+        self.assertEqual(10, info.min_pin_length)
 
     def test_change_with_pin_to_same_length_does_not_force_change(self):
         self.pin = secrets.token_hex(10)
@@ -151,3 +152,13 @@ class SetMinPinTestCase(CTAPTestCase):
         client.make_credential(self.get_high_level_make_cred_options(extensions={
             "minPinLength": True
         }))
+
+    def test_rejects_false_extension_on_makecred(self):
+        self.basic_makecred_params['extensions'] = {
+            'minPinLength': False
+        }
+
+        with self.assertRaises(CtapError) as e:
+            self.ctap2.make_credential(**self.basic_makecred_params)
+
+        self.assertEqual(CtapError.ERR.INVALID_OPTION, e.exception.code)

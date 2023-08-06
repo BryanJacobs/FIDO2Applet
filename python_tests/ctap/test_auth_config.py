@@ -41,6 +41,36 @@ class AuthenticatorConfigTestCase(CTAPTestCase):
         self.assertFalse(info.options.get("makeCredUvNotRqd"))
         self.assertFalse("U2F_V2" in info.versions)
 
+    def test_enable_enterprise_attestation(self):
+        Config(self.ctap2).enable_enterprise_attestation()
+
+        info = self.ctap2.get_info()
+        self.assertTrue(info.options.get("ep"))
+
+    def test_enterprise_attestation_accepted_when_enabled(self):
+        Config(self.ctap2).enable_enterprise_attestation()
+
+        self.basic_makecred_params["enterprise_attestation"] = 1
+
+        self.ctap2.make_credential(**self.basic_makecred_params)
+
+    def test_enterprise_attestation_rejects_invalid_value_when_enabled(self):
+        Config(self.ctap2).enable_enterprise_attestation()
+
+        self.basic_makecred_params["enterprise_attestation"] = 9
+        with self.assertRaises(CtapError) as e:
+            self.ctap2.make_credential(**self.basic_makecred_params)
+
+        self.assertEqual(CtapError.ERR.INVALID_OPTION, e.exception.code)
+
+    def test_enterprise_attestation_rejected_when_disabled(self):
+        self.basic_makecred_params["enterprise_attestation"] = 9
+
+        with self.assertRaises(CtapError) as e:
+            self.ctap2.make_credential(**self.basic_makecred_params)
+
+        self.assertEqual(CtapError.ERR.INVALID_PARAMETER, e.exception.code)
+
     def test_makecred_rejected_with_alwaysUv_no_pin(self):
         Config(self.ctap2).toggle_always_uv()
 

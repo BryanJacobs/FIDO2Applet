@@ -60,3 +60,12 @@ class CTAPMalformedInputTestCase(CTAPTestCase):
         with self.assertRaises(CtapError) as e:
             self.ctap2.make_credential(**self.basic_makecred_params)
         self.assertEqual(CtapError.ERR.CBOR_UNEXPECTED_TYPE, e.exception.code)
+
+    def test_rejects_non_integer_alg_at_start_of_array(self):
+        self.basic_makecred_params['key_params'].insert(0, {
+            "type": "public-key",
+            "alg": "foo"
+        })
+        with self.assertRaises(CtapError) as e:
+            self.ctap2.make_credential(**self.basic_makecred_params)
+        self.assertEqual(CtapError.ERR.CBOR_UNEXPECTED_TYPE, e.exception.code)
