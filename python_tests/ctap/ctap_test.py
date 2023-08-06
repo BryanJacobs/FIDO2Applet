@@ -245,6 +245,7 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
         self.basic_makecred_params['rp']['id'] = self.rp_id
         userid_length = random.randint(1, 64)
         self.basic_makecred_params['user']['id'] = secrets.token_bytes(userid_length)
+        self.basic_makecred_params['user']['display_name'] = secrets.token_hex(30)
 
     @classmethod
     def rp_id_hash(cls, rp_id: str) -> bytes:

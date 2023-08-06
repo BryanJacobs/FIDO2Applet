@@ -580,7 +580,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
         }
 
-        final short clientDataHashIdx = readIdx;
+        short clientDataHashIdx = readIdx;
         readIdx += CLIENT_DATA_HASH_LEN; // we checked above this is indeed the length of the client data hash
         if (readIdx >= lc) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
@@ -861,35 +861,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INTEGRITY_FAILURE);
         }
 
-        // Non-resident credProtect Level 3 creds still need to use the high security key (to require PIN auth)
-        final boolean credMayUseLowSecurityForDiscoverable = credProtectLevel < 3;
-        if (!transientStorage.hasRKOption()) {
-            if (!encodeCredentialID(apdu, (ECPrivateKey) ecKeyPair.getPrivate(),
-                    scratchRPIDHashBuffer, scratchRPIDHashOffset,
-                    scratchCredBuffer, scratchCredOffset,
-                    (short) -1, credMayUseLowSecurityForDiscoverable)) {
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
-            }
-        }
-
         short targetRKSlot = -1;
 
         // if we're making a resident key, we need to, you know, save that for later
         if (transientStorage.hasRKOption()) {
-            final short decodedCredHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.ANYWHERE);
-            final short decodedCredOffset = bufferManager.getOffsetForHandle(decodedCredHandle);
-            final byte[] decodedCredBuffer = bufferManager.getBufferForHandle(apdu, decodedCredHandle);
-
             final short scratchUserIdHandle = bufferManager.allocate(apdu, MAX_USER_ID_LENGTH, BufferManager.ANYWHERE);
             final short scratchUserIdOffset = bufferManager.getOffsetForHandle(scratchUserIdHandle);
             final byte[] scratchUserIdBuffer = bufferManager.getBufferForHandle(apdu, scratchUserIdHandle);
-
-            final short scratchResidentRPIDHandle = bufferManager.allocate(apdu, MAX_RESIDENT_RP_ID_LENGTH, BufferManager.ANYWHERE);
-            final short scratchResidentRPIDOffset = bufferManager.getOffsetForHandle(scratchResidentRPIDHandle);
-            final byte[] scratchResidentRPIdBuffer = bufferManager.getBufferForHandle(apdu, scratchResidentRPIDHandle);
-
-            rpIdLen = truncateRPId(buffer, rpIdIdx, rpIdLen,
-                    scratchResidentRPIdBuffer, scratchResidentRPIDOffset);
 
             short scannedRKs = 0;
             boolean foundMatchingRK = false;
@@ -912,7 +890,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     if (checkCredential(
                             residentKeyData, (short) (i * CREDENTIAL_ID_LEN), CREDENTIAL_ID_LEN,
                             scratchRPIDHashBuffer, scratchRPIDHashOffset,
-                            decodedCredBuffer, decodedCredOffset, i, (byte)(pinAuthSuccess ? 3 : 1))) {
+                            scratchCredBuffer, scratchCredOffset, i, (byte)(pinAuthSuccess ? 3 : 1))) {
                         // This credential matches the RP we're looking at.
                         foundRPMatchInRKs = true;
 
@@ -981,10 +959,23 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 initSymmetricWrapperForRK(targetRKSlot, RK_IV_USER);
                 symmetricWrap(scratchUserIdBuffer, scratchUserIdOffset, MAX_USER_ID_LENGTH,
                         residentKeyUserIds, (short) (targetRKSlot * MAX_USER_ID_LENGTH));
+
+                // Carefully manage buffers since we only need one of (user, RPID) at a time!
+                bufferManager.release(apdu, scratchUserIdHandle, MAX_USER_ID_LENGTH);
+
+                final short scratchResidentRPIDHandle = bufferManager.allocate(apdu, MAX_RESIDENT_RP_ID_LENGTH, BufferManager.ANYWHERE);
+                final short scratchResidentRPIDOffset = bufferManager.getOffsetForHandle(scratchResidentRPIDHandle);
+                final byte[] scratchResidentRPIdBuffer = bufferManager.getBufferForHandle(apdu, scratchResidentRPIDHandle);
+
+                rpIdLen = truncateRPId(buffer, rpIdIdx, rpIdLen,
+                        scratchResidentRPIdBuffer, scratchResidentRPIDOffset);
+
                 residentKeyRPIdLengths[targetRKSlot] = (byte) rpIdLen;
                 initSymmetricWrapperForRK(targetRKSlot, RK_IV_RP);
                 symmetricWrap(scratchResidentRPIdBuffer, scratchResidentRPIDOffset, MAX_RESIDENT_RP_ID_LENGTH,
                         residentKeyRPIds, (short) (targetRKSlot * MAX_RESIDENT_RP_ID_LENGTH));
+                bufferManager.release(apdu, scratchResidentRPIDHandle, MAX_RESIDENT_RP_ID_LENGTH);
+
                 initSymmetricWrapperForRK(targetRKSlot, RK_IV_PUBKEY);
                 symmetricWrap(scratchPublicKeyBuffer, (short)(scratchPublicKeyOffset + 1), (short)(KEY_POINT_LENGTH * 2),
                         residentKeyPublicKeys, (short) (targetRKSlot * KEY_POINT_LENGTH * 2));
@@ -1025,9 +1016,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 }
             }
 
-            bufferManager.release(apdu, scratchResidentRPIDHandle, MAX_RESIDENT_RP_ID_LENGTH);
-            bufferManager.release(apdu, scratchUserIdHandle, MAX_USER_ID_LENGTH);
-            bufferManager.release(apdu, decodedCredHandle, CREDENTIAL_ID_LEN);
+        } else {
+            // Non-resident credProtect Level 3 creds still need to use the high security key (to require PIN auth)
+            final boolean credMayUseLowSecurityForDiscoverable = credProtectLevel < 3;
+            if (!encodeCredentialID(apdu, (ECPrivateKey) ecKeyPair.getPrivate(),
+                    scratchRPIDHashBuffer, scratchRPIDHashOffset,
+                    scratchCredBuffer, scratchCredOffset,
+                    (short) -1, credMayUseLowSecurityForDiscoverable)) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
+            }
         }
 
         // OKAY! time to start actually making the credential and sending a response!
@@ -1659,6 +1656,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             return false;
         }
 
+        bufferManager.release(apdu, scratchHandle, KEY_POINT_LENGTH);
         return true;
     }
 

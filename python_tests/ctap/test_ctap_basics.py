@@ -135,7 +135,7 @@ class CTAPBasicsTestCase(CTAPTestCase):
         }
         creds = []
         for x in range(creds_to_make):
-            self.basic_makecred_params['user']['id'] = secrets.token_bytes(15)
+            self.basic_makecred_params['user']['id'] = secrets.token_bytes(30)
             creds.append(self.ctap2.make_credential(**self.basic_makecred_params))
 
         asserts = [self.get_assertion(rp_id=self.rp_id)]
