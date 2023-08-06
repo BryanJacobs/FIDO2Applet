@@ -2796,6 +2796,23 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     }
 
     /**
+     * As extractCredentialMixed, but using the appropriate key for a certain RK
+     *
+     * @param credentialBuffer Buffer containing the encrypted credential ID
+     * @param credentialIndex Index of the credential ID in the input buffer
+     * @param outputBuffer Buffer to contain the mixed credential bytes
+     * @param outputOffset Offset into output buffer
+     * @param residentKeyNum RK index
+     */
+    private void extractRKMixed(byte[] credentialBuffer, short credentialIndex,
+                                byte[] outputBuffer, short outputOffset, short residentKeyNum) {
+        byte cpLevel = (byte)(residentKeyState[residentKeyNum] & 0x03); // cred protect level
+        boolean lowSec = USE_LOW_SECURITY_FOR_SOME_RKS && cpLevel < 3;
+        extractCredentialMixed(credentialBuffer, credentialIndex,
+                outputBuffer, outputOffset, residentKeyNum, lowSec);
+    }
+
+    /**
      * Extract a credential, but don't unmix its bytes - the result needs to be passed through an unmixing function
      *
      * @param credentialBuffer Buffer containing the encrypted credential ID
@@ -4633,8 +4650,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 // Unpack right into the output buffer, potentially overwriting the encrypted data
                 // (if it's the input buffer)... but we no longer need it
                 byte[] outBuf = apdu.getBuffer();
-                extractCredentialMixed(buffer, credIdIdx,
-                        outBuf, (short) 0, i, false);
+
+                extractRKMixed(buffer, credIdIdx, outBuf, (short) 0, i);
                 unmixRPID(outBuf, (short) 0);
                 short rpIdHashIdx = (short) 0;
 
@@ -4777,8 +4794,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
         } else {
             // Continuing iteration, we get the RP ID hash from the previous credential
-            extractCredentialMixed(residentKeyData, (short)((startCredIdx - 1) * CREDENTIAL_ID_LEN),
-                    rpIdHashBuf, rpIdHashIdx, (short)(startCredIdx - 1), false);
+            final short iterIdx = (short)(startCredIdx - 1);
+            extractRKMixed(residentKeyData, (short)(iterIdx * CREDENTIAL_ID_LEN),
+                    rpIdHashBuf, rpIdHashIdx, iterIdx);
             unmixRPID(rpIdHashBuf, rpIdHashIdx);
         }
 
@@ -4971,8 +4989,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         writeOffset = encodeIntLenTo(outBuf, writeOffset, RP_HASH_LEN, true);
 
         // Unwrap the given RK so we can return its decrypted RP hash
-        extractCredentialMixed(residentKeyData, (short)(CREDENTIAL_ID_LEN * rkIndex),
-                outBuf, writeOffset, rkIndex, false);
+        extractRKMixed(residentKeyData, (short)(CREDENTIAL_ID_LEN * rkIndex),
+                outBuf, writeOffset, rkIndex);
         unmixRPID(outBuf, writeOffset);
         writeOffset += RP_HASH_LEN;
 
