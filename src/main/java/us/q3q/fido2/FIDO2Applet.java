@@ -328,12 +328,33 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * credBlob, and one for a largeBlobKey
      */
     private final byte[] residentKeyIVs;
+    /**
+     * IV for encrypting the credential ID itself
+     */
     private static final byte RK_IV_CRED = 0;
+    /**
+     * IV for encrypting the user info
+     */
     private static final byte RK_IV_USER = RK_IV_CRED + 1;
+    /**
+     * IV for encrypting the RP info (text, not a hash)
+     */
     private static final byte RK_IV_RP = RK_IV_CRED + 1;
+    /**
+     * IV for encrypting the credential's public key
+     */
     private static final byte RK_IV_PUBKEY = RK_IV_RP + 1;
+    /**
+     * IV for encrypting the credential's credBlob (opaque platform-driven storage)
+     */
     private static final byte RK_IV_CRED_BLOB = RK_IV_PUBKEY + 1;
+    /**
+     * IV for encrypting the credential's large blob data
+     */
     private static final byte RK_IV_LARGE_BLOB = RK_IV_CRED_BLOB + 1;
+    /**
+     * Total number of IVs for each resident key
+     */
     private static final byte NUM_IVS_PER_RK = RK_IV_LARGE_BLOB + 1;
     /**
      * Encrypted-as-usual credential ID fields for resident keys, just like we'd receive in incoming blocks
@@ -406,14 +427,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     private static short largeBlobStoreFill;
 
     /**
-     * Unique identifier ID - set at install time, or left zeroes
-     * for self-attestation.
+     * Unique identifier ID - set on loading an attestation,
+     * certificate, or left zeroes for self-attestation.
      */
     private final byte[] aaguid = {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     };
-    private static final byte AAGUID_LENGTH = 16;
 
     /**
      * Deliver a particular byte array to the platform
@@ -5236,7 +5256,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 buffer, offset, (short) CannedCBOR.AUTH_INFO_START.length);
 
         offset = Util.arrayCopyNonAtomic(aaguid, (short) 0,
-                buffer, offset, AAGUID_LENGTH);
+                buffer, offset, (short) aaguid.length);
 
         offset = Util.arrayCopyNonAtomic(CannedCBOR.AUTH_INFO_SECOND, (short) 0,
                 buffer, offset, (short) CannedCBOR.AUTH_INFO_SECOND.length);
@@ -6438,13 +6458,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         initAuthenticatorKey(authenticatorKeyInRam);
         initCredKey(ecPairInRam);
-        if (length == 1 && array[offset] == 1) {
-            attestationSwitchingEnabled = true;
-        } else {
-            attestationSwitchingEnabled = false;
-        }
+        attestationSwitchingEnabled = length == 1 && array[offset] == 1;
     }
 
+    /**
+     * Initializes the platform-to-authenticator key agreement object.
+     *
+     * @param authenticatorKeyInRam If true, try to place the private key in transient memory
+     */
     private void initAuthenticatorKey(boolean authenticatorKeyInRam) {
         authenticatorKeyAgreementKey = new KeyPair(
                 (ECPublicKey) KeyBuilder.buildKey(KeyBuilder.TYPE_EC_FP_PUBLIC, KeyBuilder.LENGTH_EC_FP_256, false),
@@ -6454,6 +6475,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         P256Constants.setCurve((ECKey) authenticatorKeyAgreementKey.getPublic());
     }
 
+    /**
+     * Initialize the per-credential key object.
+     *
+     * @param ecPairInRam If true, try to place the private key in transient memory
+     */
     private void initCredKey(boolean ecPairInRam) {
         // RAM usage - (ideally) ephemeral keys
         ecKeyPair = new KeyPair(
@@ -6496,7 +6522,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             throwException(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
         }
 
-        if (length <= AAGUID_LENGTH + KEY_POINT_LENGTH + 4) {
+        if (length <= (short)(aaguid.length + KEY_POINT_LENGTH + 4)) {
             if (apdu != null) {
                 sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_LENGTH);
             }
@@ -6512,8 +6538,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         try {
             attestationSwitchingEnabled = false; // We're loading a cert here and now.
 
-            Util.arrayCopyNonAtomic(params, offset, aaguid, (short) 0, AAGUID_LENGTH);
-            offset += AAGUID_LENGTH;
+            Util.arrayCopyNonAtomic(params, offset, aaguid, (short) 0, (short) aaguid.length);
+            offset += (short) aaguid.length;
 
             attestationKey = getECPrivKey(false);
             P256Constants.setCurve(attestationKey);
@@ -6523,7 +6549,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             final short expectedLength = Util.getShort(params, offset);
             offset += 2;
 
-            final short amountToRead = (short)(length - AAGUID_LENGTH - KEY_POINT_LENGTH - 2);
+            final short amountToRead = (short)(length - aaguid.length - KEY_POINT_LENGTH - 2);
 
             if (amountToRead > expectedLength) {
                 if (apdu != null) {
@@ -6566,6 +6592,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         return false;
     }
 
+    /**
+     * Continue loading part of an attestation key; used as part of initial setup for basic auth.
+     *
+     * @param apdu Request/response context object
+     * @param buffer Incoming request buffer
+     * @param offset Read offset in incoming buffer
+     * @param lc Declared incoming request length
+     * @return true if attestation key now completely loaded; false otherwise
+     */
     private boolean initAttestationKeyContinue(APDU apdu, byte[] buffer, short offset, short lc) {
         if (attestationData == null || filledAttestationData == attestationData.length) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NOT_ALLOWED);
@@ -6603,6 +6638,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         return done;
     }
 
+    /**
+     * Allocates a new byte buffer.
+     *
+     * @param len Number of bytes to allocate
+     * @param inRAM If true, prefer RAM (still fall back to flash)
+     * @return Newly created byte array
+     */
     private byte[] getTempOrFlashByteBuffer(short len, boolean inRAM) {
         if (inRAM) {
             return JCSystem.makeTransientByteArray(len, JCSystem.CLEAR_ON_DESELECT);
