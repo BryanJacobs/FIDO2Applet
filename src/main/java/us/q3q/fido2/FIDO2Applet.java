@@ -868,6 +868,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
         }
 
+        if (pinSet && transientStorage.getPinProtocolInUse() == 0 && credProtectLevel > 2) {
+            // Can't make level-three creds without access to the wrapping key for them!
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
+        }
+
         // Done getting params - make a keypair. You know, what we're supposed to do in this function?
         // Well, we're getting to it, only 150 lines in.
         // We sometimes reset the private key, which clears its curve data, so reset that here
