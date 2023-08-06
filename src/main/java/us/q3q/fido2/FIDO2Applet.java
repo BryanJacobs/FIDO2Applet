@@ -1637,6 +1637,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             lowSecurity = false;
         }
 
+        if (!lowSecurity && pinSet && transientStorage.getPinProtocolInUse() == 0) {
+            // We're trying to make a new high-security credential, but the PIN isn't available!
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
+        }
+
         AESKey key = lowSecurity ? lowSecurityWrappingKey : highSecurityWrappingKey;
         byte[] iv = rkNum >= 0 ? residentKeyIVs :
                 (lowSecurity ? lowSecurityWrappingIV : externalCredentialIV);
@@ -2739,6 +2744,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             if (!USE_LOW_SECURITY_FOR_SOME_RKS || credProtectLevel > 2) {
                 // No point trying the low-sec key for credProtect=3 RKs, or if they're all "high security"
                 potentiallyTryLowSecKey = false;
+                potentiallyTryHighSecKey = true;
             }
             if (USE_LOW_SECURITY_FOR_SOME_RKS && credProtectLevel < 3) {
                 // No point trying the high security key for "low security" RKs either
