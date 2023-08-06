@@ -17,6 +17,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private static final byte FIRMWARE_VERSION = 0x01;
     /**
+     * If set, use low-security keys for everything, to fully comply with the FIDO standards
+     */
+    private static final boolean LOW_SECURITY_MAXIMUM_COMPLIANCE = true;
+    /**
      * If true, default the `alwaysUv` option to on, and prevent disabling it.
      */
     private static final boolean FORCE_ALWAYS_UV = false;
@@ -231,7 +235,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     private final AESKey highSecurityWrappingKey;
     /**
      * Authenticator-specific master key used for situations where a PIN cannot be presented.
-     * This key is never used for resident keys, or credProtect level 3 keys
+     * This key is never used for credProtect level 3 keys unless LOW_SECURITY_MAXIMUM_COMPLIANCE is set.
+     * If FORCE_ALWAYS_UV is set, it's used for all keys.
      */
     private final AESKey lowSecurityWrappingKey;
     /**
@@ -890,8 +895,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
         }
 
-        if (pinSet && transientStorage.getPinProtocolInUse() == 0 && credProtectLevel > 2) {
+        if (!LOW_SECURITY_MAXIMUM_COMPLIANCE && pinSet && transientStorage.getPinProtocolInUse() == 0 && credProtectLevel > 2) {
             // Can't make level-three creds without access to the wrapping key for them!
+            // This is the actual purpose of the LOW_SECURITY_MAXIMUM_COMPLIANCE flag
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
         }
 
@@ -1696,16 +1702,16 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             outBuffer[(short)(i * 2 + 1 + outOffset)] = rpIdHashBuffer[(short)(rpIdHashOffset + i)];
         }
 
-        if (rkNum >= 0 && !USE_LOW_SECURITY_FOR_SOME_RKS) {
+        if (rkNum >= 0 && !LOW_SECURITY_MAXIMUM_COMPLIANCE && !USE_LOW_SECURITY_FOR_SOME_RKS) {
             lowSecurity = false;
         }
 
-        if (!lowSecurity && pinSet && transientStorage.getPinProtocolInUse() == 0) {
+        if (!LOW_SECURITY_MAXIMUM_COMPLIANCE && !lowSecurity && pinSet && transientStorage.getPinProtocolInUse() == 0) {
             // We're trying to make a new high-security credential, but the PIN isn't available!
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
         }
 
-        AESKey key = lowSecurity ? lowSecurityWrappingKey : highSecurityWrappingKey;
+        AESKey key = (LOW_SECURITY_MAXIMUM_COMPLIANCE || lowSecurity) ? lowSecurityWrappingKey : highSecurityWrappingKey;
         byte[] iv = rkNum >= 0 ? residentKeyIVs :
                 (lowSecurity ? lowSecurityWrappingIV : externalCredentialIV);
         short ivOffset = rkNum < 0 ? (short) 0 :
@@ -2924,7 +2930,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             (lowSecurity ? lowSecurityWrappingIV : externalCredentialIV);
         final short ivOffset = !isResident ? (short) 0 :
                 (short)((residentKeyNum * NUM_IVS_PER_RK + RK_IV_CRED) * RESIDENT_KEY_IV_LEN);
-        AESKey key = lowSecurity ? lowSecurityWrappingKey : highSecurityWrappingKey;
+        AESKey key = (LOW_SECURITY_MAXIMUM_COMPLIANCE || lowSecurity) ? lowSecurityWrappingKey : highSecurityWrappingKey;
         symmetricUnwrapper.init(key, Cipher.MODE_DECRYPT, iv, ivOffset, RESIDENT_KEY_IV_LEN);
         symmetricUnwrap(credentialBuffer, credentialIndex, CREDENTIAL_ID_LEN,
                 outputBuffer, outputOffset);
@@ -5202,7 +5208,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private void initSymmetricUnwrapperForRK(short rkIndex, byte ivNum) {
         final byte credProt = (byte)(residentKeyState[rkIndex] & 0x03);
-        final boolean highSec = !USE_LOW_SECURITY_FOR_SOME_RKS || credProt > 2;
+        final boolean highSec = !LOW_SECURITY_MAXIMUM_COMPLIANCE && (!USE_LOW_SECURITY_FOR_SOME_RKS || credProt > 2);
         final AESKey key = highSec ? highSecurityWrappingKey : lowSecurityWrappingKey;
         symmetricUnwrapper.init(key, Cipher.MODE_DECRYPT, residentKeyIVs,
                 (short) ((rkIndex * NUM_IVS_PER_RK + ivNum) * RESIDENT_KEY_IV_LEN), RESIDENT_KEY_IV_LEN);
@@ -5213,7 +5219,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private void initSymmetricWrapperForRK(short rkIndex, byte ivNum) {
         final byte credProt = (byte)(residentKeyState[rkIndex] & 0x03);
-        final boolean highSec = !USE_LOW_SECURITY_FOR_SOME_RKS || credProt > 2;
+        final boolean highSec = !LOW_SECURITY_MAXIMUM_COMPLIANCE && (!USE_LOW_SECURITY_FOR_SOME_RKS || credProt > 2);
         final AESKey key = highSec ? highSecurityWrappingKey : lowSecurityWrappingKey;
         symmetricWrapper.init(key, Cipher.MODE_ENCRYPT, residentKeyIVs,
                 (short) ((rkIndex * NUM_IVS_PER_RK + ivNum) * RESIDENT_KEY_IV_LEN), RESIDENT_KEY_IV_LEN);
@@ -5446,7 +5452,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         offset = encodeIntLenTo(buffer, offset, (short) CannedCBOR.MAKE_CRED_UV_NOT_REQD.length, false);
         offset = Util.arrayCopyNonAtomic(CannedCBOR.MAKE_CRED_UV_NOT_REQD, (short) 0,
                 buffer, offset, (short) CannedCBOR.MAKE_CRED_UV_NOT_REQD.length);
-        buffer[offset++] = (byte) 0xF4; // makeCredUvNotRequired = false
+        buffer[offset++] = (byte)(LOW_SECURITY_MAXIMUM_COMPLIANCE ? 0xF5 : 0xF4); // makeCredUvNotRequired = true or false
 
         buffer[offset++] = 0x06; // map key: pinProtocols
         buffer[offset++] = (byte) 0x82; // array: two items

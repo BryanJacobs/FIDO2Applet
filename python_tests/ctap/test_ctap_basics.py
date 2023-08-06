@@ -20,6 +20,8 @@ class CTAPBasicsTestCase(CTAPTestCase):
 
     def test_info_supported_options(self):
         info = self.ctap2.get_info()
+        # This one can go either way depending on settings
+        del info.options["makeCredUvNotRqd"]
         self.assertEqual({
             "alwaysUv": False,
             "authnrCfg": True,
@@ -27,7 +29,6 @@ class CTAPBasicsTestCase(CTAPTestCase):
             "credMgmt": True,
             "ep": False,
             "largeBlobs": True,
-            "makeCredUvNotRqd": False,
             "pinUvAuthToken": True,
             "rk": True,
             "setMinPINLength": True,

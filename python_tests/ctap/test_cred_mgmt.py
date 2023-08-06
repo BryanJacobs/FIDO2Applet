@@ -37,7 +37,7 @@ class CredManagementTestCase(CredManagementBaseTestCase):
 
     def test_enumerating_mixed_security_creds(self):
         pin_client = self.get_high_level_client(extensions=[CredProtectExtension],
-                                            user_interaction=FixedPinUserInteraction(self.pin))
+                                                user_interaction=FixedPinUserInteraction(self.pin))
         no_pin_client = self.get_high_level_client(extensions=[CredProtectExtension])
         resident_key = ResidentKeyRequirement.REQUIRED
         hs_cred = pin_client.make_credential(options=self.get_high_level_make_cred_options(

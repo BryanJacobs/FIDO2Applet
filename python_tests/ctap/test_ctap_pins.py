@@ -4,6 +4,7 @@ from typing import Optional
 from fido2.client import ClientError, PinRequiredError
 from fido2.ctap import CtapError
 from fido2.ctap2 import ClientPin
+from fido2.webauthn import UserVerificationRequirement
 from parameterized import parameterized
 
 from .ctap_test import CTAPTestCase, FixedPinUserInteraction
@@ -33,10 +34,14 @@ class CTAPPINTestCase(CTAPTestCase):
         self.cp.change_pin(first_pin, second_pin)
         with self.assertRaises(ClientError) as e:
             # Old PIN is now wrong
-            old_pin_client.make_credential(self.get_high_level_make_cred_options())
+            old_pin_client.make_credential(self.get_high_level_make_cred_options(
+                user_verification=UserVerificationRequirement.REQUIRED
+            ))
 
         # New PIN is correct
-        new_pin_client.make_credential(self.get_high_level_make_cred_options())
+        new_pin_client.make_credential(self.get_high_level_make_cred_options(
+            user_verification=UserVerificationRequirement.REQUIRED
+        ))
 
         self.assertFalse(info_before_switch.options['clientPin'])
         self.assertTrue(info_after_switch.options['clientPin'])
@@ -144,4 +149,6 @@ class CTAPPINTestCase(CTAPTestCase):
         client = self.get_high_level_client()
 
         with self.assertRaises(PinRequiredError):
-            client.make_credential(options=self.get_high_level_make_cred_options())
+            client.make_credential(options=self.get_high_level_make_cred_options(
+                user_verification=UserVerificationRequirement.REQUIRED
+            ))

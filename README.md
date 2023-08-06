@@ -53,9 +53,11 @@ applet should pass everything you throw at it.
 To set up and run these tests, use:
 
 ```shell
+export JC_HOME=<your jckit> 
+./gradlew jar testJar
 python -m venv venv
 ./venv/bin/pip install -U -r requirements.txt
-env JC_HOME=<your jckit> ./venv/bin/python -m unittest discover -s python_tests
+./venv/bin/python -m unittest discover -s python_tests
 ```
 
 By default, these will use extremely fast interprocess communication with the JVM -

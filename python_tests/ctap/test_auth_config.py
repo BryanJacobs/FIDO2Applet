@@ -22,7 +22,6 @@ class AuthenticatorConfigTestCase(CTAPTestCase):
     def test_alwaysUv_default_off(self):
         info = self.ctap2.get_info()
         self.assertFalse(info.options.get("alwaysUv"))
-        self.assertFalse(info.options.get("makeCredUvNotRqd"))
         self.assertFalse("U2F_V2" in info.versions)
 
     def test_alwaysUv_off_after_pin_set(self):
@@ -30,7 +29,6 @@ class AuthenticatorConfigTestCase(CTAPTestCase):
 
         info = self.ctap2.get_info()
         self.assertFalse(info.options.get("alwaysUv"))
-        self.assertFalse(info.options.get("makeCredUvNotRqd"))
         self.assertFalse("U2F_V2" in info.versions)
 
     def test_enable_alwaysUv(self):
@@ -38,7 +36,6 @@ class AuthenticatorConfigTestCase(CTAPTestCase):
 
         info = self.ctap2.get_info()
         self.assertTrue(info.options.get("alwaysUv"))
-        self.assertFalse(info.options.get("makeCredUvNotRqd"))
         self.assertFalse("U2F_V2" in info.versions)
 
     def test_enable_enterprise_attestation(self):
