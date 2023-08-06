@@ -410,6 +410,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private byte numResidentCredentials;
     /**
+     * Index of the maximum RK *slot* that has a credential in it
+     *
+     * Deleting credentials other than the first could make this differ from numResidentCredentials
+     */
+    private byte maxRKFillSlot;
+    /**
      * How many distinct RPs are present across all resident keys
      */
     private byte numResidentRPs;
@@ -4995,8 +5001,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         short rp1Offset = bufferManager.getOffsetForHandle(rp1Handle);
 
         byte numUniqueRPsFound = 0;
+        short scannedRKs = 0;
 
-        for (short rkIndex1 = 0; rkIndex1 < numResidentCredentials; rkIndex1++) {
+        for (short rkIndex1 = 0; rkIndex1 < NUM_RESIDENT_KEY_SLOTS && scannedRKs < numResidentCredentials; rkIndex1++) {
+            if ((residentKeyState[rkIndex1] & 0x80) != 0x80) {
+                // Deleted RK
+                continue;
+            }
+            scannedRKs++;
             if ((residentKeyState[rkIndex1] & 0xC0) != 0xC0) {
                 // definitely non-unique (or inactive) RP
                 continue;
@@ -5007,9 +5019,16 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             unmixRPID(rp2Buffer, rp2Offset);
             Util.arrayCopyNonAtomic(rp2Buffer, rp2Offset,
                     rp1Buffer, rp1Offset, RP_HASH_LEN);
-            for (short rkIndex2 = (short)(rkIndex1 + 1); rkIndex2 < numResidentCredentials; rkIndex2++) {
+            short innerScannedRKs = scannedRKs;
+            for (short rkIndex2 = (short)(rkIndex1 + 1); rkIndex2 < NUM_RESIDENT_KEY_SLOTS &&
+                    innerScannedRKs < numResidentCredentials; rkIndex2++) {
+                if ((residentKeyState[rkIndex2] & 0x80) != 0x80) {
+                    // inactive RP
+                    continue;
+                }
+                innerScannedRKs++;
                 if ((residentKeyState[rkIndex2] & 0xC0) != 0xC0) {
-                    // definitely non-unique (or inactive) RP
+                    // definitely non-unique RP
                     continue;
                 }
 
