@@ -1135,13 +1135,29 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         doSendResponse(apdu, outputLen);
     }
 
+    /**
+     * Pack a credential's largeBlobKey info a buffer for later use
+     *
+     * @param rkIndex The index of the resident key
+     * @param writeBuffer Output buffer into which to place the largeBlobKey - must have 32 bytes available
+     * @param writeOffset Index into write buffer
+     */
     private void generateLargeBlobKey(short rkIndex, byte[] writeBuffer, short writeOffset) {
-        symmetricWrapper.init(highSecurityWrappingKey, Cipher.MODE_ENCRYPT, residentKeyIVs,
-                (short) ((rkIndex * NUM_IVS_PER_RK + RK_IV_LARGE_BLOB) * RESIDENT_KEY_IV_LEN), RESIDENT_KEY_IV_LEN);
+        initSymmetricWrapperForRK(rkIndex, RK_IV_LARGE_BLOB);
         symmetricWrapper.doFinal(residentKeyPublicKeys, (short) (rkIndex * KEY_POINT_LENGTH * 2), (short) 32,
                 writeBuffer, writeOffset);
     }
 
+    /**
+     * Creates a "good" (32-byte-private-key) EC keypair.
+     *
+     * @param keyPair After call, this is set to a usable keypair. Before call, must be initialized with P256
+     *                curve points.
+     * @param publicKeyBuffer Buffer into which to write the public key - must have PUBLIC_KEY_LENGTH bytes available.
+     *                        If null, keypair will be created "blind" and public key not stored anywhere.
+     * @param publicKeyOffset Offset into write buffer
+     * @return true if successful, false if not.
+     */
     private boolean makeGoodKeyPair(KeyPair keyPair, byte[] publicKeyBuffer, short publicKeyOffset) {
         for (short i = 1; i <= MAX_ATTEMPTS_TO_GET_GOOD_KEY; i++) {
             keyPair.genKeyPair();
