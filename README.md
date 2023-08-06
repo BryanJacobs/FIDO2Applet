@@ -58,6 +58,9 @@ If you want to, feel free!
 
 I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/security_model.md).
 
+If you're a really detail-oriented person, you might enjoy reading
+[about the implementation](docs/implementation.md).
+
 ## Implementation Status
 
 | Feature                            | Status                                                  |
