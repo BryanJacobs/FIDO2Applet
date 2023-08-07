@@ -1,6 +1,7 @@
 import copy
 import secrets
 
+from cryptography.hazmat.primitives import hashes
 from fido2.client import ClientError
 from fido2.ctap import CtapError
 from fido2.ctap2 import AttestationResponse, LargeBlobs, ClientPin, PinProtocolV2
@@ -133,6 +134,25 @@ class LargeBlobsTestCase(BasicAttestationTestCase):
             assertion = self.ctap2.get_next_assertion()
             self.assertEqual(creds[i].large_blob_key, assertion.large_blob_key)
 
+    @parameterized.expand([
+        ("mid", 100, 30, 40),
+        ("start", 100, 0, 30),
+        ("end", 100, 50, 50),
+        ("long_mid", 800, 400, 150),
+        ("long_nearend", 800, 600, 190),
+        ("long_nearstart", 800, 20, 600),
+    ])
+    def test_ll_offset_read_of_largeblob(self, _, length, offset, read_len):
+        blob_array = secrets.token_bytes(length)
+        h = hashes.Hash(hashes.SHA256())
+        h.update(blob_array)
+        blob_array += h.finalize()[:16]
+
+        self.ctap2.large_blobs(offset=0, set=blob_array, length=len(blob_array))
+        res = self.ctap2.large_blobs(offset=offset, get=read_len)
+
+        self.assertEqual(blob_array[offset:offset+read_len], res[1])
+
     def test_get_empty_largeblob_arr(self):
         arr = LargeBlobs(self.ctap2).read_blob_array()
         self.assertEqual(0, len(arr))
@@ -140,6 +160,8 @@ class LargeBlobsTestCase(BasicAttestationTestCase):
     @parameterized.expand([
         ("empty", 0),
         ("short", 10),
+        ("onepacket", 200),
+        ("onepacket2", 240),
         ("medium", 100),
         ("long", 600),
         ("chained", 950),
@@ -148,6 +170,8 @@ class LargeBlobsTestCase(BasicAttestationTestCase):
     def test_set_and_get_large_blobs(self, _, num_bytes):
         blob_array = [secrets.token_bytes(num_bytes)]
         LargeBlobs(self.ctap2).write_blob_array(blob_array)
+
+        self.softResetCard()
 
         res = LargeBlobs(self.ctap2).read_blob_array()
         self.assertEqual(blob_array, res)

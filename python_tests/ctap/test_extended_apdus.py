@@ -25,6 +25,18 @@ class ExtendedAPDUTestCase(BasicAttestationTestCase):
         res = self.ctap2.make_credential(**self.basic_makecred_params)
         self.assertEqual(0, res.auth_data.counter)
 
+    def test_extreme_makecred_input(self):
+        self.basic_makecred_params['user'] = {
+            'id': secrets.token_bytes(32),
+            'display_name': secrets.token_hex(100),
+            'icon': secrets.token_hex(120)
+        }
+        self.basic_makecred_params['options'] = {
+            'rk': True
+        }
+        res = self.ctap2.make_credential(**self.basic_makecred_params)
+        self.assertEqual(0, res.auth_data.counter)
+
     def test_chained_assertions(self):
         self.basic_makecred_params['options'] = {'rk': True}
         num_creds = 5

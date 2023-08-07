@@ -18,6 +18,18 @@ class CTAPBasicsTestCase(CTAPTestCase):
         info = self.ctap2.get_info()
         self.assertEqual(["credBlob", "credProtect", "hmac-secret", "largeBlobKey"], info.extensions)
 
+    def test_extreme_makecred_input(self):
+        self.basic_makecred_params['user'] = {
+            'id': secrets.token_bytes(32),
+            'display_name': secrets.token_hex(100),
+            'icon': secrets.token_hex(120)
+        }
+        self.basic_makecred_params['options'] = {
+            'rk': True
+        }
+        res = self.ctap2.make_credential(**self.basic_makecred_params)
+        self.assertEqual(0, res.auth_data.counter)
+
     def test_info_supported_options(self):
         info = self.ctap2.get_info()
         # This one can go either way depending on settings

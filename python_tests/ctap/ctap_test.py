@@ -240,12 +240,17 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
         self.ctap1 = Ctap1(self.device)
         self.client_data = self.get_random_client_data()
         self.basic_makecred_params["client_data_hash"] = self.client_data
-        rpid_length = random.randint(1, 16)
+        rpid_length = random.randint(1, 30)
         self.rp_id = secrets.token_hex(rpid_length)
         self.basic_makecred_params['rp']['id'] = self.rp_id
         userid_length = random.randint(1, 64)
+        dn_length = random.randint(0, 20)
+        icon_length = random.randint(0, 10)
         self.basic_makecred_params['user']['id'] = secrets.token_bytes(userid_length)
-        self.basic_makecred_params['user']['display_name'] = secrets.token_hex(30)
+        if dn_length > 0:
+            self.basic_makecred_params['user']['display_name'] = secrets.token_hex(dn_length)
+        if icon_length > 0:
+            self.basic_makecred_params['user']['icon'] = secrets.token_hex(icon_length)
 
     @classmethod
     def rp_id_hash(cls, rp_id: str) -> bytes:

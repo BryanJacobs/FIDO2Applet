@@ -169,7 +169,7 @@ public final class BufferManager {
                 // Upper APDU buffer available potentially
                 upperAPDUUsed = Util.getShort(apduBuf, (short) (apduBufLen - 2));
                 short totalUpper = (short) (apduBufLen - lc);
-                if ((short) (totalUpper - upperAPDUUsed) >= amt) {
+                if ((short) (totalUpper - upperAPDUUsed) > amt) {
                     // We fit in the upper APDU buffer!
                     short offset = (short) (apduBufLen - upperAPDUUsed - amt - 1);
                     Util.setShort(apduBuf, (short) (apduBufLen - 2), (short) (upperAPDUUsed + amt));

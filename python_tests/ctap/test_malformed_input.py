@@ -1,3 +1,5 @@
+import secrets
+
 from fido2.ctap import CtapError
 
 from .ctap_test import CTAPTestCase
@@ -42,6 +44,30 @@ class CTAPMalformedInputTestCase(CTAPTestCase):
     def test_bogus_getassert_options(self):
         cred = self.ctap2.make_credential(**self.basic_makecred_params)
         self.get_assertion_from_cred(cred, options={'bogus': 123})
+
+    def test_bogus_exclude_list(self):
+        self.basic_makecred_params['exclude_list'] = 12345
+
+        with self.assertRaises(CtapError) as e:
+            self.ctap2.make_credential(**self.basic_makecred_params)
+
+        self.assertEqual(CtapError.ERR.CBOR_UNEXPECTED_TYPE, e.exception.code)
+
+    def test_bogus_exclude_list_entry(self):
+        self.basic_makecred_params['exclude_list'] = [12345]
+
+        with self.assertRaises(CtapError) as e:
+            self.ctap2.make_credential(**self.basic_makecred_params)
+
+        self.assertEqual(CtapError.ERR.CBOR_UNEXPECTED_TYPE, e.exception.code)
+
+    def test_icon_not_text(self):
+        self.basic_makecred_params['user']['icon'] = secrets.token_bytes(16)
+
+        with self.assertRaises(CtapError) as e:
+            self.ctap2.make_credential(**self.basic_makecred_params)
+
+        self.assertEqual(CtapError.ERR.CBOR_UNEXPECTED_TYPE, e.exception.code)
 
     def test_rejects_non_string_type_in_array(self):
         self.basic_makecred_params['key_params'].append({
