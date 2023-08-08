@@ -37,7 +37,6 @@
       "extensions": [ "uvm", "credBlob", "credProtect", "hmac-secret", "largeBlobKey" ],
       "aaguid": "00000000000000000000000000000000",
       "options": {
-        "ep": false,
         "rk": true,
         "clientPin": false,
         "alwaysUv": false,
@@ -57,7 +56,6 @@
       "firmwareVersion": 1,
       "remainingDiscoverableCredentials": 50,
       "minPINLength": 4,
-      "maxRPIDsForSetMinPinLength": 0,
-      "uvModality": 512
+      "maxRPIDsForSetMinPinLength": 2
   }
 }

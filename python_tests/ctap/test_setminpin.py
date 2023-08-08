@@ -31,7 +31,7 @@ class SetMinPinTestCase(CTAPTestCase):
 
     def test_info_max_rps_for_setminpin(self):
         info = self.ctap2.get_info()
-        self.assertEqual(0, info.max_rpids_for_min_pin)
+        self.assertEqual(2, info.max_rpids_for_min_pin)
 
     def test_setminpin_option(self):
         info = self.ctap2.get_info()

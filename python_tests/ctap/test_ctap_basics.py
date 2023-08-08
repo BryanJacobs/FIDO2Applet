@@ -47,7 +47,7 @@ class CTAPBasicsTestCase(CTAPTestCase):
             "authnrCfg": True,
             "clientPin": False,
             "credMgmt": True,
-            "ep": False,
+            #"ep": False,
             "largeBlobs": True,
             "pinUvAuthToken": True,
             "rk": True,

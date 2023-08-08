@@ -1757,8 +1757,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         if ((flags & 0x04) != 0) { // user verified
             outBuf[writeIdx++] = (byte) 0x81; // one "factor": one-element array
             outBuf[writeIdx++] = (byte) 0x83; // three-element array
-            outBuf[writeIdx++] = 0x04; // key protection type trusted-execution-environment
-            outBuf[writeIdx++] = 0x02; // matcher protection type trusted-execution-environment
+            outBuf[writeIdx++] = 0x0A; // key protection type secure element + hardware
+            outBuf[writeIdx++] = 0x04; // matcher protection type on-chip
             outBuf[writeIdx++] = 0x04; // user verification method passcode
         } else {
             outBuf[writeIdx++] = (byte) 0x80; // empty array, since no verification happened
@@ -2119,7 +2119,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 // Check validity of HMAC salt parameters before we validate the PIN
                 // The FIDO compliance tests require this even though it's a waste of time :-(
                 extractHMACSalt(apdu, buffer, hmacSecretReadIdx, lc,
-                        null, (short) 0, stateKeepingBuffer[stateKeepingIdx], true);
+                        null, (short) 0, true);
             }
 
             if (pinAuthIdx != -1) {
@@ -2229,7 +2229,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             if (hmacSecretReadIdx != -1) {
                 // Come back and load HMAC salts into scratch space
                 hmacSaltBuffer[hmacSaltIdx] = extractHMACSalt(apdu, buffer, hmacSecretReadIdx, lc,
-                        hmacSaltBuffer, (short)(hmacSaltIdx + 1), stateKeepingBuffer[stateKeepingIdx], false);
+                        hmacSaltBuffer, (short)(hmacSaltIdx + 1), false);
             } else {
                 hmacSaltBuffer[hmacSaltIdx] = 0;
             }
@@ -2764,26 +2764,41 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * Pulls decrypted HMAC secret salts out of input CBOR message and places them in an output buffer
      *
-     * @param apdu Request/response object
-     * @param buffer Buffer containing incoming request
-     * @param readIdx Read index into request buffer
-     * @param lc Length of incoming request, as sent by the platform
+     * @param apdu      Request/response object
+     * @param buffer    Buffer containing incoming request
+     * @param readIdx   Read index into request buffer
+     * @param lc        Length of incoming request, as sent by the platform
      * @param outBuffer Output buffer into which to pack salt - needs at least 64 bytes of space
      * @param outOffset Offset into output buffer for writing salt
-     * @param pinProtocol Integer PIN protocol in use
      * @param checkOnly If true, don't actually DO any HMAC-ing: just check salts have correct lengths
-     *
      * @return Length of decrypted salt written to output buffer (32 or 64 bytes)
      */
     private byte extractHMACSalt(APDU apdu, byte[] buffer, short readIdx, short lc,
-                                 byte[] outBuffer, short outOffset, byte pinProtocol,
-                                 boolean checkOnly) {
+                                 byte[] outBuffer, short outOffset, boolean checkOnly) {
         short mapType = buffer[readIdx++];
         if (mapType != (byte) 0xA3 && mapType != (byte) 0xA4) { // map, three or four entries
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
         }
         if (readIdx >= (short)(lc - (CannedCBOR.PUBLIC_KEY_DH_ALG_PREAMBLE.length + KEY_POINT_LENGTH * 2 + 7))) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
+        }
+
+        byte pinProtocol = 1;
+        if (mapType == (byte) 0xA4) { // explicit pin protocol provided
+            // Scan forward to find the pinProtocol block within the HMAC map
+            // it can be set independently of the outer PIN protocol... yuck.
+            short ppOffset = readIdx;
+            for (byte i = 1; i < 4; i++) {
+                if (buffer[ppOffset++] != i) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
+                }
+                ppOffset = consumeAnyEntity(apdu, buffer, ppOffset, lc);
+            }
+            if (buffer[ppOffset++] != 0x04) { // pin Protocol in advance :-)
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
+            }
+            pinProtocol = buffer[ppOffset];
+            checkPinProtocolSupported(apdu, pinProtocol);
         }
 
         if (buffer[readIdx++] != 0x01) { // map key: keyAgreement
@@ -3638,7 +3653,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         switch (cmdByte) {
             case FIDOConstants.CMD_MAKE_CREDENTIAL:
-                reqBuffer = fullyReadReq(apdu, lc, amtRead, false);
+                reqBuffer = fullyReadReq(apdu, lc, amtRead, true);
 
                 makeCredential(apdu, lcEffective, reqBuffer);
                 break;
@@ -3646,7 +3661,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 sendAuthInfo(apdu);
                 break;
             case FIDOConstants.CMD_GET_ASSERTION:
-                // getAssertion extensively uses the APDU buffer, so needs incoming requests to be buffered
                 reqBuffer = fullyReadReq(apdu, lc, amtRead, false);
 
                 getAssertion(apdu, lcEffective, reqBuffer, (short) 0);
@@ -3679,7 +3693,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 authenticatorSelection(apdu);
                 break;
             case FIDOConstants.CMD_LARGE_BLOBS:
-                reqBuffer = fullyReadReq(apdu, lc, amtRead, false);
+                reqBuffer = fullyReadReq(apdu, lc, amtRead, true);
 
                 handleLargeBlobs(apdu, reqBuffer, lcEffective);
                 break;
@@ -5595,11 +5609,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 buffer, offset, (short) aaguid.length);
 
         buffer[offset++] = 0x04; // map key: options
-        buffer[offset++] = (byte) 0xAB; // map: eleven entries
-        buffer[offset++] = 0x62; // string: two bytes long
+        buffer[offset++] = (byte) 0xAA; // map: ten entries
+        /*buffer[offset++] = 0x62; // string: two bytes long
         buffer[offset++] = 0x65; // 'e'
         buffer[offset++] = 0x70; // 'p'
-        buffer[offset++] = (byte)(enterpriseAttestation ? 0xF5 : 0xF4); // enabled or not
+        buffer[offset++] = (byte)(enterpriseAttestation ? 0xF5 : 0xF4); // enabled or not */
 
         offset = Util.arrayCopyNonAtomic(CannedCBOR.AUTH_INFO_SECOND, (short) 0,
                 buffer, offset, (short) CannedCBOR.AUTH_INFO_SECOND.length);
@@ -5672,7 +5686,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         offset = encodeIntTo(buffer, offset, (byte) MAX_CRED_BLOB_LEN);
 
         buffer[offset++] = 0x10; // map key: maxRPIDsForSetMinPinLength
-        buffer[offset++] = 0x00; // zero
+        offset = encodeIntTo(buffer, offset, MAX_RP_IDS_MIN_PIN_LENGTH);
 
         /*buffer[offset++] = 0x12; // map key: uvModality
         buffer[offset++] = 0x19; // two-byte integer

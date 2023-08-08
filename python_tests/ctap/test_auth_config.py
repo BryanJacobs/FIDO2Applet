@@ -1,4 +1,5 @@
 import secrets
+import unittest
 from typing import Optional
 
 from fido2.ctap import CtapError
@@ -38,6 +39,7 @@ class AuthenticatorConfigTestCase(CTAPTestCase):
         self.assertTrue(info.options.get("alwaysUv"))
         self.assertFalse("U2F_V2" in info.versions)
 
+    @unittest.skip("EP is disabled out of the box")
     def test_enable_enterprise_attestation(self):
         Config(self.ctap2).enable_enterprise_attestation()
 
