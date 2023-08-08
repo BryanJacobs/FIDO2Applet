@@ -37,6 +37,7 @@ class AuthenticatorConfigTestCase(CTAPTestCase):
 
         info = self.ctap2.get_info()
         self.assertTrue(info.options.get("alwaysUv"))
+        self.assertFalse(info.options.get("makeCredUvNotRequired"))
         self.assertFalse("U2F_V2" in info.versions)
 
     @unittest.skip("EP is disabled out of the box")
