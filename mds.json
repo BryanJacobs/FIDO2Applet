@@ -47,6 +47,7 @@
         "pinUvAuthToken": true,
         "setMinPINLength": true
       },
+      "algorithms": [{"alg": -7, "type": "public-key"}],
       "maxMsgSize": 1024,
       "maxCredBlobLength": 32,
       "pinUvAuthProtocols": [1, 2],
@@ -56,6 +57,6 @@
       "firmwareVersion": 1,
       "remainingDiscoverableCredentials": 50,
       "minPINLength": 4,
-      "maxRPIDsForSetMinPinLength": 2
+      "maxRPIDsForSetMinPINLength": 2,
   }
 }

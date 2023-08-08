@@ -2206,12 +2206,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     // that we have something matching this before we accept it
                     rkMatch = scanRKsForExactCredential(buffer, pubKeyIdx);
 
-                    // We need to check all the creds in the list when given an allowList
-                    // Note that we do not allow the use of the high-security key for nonresident credentials...
-                    // ... UNLESS a PIN was provided
                     if (checkCredential(buffer, pubKeyIdx, pubKeyLen, scratchRPIDHashBuffer, scratchRPIDHashIdx,
                             credTempBuffer, credTempOffset, rkMatch, (byte)(pinProvided ? 3 : 2))) {
-                        // valid non-resident credential
+                        // valid credential
                         acceptedMatch = true;
                     }
 
@@ -2366,10 +2363,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         final byte[] hmacOutputBuffer = bufferManager.getBufferForHandle(apdu, hmacOutputHandle);
 
         if (hmacSaltBuffer[hmacSaltIdx] != 0) {
+            final byte hmacSaltLen = (byte)(hmacSaltBuffer[hmacSaltIdx] & 0xFC);
+            final byte hmacSaltPinProtocol = (byte)(hmacSaltBuffer[hmacSaltIdx] & 0x03);
             hmacSecretBytes = computeHMACSecret(apdu, (ECPrivateKey) ecKeyPair.getPrivate(),
-                    hmacSaltBuffer, (short)(hmacSaltIdx + 1), hmacSaltBuffer[hmacSaltIdx],
-                    stateKeepingBuffer[stateKeepingIdx],
-                    hmacOutputBuffer, hmacOutputOffset,
+                    hmacSaltBuffer, (short)(hmacSaltIdx + 1), hmacSaltLen,
+                    hmacSaltPinProtocol, hmacOutputBuffer, hmacOutputOffset,
                     (stateKeepingBuffer[(short)(stateKeepingIdx + 1)] & 0x01) != 0
             );
         }
@@ -2771,7 +2769,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param outBuffer Output buffer into which to pack salt - needs at least 64 bytes of space
      * @param outOffset Offset into output buffer for writing salt
      * @param checkOnly If true, don't actually DO any HMAC-ing: just check salts have correct lengths
-     * @return Length of decrypted salt written to output buffer (32 or 64 bytes)
+     * @return bitfield: salt length in bytes (32 or 64) plus PIN protocol (1 or 2)
      */
     private byte extractHMACSalt(APDU apdu, byte[] buffer, short readIdx, short lc,
                                  byte[] outBuffer, short outOffset, boolean checkOnly) {
@@ -2838,7 +2836,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
         if (checkOnly) {
             // We are now done checking the lengths
-            return saltLen;
+            return (byte)(saltLen + pinProtocol);
         }
 
         final short scratchAmt = 32;
@@ -2884,7 +2882,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         bufferManager.release(apdu, scratchHandle, scratchAmt);
 
-        return saltLen;
+        return (byte)(saltLen + pinProtocol);
     }
 
     /**
@@ -2978,7 +2976,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 // this cred is ignored because it's too high-security for this context
                 return false;
             }
-            if (!USE_LOW_SECURITY_FOR_SOME_RKS || credProtectLevel > 2) {
+            if (!LOW_SECURITY_MAXIMUM_COMPLIANCE && (!USE_LOW_SECURITY_FOR_SOME_RKS || credProtectLevel > 2)) {
                 // No point trying the low-sec key for credProtect=3 RKs, or if they're all "high security"
                 potentiallyTryLowSecKey = false;
                 potentiallyTryHighSecKey = true;
