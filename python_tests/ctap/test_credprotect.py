@@ -212,6 +212,35 @@ class CredProtectTestCase(CTAPTestCase):
                                  })
 
 
+class CredProtectDeletionTestCase(CredManagementBaseTestCase):
+    @parameterized.expand([
+        ("Level 3R", CredProtectExtension.POLICY.REQUIRED),
+        ("Level 2R", CredProtectExtension.POLICY.OPTIONAL_WITH_LIST),
+        ("Level 1R", CredProtectExtension.POLICY.OPTIONAL),
+    ])
+    def test_deleted_creds_are_gone(self, _, policy):
+        client = self.get_high_level_client(extensions=[CredProtectExtension],
+                                            user_interaction=FixedPinUserInteraction(self.pin))
+        resident_key = ResidentKeyRequirement.REQUIRED
+
+        cred = client.make_credential(options=self.get_high_level_make_cred_options(
+            resident_key,
+            {
+                "credentialProtectionPolicy": policy
+            }
+        ))
+
+        cm = self.get_credential_management()
+        cm.delete_cred(self.get_descriptor_from_cred(cred))
+
+        with self.assertRaises(ClientError) as e:
+            client.get_assertion(self.get_high_level_assertion_opts_from_cred(cred))
+        self.assertEqual(CtapError.ERR.NO_CREDENTIALS, e.exception.cause.code)
+
+        with self.assertRaises(ClientError) as e:
+            client.get_assertion(self.get_high_level_assertion_opts_from_cred(cred=None, rp_id=self.rp_id))
+        self.assertEqual(CtapError.ERR.NO_CREDENTIALS, e.exception.cause.code)
+
 
 class CredProtectRKVisTestCase(CredManagementBaseTestCase):
     @parameterized.expand([
