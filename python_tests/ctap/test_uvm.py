@@ -48,7 +48,7 @@ class UVMTestCase(CTAPTestCase):
         res = self.ctap2.make_credential(**self.basic_makecred_params, extensions={
             "uvm": True
         })
-        self.assertEqual([], res.auth_data.extensions['uvm'])
+        self.assertEqual([[10, 4, 1]], res.auth_data.extensions['uvm'])
 
     def test_uvm_with_pin_on_makecred(self):
         pin = "12345"
@@ -90,5 +90,5 @@ class UVMTestCase(CTAPTestCase):
             cred
         ))
 
-        self.assertEqual([],
+        self.assertEqual([[10, 4, 1]],
                          assertion.get_assertions()[0].auth_data.extensions['uvm'])
