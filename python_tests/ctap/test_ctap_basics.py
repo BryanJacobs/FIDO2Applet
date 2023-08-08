@@ -1,5 +1,6 @@
 import copy
 import secrets
+import unittest
 
 from fido2.cose import ES256
 from fido2.ctap import CtapError
@@ -21,7 +22,8 @@ class CTAPBasicsTestCase(CTAPTestCase):
             "credBlob",
             "credProtect",
             "hmac-secret",
-            "largeBlobKey"
+            "largeBlobKey",
+            "minPinLength"
         ], info.extensions)
 
     def test_extreme_makecred_input(self):
@@ -57,6 +59,7 @@ class CTAPBasicsTestCase(CTAPTestCase):
         info = self.ctap2.get_info()
         self.assertEqual(Aaguid.NONE, info.aaguid)
 
+    @unittest.skip("Providing this breaks the FIDO compliance test suite")
     def test_info_uv_modality_hint(self):
         info = self.ctap2.get_info()
         self.assertEqual(0x0200, info.uv_modality)

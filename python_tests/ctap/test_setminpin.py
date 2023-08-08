@@ -79,6 +79,32 @@ class SetMinPinTestCase(CTAPTestCase):
 
         self.assertEqual(CtapError.ERR.PIN_POLICY_VIOLATION, e.exception.code)
 
+    def test_setminpin_rpids(self):
+        self.get_cfg().set_min_pin_length(rp_ids=[self.rp_id], min_pin_length=6)
+        client = self.get_high_level_client([MinPinLengthExtension])
+        new_rpid = secrets.token_hex(10)
+        new_rpid_client = self.get_high_level_client([MinPinLengthExtension], origin='https://' + new_rpid)
+
+        self.softResetCard()
+
+        matching_cred = client.make_credential(self.get_high_level_make_cred_options(extensions={
+            "minPinLength": True
+        }))
+        nonmatching_cred = new_rpid_client.make_credential(self.get_high_level_make_cred_options(extensions={
+            "minPinLength": True
+        }, rp_id=new_rpid))
+
+        self.assertEqual(6, matching_cred.attestation_object.auth_data.extensions.get('minPinLength'))
+        self.assertIsNone(nonmatching_cred.attestation_object.auth_data.extensions)
+
+    def test_set_too_many_rpids(self):
+        ids = ['foo'] * 10
+
+        with self.assertRaises(CtapError) as e:
+            self.get_cfg().set_min_pin_length(rp_ids=ids)
+
+        self.assertEqual(CtapError.ERR.KEY_STORE_FULL, e.exception.code)
+
     def test_four_ascii_chars(self):
         self.cp.set_pin("aaaa")
 
@@ -149,9 +175,10 @@ class SetMinPinTestCase(CTAPTestCase):
 
     def test_accepts_extension_on_makecred(self):
         client = self.get_high_level_client([MinPinLengthExtension])
-        client.make_credential(self.get_high_level_make_cred_options(extensions={
+        cred = client.make_credential(self.get_high_level_make_cred_options(extensions={
             "minPinLength": True
         }))
+        self.assertIsNone(cred.extension_results.get("minPinLength"))
 
     def test_rejects_false_extension_on_makecred(self):
         self.basic_makecred_params['extensions'] = {

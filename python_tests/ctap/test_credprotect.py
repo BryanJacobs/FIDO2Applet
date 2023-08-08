@@ -187,6 +187,31 @@ class CredProtectTestCase(CTAPTestCase):
 
         self.assertEqual(CtapError.ERR.CREDENTIAL_EXCLUDED, e.exception.code)
 
+    def test_low_sec_credprotect(self):
+        client = self.get_high_level_client(extensions=[CredProtectExtension])
+        res = client.make_credential(options=self.get_high_level_make_cred_options(
+            ResidentKeyRequirement.REQUIRED,
+            {
+                "credentialProtectionPolicy": CredProtectExtension.POLICY.OPTIONAL
+            }
+        ))
+        ClientPin(self.ctap2).set_pin(pin="123939")
+        self.softResetCard()
+        self.ctap2.get_assertion(rp_id=self.rp_id, client_data_hash=secrets.token_bytes(32),
+                                 allow_list=[
+                                     self.get_descriptor_from_cred(res)
+                                 ],
+                                 options={
+                                     'uv': False,
+                                     'up': False
+                                 })
+        self.ctap2.get_assertion(rp_id=self.rp_id, client_data_hash=secrets.token_bytes(32),
+                                 options={
+                                     'uv': False,
+                                     'up': False
+                                 })
+
+
 
 class CredProtectRKVisTestCase(CredManagementBaseTestCase):
     @parameterized.expand([

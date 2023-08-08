@@ -65,9 +65,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private static final short NUM_RESIDENT_KEY_SLOTS = 50;
     /**
-     * Length of initialization vector for resident key encryption/decryption
+     * Length of initialization vector for key encryption/decryption
      */
-    private static final short RESIDENT_KEY_IV_LEN = 16;
+    private static final short IV_LEN = 16;
     /**
      * How long an RP identifier is allowed to be for a resident key. Values longer than this are truncated.
      * The CTAP2.1 standard says the minimum value for this is 32.
@@ -92,6 +92,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * Number of times PIN entry can be attempted before the device will self-lock. FIDO2 standards say eight.
      */
     private static final byte MAX_PIN_RETRIES = 8;
+    /**
+     * Maximum number of RPs that can receive the authenticator's configured minPinLength
+     */
+    private static final byte MAX_RP_IDS_MIN_PIN_LENGTH = 2;
     /**
      * How many times a PIN can be incorrectly entered before the authentiator must be rebooted to proceed.
      * FIDO2 standards say three.
@@ -415,6 +419,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private final byte[] residentKeyCredBlobLengths;
     /**
+     * Encrypted RPID hashes used for the minPinLength extension
+     */
+    private final byte[] minPinRPIDs;
+    /**
      * How many resident key slots are filled
      */
     private byte numResidentCredentials;
@@ -686,6 +694,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         short credBlobIdx = -1;
         byte credBlobLen = 0;
         boolean largeBlobKeyRequested = false;
+        boolean minPinRequested = false;
 
         // Consume any remaining parameters
         byte lastMapKey = 0x04;
@@ -775,6 +784,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                             } else if (buffer[readIdx] != (byte) 0xF5) {
                                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                             }
+                            minPinRequested = true;
                             readIdx++;
                         } else if (sLen == CannedCBOR.UVM_EXTENSION_ID.length &&
                                 Util.arrayCompare(buffer, readIdx,
@@ -879,6 +889,18 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 }
             }
         }
+        if (minPinRequested) {
+            // Check RP is authorized to receive minPinLength
+            boolean ok = false;
+            for (short i = 0; i < MAX_RP_IDS_MIN_PIN_LENGTH; i++) {
+                if (Util.arrayCompare(scratchRPIDHashBuffer, scratchRPIDHashOffset,
+                        minPinRPIDs, (short)(i * RP_HASH_LEN), RP_HASH_LEN) == 0) {
+                    ok = true;
+                    break;
+                }
+            }
+            minPinRequested = ok;
+        }
 
         final short scratchCredHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.ANYWHERE);
         final short scratchCredOffset = bufferManager.getOffsetForHandle(scratchCredHandle);
@@ -920,7 +942,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
         }
 
-        if (!LOW_SECURITY_MAXIMUM_COMPLIANCE && pinSet && transientStorage.getPinProtocolInUse() == 0 && credProtectLevel > 2) {
+        if (!LOW_SECURITY_MAXIMUM_COMPLIANCE && pinSet
+                && transientStorage.getPinProtocolInUse() == 0 && credProtectLevel > 2) {
             // Can't make level-three creds without access to the wrapping key for them!
             // This is the actual purpose of the LOW_SECURITY_MAXIMUM_COMPLIANCE flag
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
@@ -1014,8 +1037,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             JCSystem.beginTransaction();
             boolean ok = false;
             try {
-                random.generateData(residentKeyIVs, (short)(targetRKSlot * NUM_IVS_PER_RK * RESIDENT_KEY_IV_LEN),
-                        (short)(RESIDENT_KEY_IV_LEN * NUM_IVS_PER_RK));
+                random.generateData(residentKeyIVs, (short)(targetRKSlot * NUM_IVS_PER_RK * IV_LEN),
+                        (short)(IV_LEN * NUM_IVS_PER_RK));
                 // Set flag byte first, so encryption stuff below can use it
                 byte effectiveCPLevel = credProtectLevel;
                 if (effectiveCPLevel == 0) {
@@ -1134,16 +1157,16 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         // ... so let's calculate that
         final short adLen = getAuthDataLen(flags, true, hmacSecretEnabled,
                 credProtectLevel > 0,
-                credBlobIdx != -1, uvmRequested);
+                credBlobIdx != -1, uvmRequested, minPinRequested);
 
-        if (hmacSecretEnabled || credProtectLevel > 0 || credBlobIdx != -1 || uvmRequested) {
+        if (hmacSecretEnabled || credProtectLevel > 0 || credBlobIdx != -1 || uvmRequested || minPinRequested) {
             // set bit 7 for extensions
             flags = (byte)(flags | 0x80);
         }
 
         final short adAddlBytes = writeAD(bufferMem, outputLen, adLen, scratchRPIDHashBuffer, scratchRPIDHashOffset,
                 scratchPublicKeyBuffer, (short)(scratchPublicKeyOffset + 1), flags, hmacSecretEnabled, credProtectLevel,
-                uvmRequested, (byte) (credBlobIdx != -1 ? (credBlobLen <= MAX_CRED_BLOB_LEN ? 1 : -1) : 0),
+                uvmRequested, minPinRequested, (byte) (credBlobIdx != -1 ? (credBlobLen <= MAX_CRED_BLOB_LEN ? 1 : -1) : 0),
                 scratchCredBuffer, scratchCredOffset);
 
         final short offsetForStartOfAuthData = (short) (outputLen + adAddlBytes);
@@ -1640,11 +1663,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                           short writeIdx, short adLen, byte[] rpIdHashBuffer, short rpIdHashOffset,
                           byte[] pubKeyBuffer, short pubKeyOffset, byte flags,
                           boolean hmacSecretEnabled, byte credProtectLevel, boolean uvmRequested,
-                          byte credBlobState,
+                          boolean minPinRequested, byte credBlobState,
                           byte[] encodedCredBuffer, short encodedCredOffset) {
         short adAddlBytes = writeADBasic(outBuf, adLen, writeIdx, flags, rpIdHashBuffer, rpIdHashOffset);
         writeIdx += getAuthDataLen(flags, false, hmacSecretEnabled, credProtectLevel > 0,
-                credBlobState != 0, uvmRequested) + adAddlBytes;
+                credBlobState != 0, uvmRequested, minPinRequested) + adAddlBytes;
 
         // aaguid
         writeIdx = Util.arrayCopyNonAtomic(aaguid, (short) 0, outBuf, writeIdx, (short) aaguid.length);
@@ -1673,6 +1696,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         if (uvmRequested) {
             numExtensions++;
         }
+        if (minPinRequested) {
+            numExtensions++;
+        }
 
         if (numExtensions > 0) {
             outBuf[writeIdx++] = (byte)(0xA0 + numExtensions);
@@ -1683,24 +1709,34 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         if (credBlobState != 0) {
-            outBuf[writeIdx++] = (byte) (96 + CannedCBOR.CRED_BLOB_EXTENSION_ID.length);
+            writeIdx = encodeIntLenTo(outBuf, writeIdx, (byte) CannedCBOR.CRED_BLOB_EXTENSION_ID.length, false);
             writeIdx = Util.arrayCopy(CannedCBOR.CRED_BLOB_EXTENSION_ID, (short) 0,
                     outBuf, writeIdx, (short) CannedCBOR.CRED_BLOB_EXTENSION_ID.length);
             outBuf[writeIdx++] = (byte)(credBlobState == -1 ? 0xF4 : 0xF5);
         }
 
         if (credProtectLevel > 0) {
-            outBuf[writeIdx++] = (byte) (96 + CannedCBOR.CRED_PROTECT_EXTENSION_ID.length);
+            writeIdx = encodeIntLenTo(outBuf, writeIdx, (byte) CannedCBOR.CRED_PROTECT_EXTENSION_ID.length, false);
             writeIdx = Util.arrayCopy(CannedCBOR.CRED_PROTECT_EXTENSION_ID, (short) 0,
                     outBuf, writeIdx, (short) CannedCBOR.CRED_PROTECT_EXTENSION_ID.length);
             outBuf[writeIdx++] = credProtectLevel;
         }
 
         if (hmacSecretEnabled) {
-            outBuf[writeIdx++] = (byte) (96 + CannedCBOR.HMAC_SECRET_EXTENSION_ID.length);
+            writeIdx = encodeIntLenTo(outBuf, writeIdx, (byte) CannedCBOR.HMAC_SECRET_EXTENSION_ID.length, false);
             writeIdx = Util.arrayCopy(CannedCBOR.HMAC_SECRET_EXTENSION_ID, (short) 0,
                     outBuf, writeIdx, (short) CannedCBOR.HMAC_SECRET_EXTENSION_ID.length);
             outBuf[writeIdx++] = (byte) 0xF5; // boolean true
+        }
+
+        if (minPinRequested) {
+            writeIdx = encodeIntLenTo(outBuf, writeIdx, (byte) CannedCBOR.MIN_PIN_LENGTH.length, false);
+            writeIdx = Util.arrayCopy(CannedCBOR.MIN_PIN_LENGTH, (short) 0,
+                    outBuf, writeIdx, (short) CannedCBOR.MIN_PIN_LENGTH.length);
+            if (minPinLength > 23) {
+                outBuf[writeIdx++] = 0x18; // one-byte integer
+            }
+            outBuf[writeIdx++] = minPinLength;
         }
 
         return adAddlBytes;
@@ -1775,9 +1811,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         byte[] iv = rkNum >= 0 ? residentKeyIVs :
                 (lowSecurity ? lowSecurityWrappingIV : externalCredentialIV);
         short ivOffset = rkNum < 0 ? (short) 0 :
-                (short)((rkNum * NUM_IVS_PER_RK + RK_IV_CRED) * RESIDENT_KEY_IV_LEN);
+                (short)((rkNum * NUM_IVS_PER_RK + RK_IV_CRED) * IV_LEN);
         symmetricWrapper.init(key, Cipher.MODE_ENCRYPT,
-                iv, ivOffset, RESIDENT_KEY_IV_LEN);
+                iv, ivOffset, IV_LEN);
         final short encryptedBytes = symmetricWrapper.doFinal(outBuffer, outOffset, CREDENTIAL_ID_LEN,
                 outBuffer, outOffset);
         if (encryptedBytes != CREDENTIAL_ID_LEN) {
@@ -1818,11 +1854,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param useCredProtect If true, includes the bytes for the credProtect extension
      * @param useCredBlob If true, includes the bytes for the credBlob extension
      * @param useUVM If true, includes the bytes for the UVM extension
+     * @param useMinPin If true, includes the bytes for the minPinLength extension
      *
      * @return The number of bytes in the authentication data segment
      */
     private short getAuthDataLen(byte flags, boolean includeAttestedKey, boolean useHmacSecret, boolean useCredProtect,
-                                 boolean useCredBlob, boolean useUVM) {
+                                 boolean useCredBlob, boolean useUVM, boolean useMinPin) {
         short basicLen = (short) (RP_HASH_LEN + // RP ID hash
                 1 + // flags byte
                 4 // counter
@@ -1832,7 +1869,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             return basicLen;
         }
 
-        byte uvmLength = (byte)(((flags & 0x04) == 0) ? 3 : 7);
+        final byte uvmLength = (byte)(((flags & 0x04) == 0) ? 3 : 7);
+        final byte minPinExtBytes = (byte)(minPinLength > 23 ? 4 : 3);
 
         return (short) (basicLen +
                 (short) aaguid.length + // aaguid
@@ -1846,7 +1884,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 (useHmacSecret ? 2 + CannedCBOR.HMAC_SECRET_EXTENSION_ID.length : 0) + // extension data
                 (useCredProtect ? 2 + CannedCBOR.CRED_PROTECT_EXTENSION_ID.length : 0) + // more extension data
                 (useCredBlob ? 2 + CannedCBOR.CRED_BLOB_EXTENSION_ID.length : 0) + // yet more extension data
-                (useUVM ? uvmLength + CannedCBOR.UVM_EXTENSION_ID.length : 0) // why is there still more extension data
+                (useUVM ? uvmLength + CannedCBOR.UVM_EXTENSION_ID.length : 0) + // why is there still more extension data
+                (useMinPin ? minPinExtBytes + CannedCBOR.MIN_PIN_LENGTH.length : 0) // I hope we're done with extensions now
         );
     }
 
@@ -2380,7 +2419,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             flags = (byte)(flags | 0x04);
         }
 
-        short adLen = getAuthDataLen(flags, false, false, false, false, false);
+        short adLen = getAuthDataLen(flags, false, false,
+                false, false, false, false);
         short extensionDataLen = 0;
         byte numExtensions = 0;
         short credBlobBytes = 0;
@@ -2654,7 +2694,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private short processOptionsMap(APDU apdu, byte[] buffer, short readIdx, short lc, boolean requireUP) {
         short numOptions = getMapEntryCount(apdu, buffer[readIdx++]);
-        if (readIdx > (short)(lc - 3)) {
+        if (readIdx >= lc) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
         }
 
@@ -3017,9 +3057,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         final byte[] iv = isResident ? residentKeyIVs :
             (lowSecurity ? lowSecurityWrappingIV : externalCredentialIV);
         final short ivOffset = !isResident ? (short) 0 :
-                (short)((residentKeyNum * NUM_IVS_PER_RK + RK_IV_CRED) * RESIDENT_KEY_IV_LEN);
+                (short)((residentKeyNum * NUM_IVS_PER_RK + RK_IV_CRED) * IV_LEN);
         AESKey key = (LOW_SECURITY_MAXIMUM_COMPLIANCE || lowSecurity) ? lowSecurityWrappingKey : highSecurityWrappingKey;
-        symmetricUnwrapper.init(key, Cipher.MODE_DECRYPT, iv, ivOffset, RESIDENT_KEY_IV_LEN);
+        symmetricUnwrapper.init(key, Cipher.MODE_DECRYPT, iv, ivOffset, IV_LEN);
         symmetricUnwrap(credentialBuffer, credentialIndex, CREDENTIAL_ID_LEN,
                 outputBuffer, outputOffset);
     }
@@ -4426,7 +4466,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 sendNoCopy(apdu, (short) 1);
                 break;
             case FIDOConstants.AUTH_CONFIG_SET_MIN_PIN_LENGTH:
-                setMinPin(apdu, reqBuffer, cmdParamsIdx, cmdParamsLen);
+                setMinPin(apdu, reqBuffer, cmdParamsIdx, cmdParamsLen, lc);
                 break;
             case FIDOConstants.AUTH_CONFIG_TOGGLE_ALWAYS_UV:
                 toggleAlwaysUv(apdu);
@@ -4445,8 +4485,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param buffer       Incoming request buffer
      * @param readIdx      Index of command arguments in request buffer
      * @param cmdParamsLen Length of command options
+     * @param lc           Incoming request total length
      */
-    private void setMinPin(APDU apdu, byte[] buffer, short readIdx, short cmdParamsLen) {
+    private void setMinPin(APDU apdu, byte[] buffer, short readIdx, short cmdParamsLen, short lc) {
         if (cmdParamsLen == 0) {
             // This is technically a fine command, but it does nothing
             apdu.getBuffer()[0] = FIDOConstants.CTAP2_OK;
@@ -4456,6 +4497,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         byte newMinPINLength = minPinLength;
         boolean newForceChangePIN = false;
+        short rpIDIdx = -1;
+        byte numRPIDs = 0;
 
         short numEntries = getMapEntryCount(apdu, buffer[readIdx++]);
         for (short i = 0; i < numEntries; i++) {
@@ -4471,8 +4514,19 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     }
                     break;
                 case 0x02: // minPinLengthRPIDs
-                    if (buffer[readIdx++] != (byte) 0x80) { // empty array
+                    byte plRIPByte = buffer[readIdx];
+                    if (ub(plRIPByte) < 0x80 || ub(plRIPByte) > 0x97) {
+                        // empty array
+                        sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_OPTION);
+                    }
+                    numRPIDs = (byte)(ub(plRIPByte) - 0x80);
+                    if (numRPIDs > MAX_RP_IDS_MIN_PIN_LENGTH) { // empty array
                         sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_KEY_STORE_FULL);
+                    }
+                    rpIDIdx = (short)(readIdx + 1);
+                    readIdx = consumeAnyEntity(apdu, buffer, readIdx, lc);
+                    if (readIdx > lc) {
+                        sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
                     }
                     break;
                 case 0x03: // forceChangePIN
@@ -4515,6 +4569,28 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             if (!forcePinChange) {
                 forcePinChange = newForceChangePIN;
             }
+
+            short readOffset = rpIDIdx;
+            short i = 0;
+            for (; i < numRPIDs; i++) {
+                short rpIdLen = 0;
+                if (buffer[readOffset] == 0x78) { // string with one-byte length
+                    rpIdLen = ub(buffer[++readOffset]);
+                    readOffset++;
+                } else if (buffer[readOffset] >= 0x60 && buffer[readOffset] <= 0x77) {
+                    rpIdLen = (short)(buffer[readOffset] - 0x60);
+                    readOffset++;
+                } else {
+                    // aborting the transaction...
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
+                }
+                sha256.doFinal(buffer, readOffset, rpIdLen,
+                        minPinRPIDs, (short)(i * RP_HASH_LEN));
+            }
+            for (; i < MAX_RP_IDS_MIN_PIN_LENGTH; i++) {
+                Util.arrayFillNonAtomic(minPinRPIDs, (short)(i * RP_HASH_LEN), RP_HASH_LEN, (byte) 0x00);
+            }
+
             ok = true;
         } finally {
             if (ok) {
@@ -5311,7 +5387,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         final boolean highSec = !LOW_SECURITY_MAXIMUM_COMPLIANCE && (!USE_LOW_SECURITY_FOR_SOME_RKS || credProt > 2);
         final AESKey key = highSec ? highSecurityWrappingKey : lowSecurityWrappingKey;
         symmetricUnwrapper.init(key, Cipher.MODE_DECRYPT, residentKeyIVs,
-                (short) ((rkIndex * NUM_IVS_PER_RK + ivNum) * RESIDENT_KEY_IV_LEN), RESIDENT_KEY_IV_LEN);
+                (short) ((rkIndex * NUM_IVS_PER_RK + ivNum) * IV_LEN), IV_LEN);
     }
 
     /**
@@ -5322,7 +5398,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         final boolean highSec = !LOW_SECURITY_MAXIMUM_COMPLIANCE && (!USE_LOW_SECURITY_FOR_SOME_RKS || credProt > 2);
         final AESKey key = highSec ? highSecurityWrappingKey : lowSecurityWrappingKey;
         symmetricWrapper.init(key, Cipher.MODE_ENCRYPT, residentKeyIVs,
-                (short) ((rkIndex * NUM_IVS_PER_RK + ivNum) * RESIDENT_KEY_IV_LEN), RESIDENT_KEY_IV_LEN);
+                (short) ((rkIndex * NUM_IVS_PER_RK + ivNum) * IV_LEN), IV_LEN);
     }
 
     /**
@@ -5433,6 +5509,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             Util.arrayCopyNonAtomic(CannedCBOR.INITIAL_LARGE_BLOB_ARRAY, (short) 0,
                     largeBlobStore, (short) 0, (short) CannedCBOR.INITIAL_LARGE_BLOB_ARRAY.length);
             largeBlobStoreFill = (short) CannedCBOR.INITIAL_LARGE_BLOB_ARRAY.length;
+            Util.arrayFillNonAtomic(minPinRPIDs, (short) 0, (short) (MAX_RP_IDS_MIN_PIN_LENGTH * RP_HASH_LEN), (byte) 0x00);
 
             random.generateData(pinKDFSalt, (short) 0, (short) pinKDFSalt.length);
             random.generateData(highSecurityWrappingIV, (short) 0, (short) highSecurityWrappingIV.length);
@@ -5500,7 +5577,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         short offset = 0;
 
         buffer[offset++] = FIDOConstants.CTAP2_OK;
-        buffer[offset++] = (byte) 0xB0; // Map - sixteen keys
+        buffer[offset++] = (byte) 0xAF; // Map - fifteen keys
         buffer[offset++] = 0x01; // map key: versions
 
         if (alwaysUv || attestationData == null || filledAttestationData < attestationData.length) {
@@ -5597,9 +5674,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         buffer[offset++] = 0x10; // map key: maxRPIDsForSetMinPinLength
         buffer[offset++] = 0x00; // zero
 
-        buffer[offset++] = 0x12; // map key: uvModality
+        /*buffer[offset++] = 0x12; // map key: uvModality
         buffer[offset++] = 0x19; // two-byte integer
-        offset = Util.setShort(buffer, offset, (short) 0x0200); // uvModality "none"
+        offset = Util.setShort(buffer, offset, (short) 0x0200); // uvModality "none"*/
 
         buffer[offset++] = 0x14; // map key: remainingDiscoverableCredentials
         offset = encodeIntTo(buffer, offset, (byte)(NUM_RESIDENT_KEY_SLOTS - numResidentCredentials));
@@ -6697,7 +6774,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         highSecurityWrappingKey = getTransientAESKey(); // Our most important treasure, from which all other crypto is born...
         lowSecurityWrappingKey = getPersistentAESKey(); // Not really a treasure
         // Resident key data, of course, must all be in flash. Losing that on reset would be Bad
-        residentKeyIVs = new byte[NUM_RESIDENT_KEY_SLOTS * RESIDENT_KEY_IV_LEN * NUM_IVS_PER_RK];
+        residentKeyIVs = new byte[NUM_RESIDENT_KEY_SLOTS * IV_LEN * NUM_IVS_PER_RK];
         residentKeyData = new byte[NUM_RESIDENT_KEY_SLOTS * CREDENTIAL_ID_LEN];
         residentKeyState = new byte[NUM_RESIDENT_KEY_SLOTS];
         residentKeyUserIds = new byte[NUM_RESIDENT_KEY_SLOTS * MAX_USER_ID_LENGTH];
@@ -6708,6 +6785,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         residentKeyCredBlobs = new byte[NUM_RESIDENT_KEY_SLOTS * MAX_CRED_BLOB_LEN];
         residentKeyCredBlobLengths = new byte[NUM_RESIDENT_KEY_SLOTS];
         residentKeyCounters = new byte[NUM_RESIDENT_KEY_SLOTS * 4];
+        minPinRPIDs = new byte[MAX_RP_IDS_MIN_PIN_LENGTH * RP_HASH_LEN];
         numResidentCredentials = 0;
         numResidentRPs = 0;
         resetRequested = false;

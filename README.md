@@ -99,9 +99,9 @@ If you're a really detail-oriented person, you might enjoy reading
 | CTAP2.1 PIN Protocol 1             | Implemented                                             |
 | CTAP2.1 PIN Protocol 2             | Implemented                                             |
 | CTAP2.1 credential management      | Implemented                                             |
-| CTAP2.1 enterprise attestation     | Implemented but never provided to RPs                   |
+| CTAP2.1 enterprise attestation     | Implemented but never provided to RPs (defaulted off)   |
 | CTAP2.1 authenticator config       | Implemented                                             |
-| CTAP2.1 minPinLength extension     | Implemented but never provided to RPs                   |
+| CTAP2.1 minPinLength extension     | Implemented, default max two RPIDs can receive          |
 | CTAP2.1 credBlob extension         | Implemented, discoverable creds only                    |
 | CTAP2.1 largeBlobKey extension     | Implemented                                             |
 | CTAP2.1 authenticatorLargeBlobs    | Implemented, default 1024 bytes storage (max 4k)        |

@@ -64,7 +64,7 @@ So to summarize, let's discuss the full requirements on the authenticator side:
 - Support for ECDH-plain
 - Support for SHA-256 hashing
 - Support for EC with 256-bit keys
-- Approximately 20k of storage by default (very tunable)
+- Approximately 30k of storage by default (very tunable)
 - Ideally, support for EC TRANSIENT_DESELECT keys, as otherwise you'll get flash usage 
   every time the app is selected
 

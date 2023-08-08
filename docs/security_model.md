@@ -22,7 +22,8 @@ PIN on the device "securely", and then relying on the correctness
 of their software and the tamper-proofness of their hardware to
 protect private keying material.
 
-This app is different. In this app, when you set a PIN, the authenticator
+This app is different. In this app, when you set a PIN and choose not to
+use the `LOW_SECURITY_HIGH_COMPATIBILITY` mode, the authenticator
 "wrapping key" - without which the authenticator cannot access its
 security "level 3" credentials (or, with certain configurations, any
 resident/discoverable credentials) - is encrypted using a key derived from
@@ -169,6 +170,8 @@ on-device wrapping key. Without doing that, they can read incidentals like:
   of the large blob array, so the authenticator implementation here
   does not. What can be read is what the getLargeBlobs operation
   returns without authentication anyhow...)
+- the set of RP IDs allowed to receive the configured minimum
+  PIN length
 
 What they can't do without decrypting the wrapping key is get at
 your actual credentials for sites - the private keys, the RP IDs,
