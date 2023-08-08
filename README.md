@@ -92,6 +92,7 @@ If you're a really detail-oriented person, you might enjoy reading
 | Other crypto, like ed25519         | Not implemented - availability depends on hardware      |
 | Self attestation                   | Implemented                                             |
 | Basic attestation with ECDSA certs | Implemented (see [install guide](docs/certs.md))        |
+| Webauthn (NOT CTAP!) uvm extension | Implemented                                             |
 | CTAP2.1 hmac-secret extension      | Implemented                                             |
 | CTAP2.1 alwaysUv option            | Implemented                                             |
 | CTAP2.1 credProtect option         | Implemented                                             |

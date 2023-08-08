@@ -34,7 +34,7 @@
   "attestationRootCertificates": [],
   "authenticatorGetInfo": {
       "versions": [ "FIDO_2_0", "FIDO_2_1", "FIDO_2_1_PRE" ],
-      "extensions": [ "credBlob", "credProtect", "hmac-secret", "largeBlobKey" ],
+      "extensions": [ "uvm", "credBlob", "credProtect", "hmac-secret", "largeBlobKey" ],
       "aaguid": "00000000000000000000000000000000",
       "options": {
         "ep": false,

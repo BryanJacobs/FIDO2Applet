@@ -176,6 +176,18 @@ class LargeBlobsTestCase(BasicAttestationTestCase):
         res = LargeBlobs(self.ctap2).read_blob_array()
         self.assertEqual(blob_array, res)
 
+    def test_get_beyond_end(self):
+        blob_array = secrets.token_bytes(54)
+        h = hashes.Hash(hashes.SHA256())
+        h.update(blob_array)
+        blob_array += h.finalize()[:16]
+
+        self.ctap2.large_blobs(offset=0, set=blob_array, length=len(blob_array))
+
+        res = self.ctap2.large_blobs(offset=0, get=200)
+
+        self.assertEqual(blob_array, res[1])
+
     def test_set_and_get_large_blobs_high_level(self):
         cred = self.make_large_blob_key()
 

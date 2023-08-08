@@ -16,7 +16,13 @@ class CTAPBasicsTestCase(CTAPTestCase):
 
     def test_info_supported_extensions(self):
         info = self.ctap2.get_info()
-        self.assertEqual(["credBlob", "credProtect", "hmac-secret", "largeBlobKey"], info.extensions)
+        self.assertEqual([
+            "uvm",
+            "credBlob",
+            "credProtect",
+            "hmac-secret",
+            "largeBlobKey"
+        ], info.extensions)
 
     def test_extreme_makecred_input(self):
         self.basic_makecred_params['user'] = {

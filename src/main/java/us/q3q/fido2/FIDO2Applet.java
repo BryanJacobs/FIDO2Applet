@@ -623,7 +623,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
         }
 
-        readIdx = consumeMapAndGetID(apdu, buffer, readIdx, lc, false, false, false);
+        readIdx = consumeMapAndGetID(apdu, buffer, readIdx, lc, false, false, true);
         final short rpIdIdx = transientStorage.getStoredIdx();
         short rpIdLen = transientStorage.getStoredLen();
 
@@ -673,6 +673,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         boolean hmacSecretEnabled = false;
+        boolean uvmRequested = false;
         byte credProtectLevel = 0;
         boolean pinAuthSuccess = false;
 
@@ -775,6 +776,18 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                             }
                             readIdx++;
+                        } else if (sLen == CannedCBOR.UVM_EXTENSION_ID.length &&
+                                Util.arrayCompare(buffer, readIdx,
+                                        CannedCBOR.UVM_EXTENSION_ID, (short) 0, sLen) == 0) {
+                            readIdx += sLen;
+                            if (buffer[readIdx] == (byte) 0xF4) {
+                                // uvm must be true if present
+                                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_OPTION);
+                            } else if (buffer[readIdx] != (byte) 0xF5) {
+                                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                            }
+                            readIdx++;
+                            uvmRequested = true;
                         } else {
                             readIdx += sLen;
                             readIdx = consumeAnyEntity(apdu, buffer, readIdx, lc);
@@ -873,9 +886,16 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         // Check excludeList. This is deferred to here so it's after we check PIN auth...
         if (numExcludeListEntries > 0) {
+            boolean willExclude = false;
             short excludeReadIdx = excludeListStartIdx;
             for (short excludeListIdx = 0; excludeListIdx < numExcludeListEntries; excludeListIdx++) {
                 excludeReadIdx = consumeMapAndGetID(apdu, buffer, excludeReadIdx, lc, true, true, false);
+
+                if (willExclude) {
+                    // We already know we're going to return EXCLUDED, so don't bother decrypting more
+                    continue;
+                }
+
                 final short credIdIdx = transientStorage.getStoredIdx();
                 final short credIdLen = transientStorage.getStoredLen();
                 if (credIdLen != CREDENTIAL_ID_LEN) {
@@ -889,9 +909,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 if (checkCredential(buffer, credIdIdx, CREDENTIAL_ID_LEN,
                         scratchRPIDHashBuffer, scratchRPIDHashOffset,
                         scratchCredBuffer, scratchCredOffset, rkIndex, (byte)(pinAuthSuccess ? 3 : 2))) {
-                    // This credential is valid. Fail early.
-                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CREDENTIAL_EXCLUDED);
+                    // This credential is valid. Don't fail early,
+                    // because the compliance test requires us to report later invalid entries.
+                    willExclude = true;
                 }
+            }
+
+            if (willExclude) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CREDENTIAL_EXCLUDED);
             }
         }
 
@@ -1096,10 +1121,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         outputLen = Util.arrayCopyNonAtomic(CannedCBOR.MAKE_CREDENTIAL_RESPONSE_PREAMBLE, (short) 0,
                 bufferMem, outputLen, (short) CannedCBOR.MAKE_CREDENTIAL_RESPONSE_PREAMBLE.length);
 
-        // CBOR requires us to know how long authData is before we can start writing it out...
-        // ... so let's calculate that
-        final short adLen = getAuthDataLen(true, hmacSecretEnabled, credProtectLevel > 0,
-                credBlobIdx != -1);
 
         // set bit 0 for user present
         // set bit 6 for attestation included (always, for a makeCredential)
@@ -1108,14 +1129,21 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             // set bit 2 for user verified
             flags = (byte)(flags | 0x04);
         }
-        if (hmacSecretEnabled || credProtectLevel > 0 || credBlobIdx != -1) {
+
+        // CBOR requires us to know how long authData is before we can start writing it out...
+        // ... so let's calculate that
+        final short adLen = getAuthDataLen(flags, true, hmacSecretEnabled,
+                credProtectLevel > 0,
+                credBlobIdx != -1, uvmRequested);
+
+        if (hmacSecretEnabled || credProtectLevel > 0 || credBlobIdx != -1 || uvmRequested) {
             // set bit 7 for extensions
             flags = (byte)(flags | 0x80);
         }
 
         final short adAddlBytes = writeAD(bufferMem, outputLen, adLen, scratchRPIDHashBuffer, scratchRPIDHashOffset,
                 scratchPublicKeyBuffer, (short)(scratchPublicKeyOffset + 1), flags, hmacSecretEnabled, credProtectLevel,
-                (byte) (credBlobIdx != -1 ? (credBlobLen <= MAX_CRED_BLOB_LEN ? 1 : -1) : 0),
+                uvmRequested, (byte) (credBlobIdx != -1 ? (credBlobLen <= MAX_CRED_BLOB_LEN ? 1 : -1) : 0),
                 scratchCredBuffer, scratchCredOffset);
 
         final short offsetForStartOfAuthData = (short) (outputLen + adAddlBytes);
@@ -1601,6 +1629,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param flags             Flags byte to pack into authData object
      * @param hmacSecretEnabled true if the HMAC secret extension is in use
      * @param credProtectLevel  Integer (0-3) for level of credProtect enabled; 0 to disable
+     * @param uvmRequested      true if the UVM extension is in use
      * @param credBlobState     Positive for successful credBlob; 0 for not requested; -1 for failure
      * @param encodedCredBuffer Buffer containing encoded credential ID
      * @param encodedCredOffset Offset of encoded credential within given buffer
@@ -1610,12 +1639,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     private short writeAD(byte[] outBuf,
                           short writeIdx, short adLen, byte[] rpIdHashBuffer, short rpIdHashOffset,
                           byte[] pubKeyBuffer, short pubKeyOffset, byte flags,
-                          boolean hmacSecretEnabled, byte credProtectLevel,
+                          boolean hmacSecretEnabled, byte credProtectLevel, boolean uvmRequested,
                           byte credBlobState,
                           byte[] encodedCredBuffer, short encodedCredOffset) {
         short adAddlBytes = writeADBasic(outBuf, adLen, writeIdx, flags, rpIdHashBuffer, rpIdHashOffset);
-        writeIdx += getAuthDataLen(false, hmacSecretEnabled, credProtectLevel > 0,
-                credBlobState != 0) + adAddlBytes;
+        writeIdx += getAuthDataLen(flags, false, hmacSecretEnabled, credProtectLevel > 0,
+                credBlobState != 0, uvmRequested) + adAddlBytes;
 
         // aaguid
         writeIdx = Util.arrayCopyNonAtomic(aaguid, (short) 0, outBuf, writeIdx, (short) aaguid.length);
@@ -1641,23 +1670,16 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         if (credBlobState != 0) {
             numExtensions++;
         }
+        if (uvmRequested) {
+            numExtensions++;
+        }
 
         if (numExtensions > 0) {
             outBuf[writeIdx++] = (byte)(0xA0 + numExtensions);
         }
 
-        if (hmacSecretEnabled) {
-            outBuf[writeIdx++] = (byte) (96 + CannedCBOR.HMAC_SECRET_EXTENSION_ID.length);
-            writeIdx = Util.arrayCopy(CannedCBOR.HMAC_SECRET_EXTENSION_ID, (short) 0,
-                    outBuf, writeIdx, (short) CannedCBOR.HMAC_SECRET_EXTENSION_ID.length);
-            outBuf[writeIdx++] = (byte) 0xF5; // boolean true
-        }
-
-        if (credProtectLevel > 0) {
-            outBuf[writeIdx++] = (byte) (96 + CannedCBOR.CRED_PROTECT_EXTENSION_ID.length);
-            writeIdx = Util.arrayCopy(CannedCBOR.CRED_PROTECT_EXTENSION_ID, (short) 0,
-                    outBuf, writeIdx, (short) CannedCBOR.CRED_PROTECT_EXTENSION_ID.length);
-            outBuf[writeIdx++] = credProtectLevel;
+        if (uvmRequested) {
+            writeIdx = writeUVM(outBuf, writeIdx, flags);
         }
 
         if (credBlobState != 0) {
@@ -1667,7 +1689,45 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             outBuf[writeIdx++] = (byte)(credBlobState == -1 ? 0xF4 : 0xF5);
         }
 
+        if (credProtectLevel > 0) {
+            outBuf[writeIdx++] = (byte) (96 + CannedCBOR.CRED_PROTECT_EXTENSION_ID.length);
+            writeIdx = Util.arrayCopy(CannedCBOR.CRED_PROTECT_EXTENSION_ID, (short) 0,
+                    outBuf, writeIdx, (short) CannedCBOR.CRED_PROTECT_EXTENSION_ID.length);
+            outBuf[writeIdx++] = credProtectLevel;
+        }
+
+        if (hmacSecretEnabled) {
+            outBuf[writeIdx++] = (byte) (96 + CannedCBOR.HMAC_SECRET_EXTENSION_ID.length);
+            writeIdx = Util.arrayCopy(CannedCBOR.HMAC_SECRET_EXTENSION_ID, (short) 0,
+                    outBuf, writeIdx, (short) CannedCBOR.HMAC_SECRET_EXTENSION_ID.length);
+            outBuf[writeIdx++] = (byte) 0xF5; // boolean true
+        }
+
         return adAddlBytes;
+    }
+
+    /**
+     * Writes UVM extension output to the buffer
+     *
+     * @param outBuf Buffer into which to write
+     * @param writeIdx Index into output buffer to start writing
+     * @param flags Flags byte indicating UP/UV, etc
+     * @return New index into output buffer
+     */
+    private short writeUVM(byte[] outBuf, short writeIdx, byte flags) {
+        writeIdx = encodeIntLenTo(outBuf, writeIdx, (byte) CannedCBOR.UVM_EXTENSION_ID.length, false);
+        writeIdx = Util.arrayCopy(CannedCBOR.UVM_EXTENSION_ID, (short) 0,
+                outBuf, writeIdx, (short) CannedCBOR.UVM_EXTENSION_ID.length);
+        if ((flags & 0x04) != 0) { // user verified
+            outBuf[writeIdx++] = (byte) 0x81; // one "factor": one-element array
+            outBuf[writeIdx++] = (byte) 0x83; // three-element array
+            outBuf[writeIdx++] = 0x04; // key protection type trusted-execution-environment
+            outBuf[writeIdx++] = 0x02; // matcher protection type trusted-execution-environment
+            outBuf[writeIdx++] = 0x04; // user verification method passcode
+        } else {
+            outBuf[writeIdx++] = (byte) 0x80; // empty array, since no verification happened
+        }
+        return writeIdx;
     }
 
     /**
@@ -1757,11 +1817,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param useHmacSecret If true, includes the bytes for the hmac-secret extension
      * @param useCredProtect If true, includes the bytes for the credProtect extension
      * @param useCredBlob If true, includes the bytes for the credBlob extension
+     * @param useUVM If true, includes the bytes for the UVM extension
      *
      * @return The number of bytes in the authentication data segment
      */
-    private short getAuthDataLen(boolean includeAttestedKey, boolean useHmacSecret, boolean useCredProtect,
-                                 boolean useCredBlob) {
+    private short getAuthDataLen(byte flags, boolean includeAttestedKey, boolean useHmacSecret, boolean useCredProtect,
+                                 boolean useCredBlob, boolean useUVM) {
         short basicLen = (short) (RP_HASH_LEN + // RP ID hash
                 1 + // flags byte
                 4 // counter
@@ -1770,6 +1831,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         if (!includeAttestedKey) {
             return basicLen;
         }
+
+        byte uvmLength = (byte)(((flags & 0x04) == 0) ? 3 : 7);
 
         return (short) (basicLen +
                 (short) aaguid.length + // aaguid
@@ -1782,7 +1845,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 (useCredProtect || useHmacSecret || useCredBlob ? 1 : 0) + // extension data intro
                 (useHmacSecret ? 2 + CannedCBOR.HMAC_SECRET_EXTENSION_ID.length : 0) + // extension data
                 (useCredProtect ? 2 + CannedCBOR.CRED_PROTECT_EXTENSION_ID.length : 0) + // more extension data
-                (useCredBlob ? 2 + CannedCBOR.CRED_BLOB_EXTENSION_ID.length : 0) // yet more extension data
+                (useCredBlob ? 2 + CannedCBOR.CRED_BLOB_EXTENSION_ID.length : 0) + // yet more extension data
+                (useUVM ? uvmLength + CannedCBOR.UVM_EXTENSION_ID.length : 0) // why is there still more extension data
         );
     }
 
@@ -1811,7 +1875,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         byte[] clientDataHashBuffer = bufferManager.getBufferForHandle(apdu, clientDataHashHandle);
         short clientDataHashIdx = bufferManager.getOffsetForHandle(clientDataHashHandle);
         // first byte, PIN protocol. Second byte a bitfield:
-        // 1 for PIN auth success, 2 for credBlob requested, 3 for LBK requested
+        // 1 for PIN auth success, 2 for credBlob requested, 3 for LBK requested, 4 for UVM requested
         short stateKeepingHandle = bufferManager.allocate(apdu, (short) 2, startingAllowedMemory);
         byte[] stateKeepingBuffer = bufferManager.getBufferForHandle(apdu, stateKeepingHandle);
         short stateKeepingIdx = bufferManager.getOffsetForHandle(stateKeepingHandle);
@@ -1952,9 +2016,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_OPTION);
                                 }
                                 continue;
-                            }
-
-                            if (keyLength == CannedCBOR.LARGE_BLOB_EXTENSION_ID.length && Util.arrayCompare(buffer, readIdx,
+                            } else if (keyLength == CannedCBOR.LARGE_BLOB_EXTENSION_ID.length && Util.arrayCompare(buffer, readIdx,
                                     CannedCBOR.LARGE_BLOB_EXTENSION_ID, (short) 0, (short) CannedCBOR.LARGE_BLOB_EXTENSION_ID.length) == 0) {
                                 // largeBlobKey extension
                                 readIdx += keyLength;
@@ -1967,9 +2029,20 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                                 }
                                 continue;
-                            }
-
-                            if (keyLength != CannedCBOR.HMAC_SECRET_EXTENSION_ID.length || Util.arrayCompare(buffer, readIdx,
+                            } else if (keyLength == CannedCBOR.UVM_EXTENSION_ID.length && Util.arrayCompare(buffer, readIdx,
+                                    CannedCBOR.UVM_EXTENSION_ID, (short) 0, (short) CannedCBOR.UVM_EXTENSION_ID.length) == 0) {
+                                // uvm extension
+                                readIdx += keyLength;
+                                byte valueByte = buffer[readIdx++];
+                                if (valueByte == (byte) 0xF5) { // true
+                                    stateKeepingBuffer[(short)(stateKeepingIdx + 1)] |= 0x08;
+                                } else if (valueByte == (byte) 0xF4) { // false
+                                    // nothing to do here: they explicitly DIDN'T ask for UVM...
+                                } else { // ah yes, the OTHER uvm option
+                                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_OPTION);
+                                }
+                                continue;
+                            } else if (keyLength != CannedCBOR.HMAC_SECRET_EXTENSION_ID.length || Util.arrayCompare(buffer, readIdx,
                                     CannedCBOR.HMAC_SECRET_EXTENSION_ID, (short) 0, (short) CannedCBOR.HMAC_SECRET_EXTENSION_ID.length) != 0) {
                                 // Unsupported extension: ignore it
                                 readIdx = consumeAnyEntity(apdu, buffer, (short) (readIdx + keyLength), lc);
@@ -2272,6 +2345,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         outputBuffer[outputIdx++] = FIDOConstants.CTAP2_OK;
 
         boolean providingLBK = rkMatch > -1 && (stateKeepingBuffer[(short)(stateKeepingIdx + 1)] & 0x04) != 0;
+        boolean providingUVM = (stateKeepingBuffer[(short)(stateKeepingIdx + 1)] & 0x08) != 0;
+        boolean providingCredBlob = (stateKeepingBuffer[(short)(stateKeepingIdx + 1)] & 0x02) != 0;
         byte numMapEntries = 3;
         if (rkMatch > -1 && allowListLength == 0) {
             numMapEntries++; // user block
@@ -2305,11 +2380,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             flags = (byte)(flags | 0x04);
         }
 
-        short adLen = getAuthDataLen(false, false, false, false);
+        short adLen = getAuthDataLen(flags, false, false, false, false, false);
         short extensionDataLen = 0;
         byte numExtensions = 0;
         short credBlobBytes = 0;
-        if (hmacSecretBytes > 0 || (stateKeepingBuffer[(short)(stateKeepingIdx + 1)] & 0x02) != 0) {
+        if (hmacSecretBytes > 0 || providingUVM || providingCredBlob) {
             flags = (byte)(flags | 0x80); // extension data bit
             extensionDataLen += 1;
             if (hmacSecretBytes > 0) {
@@ -2320,7 +2395,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 );
                 numExtensions++;
             }
-            if ((stateKeepingBuffer[(short)(stateKeepingIdx + 1)] & 0x02) != 0) {
+            if (providingCredBlob) {
                 if (rkMatch != -1) {
                     credBlobBytes = residentKeyCredBlobLengths[rkMatch];
                 }
@@ -2332,6 +2407,16 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         credBlobBytes +
                                 overheadBytes +
                                 CannedCBOR.CRED_BLOB_EXTENSION_ID.length
+                );
+                numExtensions++;
+            }
+            if (providingUVM) {
+                short uvmBytes = 2;
+                if ((flags & 0x04) != 0) { // UV set
+                    uvmBytes += 4;
+                }
+                extensionDataLen += (short) (
+                        uvmBytes + CannedCBOR.UVM_EXTENSION_ID.length
                 );
                 numExtensions++;
             }
@@ -2348,8 +2433,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         if (numExtensions > 0) {
             outputBuffer[outputIdx++] = (byte) (0xA0 + numExtensions); // map with some small number of items
         }
-        if ((stateKeepingBuffer[(short)(stateKeepingIdx + 1)] & 0x02) != 0) {
-            outputBuffer[outputIdx++] = 0x68; // string: eight bytes long
+        if (providingUVM) {
+            outputIdx = writeUVM(outputBuffer, outputIdx, flags);
+        }
+        if (providingCredBlob) {
+            outputIdx = encodeIntLenTo(outputBuffer, outputIdx, (byte) CannedCBOR.CRED_BLOB_EXTENSION_ID.length, false);
             outputIdx = Util.arrayCopyNonAtomic(CannedCBOR.CRED_BLOB_EXTENSION_ID, (short) 0,
                     outputBuffer, outputIdx, (short) CannedCBOR.CRED_BLOB_EXTENSION_ID.length);
             if (credBlobBytes == 0) {
@@ -2365,7 +2453,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
         }
         if (hmacSecretBytes > 0) {
-            outputBuffer[outputIdx++] = 0x6B; // string: eleven bytes long
+            outputIdx = encodeIntLenTo(outputBuffer, outputIdx, (byte) CannedCBOR.HMAC_SECRET_EXTENSION_ID.length, false);
             outputIdx = Util.arrayCopyNonAtomic(CannedCBOR.HMAC_SECRET_EXTENSION_ID, (short) 0,
                     outputBuffer, outputIdx, (short) CannedCBOR.HMAC_SECRET_EXTENSION_ID.length);
             outputBuffer[outputIdx++] = 0x58; // byte string: one-byte length

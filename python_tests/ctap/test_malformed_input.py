@@ -25,6 +25,15 @@ class CTAPMalformedInputTestCase(CTAPTestCase):
             self.ctap2.make_credential(**self.basic_makecred_params)
         self.assertEqual(CtapError.ERR.CBOR_UNEXPECTED_TYPE, e.exception.code)
 
+    def test_too_many_extensions(self):
+        d = {}
+        for x in range(30):
+            d[str(x)] = True
+        self.basic_makecred_params['extensions'] = d
+        with self.assertRaises(CtapError) as e:
+            self.ctap2.make_credential(**self.basic_makecred_params)
+        self.assertEqual(CtapError.ERR.CBOR_UNEXPECTED_TYPE, e.exception.code)
+
     def test_rp_icon_not_text(self):
         self.basic_makecred_params['rp']['icon'] = 454
         with self.assertRaises(CtapError) as e:
@@ -61,8 +70,27 @@ class CTAPMalformedInputTestCase(CTAPTestCase):
 
         self.assertEqual(CtapError.ERR.CBOR_UNEXPECTED_TYPE, e.exception.code)
 
-    def test_icon_not_text(self):
+    def test_bogus_exclude_list_entry_after_valid(self):
+        cred = self.ctap2.make_credential(**self.basic_makecred_params)
+
+        with self.assertRaises(CtapError) as e:
+            self.ctap2.make_credential(**self.basic_makecred_params, exclude_list=[
+                self.get_descriptor_from_ll_cred(cred),
+                12334
+            ])
+
+        self.assertEqual(CtapError.ERR.CBOR_UNEXPECTED_TYPE, e.exception.code)
+
+    def test_user_icon_not_text(self):
         self.basic_makecred_params['user']['icon'] = secrets.token_bytes(16)
+
+        with self.assertRaises(CtapError) as e:
+            self.ctap2.make_credential(**self.basic_makecred_params)
+
+        self.assertEqual(CtapError.ERR.CBOR_UNEXPECTED_TYPE, e.exception.code)
+
+    def test_rp_icon_not_text(self):
+        self.basic_makecred_params['rp']['icon'] = secrets.token_bytes(16)
 
         with self.assertRaises(CtapError) as e:
             self.ctap2.make_credential(**self.basic_makecred_params)
@@ -73,6 +101,15 @@ class CTAPMalformedInputTestCase(CTAPTestCase):
         self.basic_makecred_params['key_params'].append({
             "type": 3949,
             "alg": 12
+        })
+        with self.assertRaises(CtapError) as e:
+            self.ctap2.make_credential(**self.basic_makecred_params)
+        self.assertEqual(CtapError.ERR.CBOR_UNEXPECTED_TYPE, e.exception.code)
+
+    def test_rejects_es256_with_non_string_type(self):
+        self.basic_makecred_params['key_params'].append({
+            "type": False,
+            "alg": -7
         })
         with self.assertRaises(CtapError) as e:
             self.ctap2.make_credential(**self.basic_makecred_params)
