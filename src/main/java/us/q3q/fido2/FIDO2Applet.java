@@ -2122,7 +2122,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         null, (short) 0, true);
             }
 
-            if (pinAuthIdx != -1) {
+            final boolean pinProvided = pinAuthIdx != -1;
+
+            if (!pinProvided) {
+                if (alwaysUv) {
+                    // When alwaysUv is set, we must have a PIN!
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
+                }
+            } else {
+                // check the provided PIN
                 verifyPinAuth(apdu, buffer, pinAuthIdx, clientDataHashBuffer, clientDataHashIdx,
                         stateKeepingBuffer[stateKeepingIdx]);
 
@@ -2132,12 +2140,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 }
 
                 stateKeepingBuffer[(short)(stateKeepingIdx + 1)] |= 0x01;
-            } else if (alwaysUv) {
-                // When alwaysUv is set, we must have a PIN!
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
             }
-
-            final boolean pinProvided = (stateKeepingBuffer[(short)(stateKeepingIdx + 1)] & 0x01) != 0;
 
             if (pinSet && pinProvided && transientStorage.hasUVOption()) {
                 // When a PIN is set and provided, the "uv" input option MUST NOT be set.
@@ -5641,7 +5644,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         offset = encodeIntLenTo(buffer, offset, (short) CannedCBOR.MAKE_CRED_UV_NOT_REQD.length, false);
         offset = Util.arrayCopyNonAtomic(CannedCBOR.MAKE_CRED_UV_NOT_REQD, (short) 0,
                 buffer, offset, (short) CannedCBOR.MAKE_CRED_UV_NOT_REQD.length);
-        buffer[offset++] = (byte)(LOW_SECURITY_MAXIMUM_COMPLIANCE ? 0xF5 : 0xF4); // makeCredUvNotRequired = true or false
+        buffer[offset++] = (byte)(LOW_SECURITY_MAXIMUM_COMPLIANCE && !alwaysUv ? 0xF5 : 0xF4); // makeCredUvNotRequired = true or false
 
         buffer[offset++] = 0x06; // map key: pinProtocols
         buffer[offset++] = (byte) 0x82; // array: two items
