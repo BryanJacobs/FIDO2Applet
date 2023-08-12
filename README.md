@@ -133,11 +133,11 @@ If you're a really detail-oriented person, you might enjoy reading
 | Application         | Status                         |
 |---------------------|--------------------------------|
 | Chrome on Android   | CTAP1 Only (Play Services [1]) |
-| Chrome on Linux     | Unsupported (USBHID only [2])  |
+| Chrome on Linux     | Working, USBHID only [2]       |
 | Chrome on Windows   | Working                        |
 | Fennec on Android   | CTAP1 Only (Play Services [1]) |
 | WebView on Android  | Working                        |
-| Firefox on Linux    | Unsupported (USBHID only [2])  |
+| Firefox on Linux    | Working, USBHID only [2]       |
 | Firefox on Windows  | Working                        |
 | MS Edge on Windows  | Working                        |
 | Safari on iOS       | Untested                       |
@@ -156,6 +156,7 @@ There are two compatibility issues in the table above:
    reject your created U2F/CTAP1 credentials.
 1. Some browsers support FIDO2 in theory but only allow USB security keys - this implementation
    is for PC/SC, and doesn't implement USB HID, so it will only work with FIDO2
-   implementations that can handle e.g. NFC tokens instead of being restricted to USB. This prevents,
-   for example, Firefox on Linux from using FIDO2Applet. Physically USB-connected smartcards are
-   still PC/SC devices, not HID ones!
+   implementations that can handle e.g. NFC tokens instead of being restricted to USB.
+   In order to use a smartcard in these situations you'll need https://github.com/StarGate01/CTAP-bridge
+   or https://github.com/BryanJacobs/fido2-hid-bridge/ or similar, bridging USB-HID traffic to
+   PC/SC.
