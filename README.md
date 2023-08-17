@@ -86,7 +86,7 @@ If you're a really detail-oriented person, you might enjoy reading
 | CTAP1/U2F                          | Implemented (see [install guide](docs/certs.md))        |
 | CTAP2.0 core                       | Implemented                                             |
 | CTAP2.1 core                       | Implemented                                             |
-| Resident keys                      | Implemented, default 50 slots (max 255)                 |
+| Resident keys                      | Implemented                                             |
 | User Presence                      | User always considered present: not standards compliant |
 | ECDSA (SecP256r1)                  | Implemented                                             |
 | Other crypto, like ed25519         | Not implemented - availability depends on hardware      |

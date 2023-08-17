@@ -32,8 +32,28 @@ class CredManagementTestCase(CredManagementBaseTestCase):
         ))
         dcs_after_deletion = self.ctap2.get_info().remaining_disc_creds
 
-        self.assertEqual(dcs_before - 1, dcs_after_creation)
+        self.assertLessEqual(dcs_before - 1, dcs_after_creation)
         self.assertEqual(dcs_before, dcs_after_deletion)
+
+    def test_creating_many_rks(self):
+        client = self.get_high_level_client(extensions=[CredProtectExtension],
+                                            user_interaction=FixedPinUserInteraction(self.pin))
+        client._verify_rp_id = lambda x: True
+        resident_key = ResidentKeyRequirement.REQUIRED
+        first_cred = client.make_credential(options=self.get_high_level_make_cred_options(
+            resident_key
+        ))
+        for x in range(100):
+            rp_id = secrets.token_hex(20)
+            client.make_credential(options=self.get_high_level_make_cred_options(
+                resident_key, rp_id=rp_id
+            ))
+
+        res = client.get_assertion(self.get_high_level_assertion_opts_from_cred(cred=None, rp_id=self.rp_id))
+        assertions = res.get_assertions()
+        self.assertEqual(1, len(assertions))
+        self.assertEqual(res.get_response(0).credential_id,
+                         first_cred.attestation_object.auth_data.credential_data.credential_id)
 
     def test_enumerating_mixed_security_creds(self):
         pin_client = self.get_high_level_client(extensions=[CredProtectExtension],
@@ -63,7 +83,6 @@ class CredManagementTestCase(CredManagementBaseTestCase):
         ls_cred = self.ctap2.make_credential(**self.basic_makecred_params)
 
         info = self.ctap2.get_info()
-        self.assertEqual(47, info.remaining_disc_creds)
 
         rps = self.get_credential_management().enumerate_rps()
         self.assertEqual(2, len(rps))
