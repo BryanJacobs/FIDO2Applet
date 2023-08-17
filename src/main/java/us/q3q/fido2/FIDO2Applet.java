@@ -918,7 +918,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         // ... but it might not match the user ID we're requesting...
                         if (userIdLen == residentKeys[i].getUserIdLength()) {
                             // DECRYPT the encrypted user ID we stored for this RK, so we can compare
-                            AESKey key = getAESKeyForRK(i, residentKeys[i].getCredProtectLevel());
+                            AESKey key = getAESKeyForExistingRK(i);
                             residentKeys[i].unpackUserID(key, symmetricUnwrapper, scratchUserIdBuffer, scratchUserIdOffset);
 
                             if (Util.arrayCompare(
@@ -988,7 +988,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     effectiveCredBlobLen = 0;
                 }
 
-                AESKey key = getAESKeyForRK(targetRKSlot, effectiveCPLevel);
+                AESKey key = getAESKeyForCreatingWithCredProtectLevel(effectiveCPLevel);
                 residentKeys[targetRKSlot] = new ResidentKeyData(
                         random, key, symmetricWrapper,
                         counter,
@@ -2443,7 +2443,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             outputBuffer[outputIdx++] = 0x07; // map key: largeBlobKey
             outputIdx = encodeIntLenTo(outputBuffer, outputIdx, (byte) 32, true);
             residentKeys[rkMatch].emitLargeBlobKey(
-                    getAESKeyForRK(rkMatch, residentKeys[rkMatch].getCredProtectLevel()), symmetricWrapper,
+                    getAESKeyForExistingRK(rkMatch), symmetricWrapper,
                     outputBuffer, outputIdx);
             outputIdx += 32;
         }
@@ -5260,13 +5260,25 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         sendNoCopy(apdu, writeOffset);
     }
 
-    private AESKey getAESKeyForRK(short rkIndex, byte credProt) {
+    /**
+     * Gets the AES key to use when creating a new resident key
+     *
+     * @param credProt The cred protect level of the new key
+     * @return An AES key object to pass to ResidentKeyData methods
+     */
+    private AESKey getAESKeyForCreatingWithCredProtectLevel(byte credProt) {
         final boolean highSec = !LOW_SECURITY_MAXIMUM_COMPLIANCE && (!USE_LOW_SECURITY_FOR_SOME_RKS || credProt > 2);
         return highSec ? highSecurityWrappingKey : lowSecurityWrappingKey;
     }
 
+    /**
+     * Gets the AES key used for the data associated with the given RK
+     *
+     * @param rkIndex Index of the RK in the store
+     * @return An AES key object to pass to ResidentKeyData methods
+     */
     private AESKey getAESKeyForExistingRK(short rkIndex) {
-        return getAESKeyForRK(rkIndex, residentKeys[rkIndex].getCredProtectLevel());
+        return getAESKeyForCreatingWithCredProtectLevel(residentKeys[rkIndex].getCredProtectLevel());
     }
 
     /**

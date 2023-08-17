@@ -156,7 +156,7 @@ public class ResidentKeyData {
         wrapper.init(key, Cipher.MODE_ENCRYPT, userIV, (short) 0, (short) userIV.length);
         wrapper.doFinal(userIdBuffer, userIdOffset, MAX_USER_ID_LENGTH,
                 userId, (short) 0);
-        userIdBuffer[userIdLength + 1] = 0x00;
+        userIdBuffer[(short)(userIdLength + 1)] = 0x00;
         this.userIdLength = userIdLength;
     }
 
