@@ -1196,24 +1196,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     }
 
     /**
-     * Encrypts data from one buffer to another using the symmetric wrapping key.
-     * Before call, symmetric crypto must be initialized; after call, it still is.
-     *
-     * @param inBuf Buffer containing data to be encrypted
-     * @param inOffset Offset of data in input buffer
-     * @param inLen Length of data to encrypt
-     * @param outBuf Buffer into which to write output
-     * @param outOff Offset at which to write encrypted data
-     */
-    private void symmetricWrap(byte[] inBuf, short inOffset, short inLen, byte[] outBuf, short outOff) {
-        short ret = symmetricWrapper.doFinal(inBuf, inOffset, inLen,
-                outBuf, outOff);
-        if (ret != inLen) {
-            throwException(ISO7816.SW_DATA_INVALID);
-        }
-    }
-
-    /**
      * If, and only if, no PIN is set, directly initialize symmetric crypto
      * from our flash-stored wrapping key (which should be unencrypted)
      */
@@ -2975,8 +2957,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             (lowSecurity ? lowSecurityWrappingIV : externalCredentialIV);
         AESKey key = (LOW_SECURITY_MAXIMUM_COMPLIANCE || lowSecurity) ? lowSecurityWrappingKey : highSecurityWrappingKey;
         symmetricUnwrapper.init(key, Cipher.MODE_DECRYPT, iv, (short) 0, IV_LEN);
-        symmetricUnwrap(credentialBuffer, credentialIndex, CREDENTIAL_ID_LEN,
+        short ret = symmetricUnwrapper.doFinal(credentialBuffer, credentialIndex, CREDENTIAL_ID_LEN,
                 outputBuffer, outputOffset);
+        if (ret != CREDENTIAL_ID_LEN) {
+            throwException(ISO7816.SW_DATA_INVALID);
+        }
     }
 
     /**
@@ -5279,24 +5264,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private AESKey getAESKeyForExistingRK(short rkIndex) {
         return getAESKeyForCreatingWithCredProtectLevel(residentKeys[rkIndex].getCredProtectLevel());
-    }
-
-    /**
-     * Uses the symmetric unwrapping key to decrypt stored data from one buffer to another.
-     * Before call, symmetric crypto must be initialized; after call, it still will be.
-     *
-     * @param inBuf Input buffer
-     * @param offset Offset of encrypted data in input buffer
-     * @param len Length of encrypted data
-     * @param outBuf Buffer into which to store output
-     * @param writeOffset Output at which to begin writing data
-     */
-    private void symmetricUnwrap(byte[] inBuf, short offset, short len, byte[] outBuf, short writeOffset) {
-        short ret = symmetricUnwrapper.doFinal(inBuf, offset, len,
-                outBuf, writeOffset);
-        if (ret != len) {
-            throwException(ISO7816.SW_DATA_INVALID);
-        }
     }
 
     /**

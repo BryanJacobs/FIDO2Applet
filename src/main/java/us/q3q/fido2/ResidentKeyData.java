@@ -160,6 +160,36 @@ public class ResidentKeyData {
         this.userIdLength = userIdLength;
     }
 
+    public void unpackUserID(AESKey key, Cipher unwrapper, byte[] targetBuffer, short targetOffset) {
+        unwrapper.init(key, Cipher.MODE_DECRYPT, userIV, (short) 0, (short) userIV.length);
+        unwrapper.doFinal(userId, (short) 0, (short) userId.length,
+                targetBuffer, targetOffset);
+    }
+
+    public void unpackPublicKey(AESKey key, Cipher unwrapper, byte[] targetBuffer, short targetOffset) {
+        unwrapper.init(key, Cipher.MODE_DECRYPT, pubKeyIV, (short) 0, (short) pubKeyIV.length);
+        unwrapper.doFinal(publicKey, (short) 0, (short) publicKey.length,
+                targetBuffer, targetOffset);
+    }
+
+    public void unpackRpId(AESKey key, Cipher unwrapper, byte[] targetBuffer, short targetOffset) {
+        unwrapper.init(key, Cipher.MODE_DECRYPT, RPIV, (short) 0, (short) RPIV.length);
+        unwrapper.doFinal(rpId, (short) 0, (short) rpId.length,
+                targetBuffer, targetOffset);
+    }
+
+    public void unpackCredBlob(AESKey key, Cipher unwrapper, byte[] targetBuffer, short targetOffset) {
+        unwrapper.init(key, Cipher.MODE_DECRYPT, credBlobIV, (short) 0, (short) credBlobIV.length);
+        unwrapper.doFinal(credBlob, (short) 0, (short) credBlob.length,
+                targetBuffer, targetOffset);
+    }
+
+    public void emitLargeBlobKey(AESKey key, Cipher wrapper, byte[] targetBuffer, short targetOffset) {
+        wrapper.init(key, Cipher.MODE_ENCRYPT, largeBlobIV, (short) 0, (short) largeBlobIV.length);
+        wrapper.doFinal(publicKey, (short) 0, (short) 32,
+                targetBuffer, targetOffset);
+    }
+
     public byte[] getCounter() {
         return counter;
     }
@@ -194,36 +224,6 @@ public class ResidentKeyData {
 
     public byte getRpIdLength() {
         return rpIdLength;
-    }
-
-    public void unpackUserID(AESKey key, Cipher unwrapper, byte[] targetBuffer, short targetOffset) {
-        unwrapper.init(key, Cipher.MODE_DECRYPT, userIV, (short) 0, (short) userIV.length);
-        unwrapper.doFinal(userId, (short) 0, (short) userId.length,
-                targetBuffer, targetOffset);
-    }
-
-    public void unpackPublicKey(AESKey key, Cipher unwrapper, byte[] targetBuffer, short targetOffset) {
-        unwrapper.init(key, Cipher.MODE_DECRYPT, pubKeyIV, (short) 0, (short) pubKeyIV.length);
-        unwrapper.doFinal(publicKey, (short) 0, (short) publicKey.length,
-                targetBuffer, targetOffset);
-    }
-
-    public void unpackRpId(AESKey key, Cipher unwrapper, byte[] targetBuffer, short targetOffset) {
-        unwrapper.init(key, Cipher.MODE_DECRYPT, RPIV, (short) 0, (short) RPIV.length);
-        unwrapper.doFinal(rpId, (short) 0, (short) rpId.length,
-                targetBuffer, targetOffset);
-    }
-
-    public void unpackCredBlob(AESKey key, Cipher unwrapper, byte[] targetBuffer, short targetOffset) {
-        unwrapper.init(key, Cipher.MODE_DECRYPT, credBlobIV, (short) 0, (short) credBlobIV.length);
-        unwrapper.doFinal(credBlob, (short) 0, (short) credBlob.length,
-                targetBuffer, targetOffset);
-    }
-
-    public void emitLargeBlobKey(AESKey key, Cipher wrapper, byte[] targetBuffer, short targetOffset) {
-        wrapper.init(key, Cipher.MODE_ENCRYPT, largeBlobIV, (short) 0, (short) largeBlobIV.length);
-        wrapper.doFinal(publicKey, (short) 0, (short) 32,
-                targetBuffer, targetOffset);
     }
 
     public byte getCredBlobLen() {
