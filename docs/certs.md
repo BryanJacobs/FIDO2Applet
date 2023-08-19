@@ -10,9 +10,8 @@ certificates (ECDSA) are supported for the authenticator's own certificate; any 
 may be used for CAs further up the chain.
 
 These may be provided via a vendor CTAP command (command byte 0x46). In order
-to enable the vendor CTAP command, you must provide an install parameter of a single byte,
-`0x01`. By default, the vendor command will be rejected to avoid inadvertently allowing
-an attacker to switch the authenticator to basic attestation mode.
+to enable the vendor CTAP command, you must install the applet with parameters enabling it:
+see [the install guide](installation.md).
 
 The vendor CTAP command will be rejected if the authenticator already contains a certificate,
 or if the authenticator has been used to make any credentials since the last reset, so it must

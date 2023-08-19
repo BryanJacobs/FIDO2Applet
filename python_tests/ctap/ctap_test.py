@@ -221,7 +221,7 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
             ],
         }
         if install_params is None:
-            install_params = bytes([0x01])
+            install_params = bytes([0xA1, 0x00, 0xF5])
         super().setUp(install_params)
         if self.PCSC_MODE:
             devs = list(CtapPcscDevice.list_devices(self.VIRTUAL_DEVICE_NAME))

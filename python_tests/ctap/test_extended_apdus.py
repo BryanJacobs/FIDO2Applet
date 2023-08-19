@@ -15,7 +15,7 @@ class ExtendedAPDUTestCase(BasicAttestationTestCase):
         super().setUpClass()
 
     def setUp(self, install_params: Optional[bytes] = None) -> None:
-        super().setUp(bytes([0x01]))
+        super().setUp(bytes([0xA1, 0x00, 0xF5]))
 
     def test_get_info(self):
         info = self.ctap2.get_info()

@@ -74,6 +74,8 @@ If you want to, feel free! Just raise a pull request or open an issue.
 
 ## Where to go Next
 
+If you just want to install the app, look at [what you can configure](docs/installation.md).
+
 I suggest [reading the FAQ](docs/FAQ.md) and perhaps [the security model](docs/security_model.md).
 
 If you're a really detail-oriented person, you might enjoy reading

@@ -11,19 +11,19 @@ import javacardx.crypto.Cipher;
  */
 public final class FIDO2Applet extends Applet implements ExtendedLength {
 
-    // Configurable parameters
     /**
      * The version of this applet in use
      */
     private static final byte FIRMWARE_VERSION = 0x01;
+    // Configurable parameters
     /**
      * If set, use low-security keys for everything, to fully comply with the FIDO standards without alwaysUv
      */
-    private static final boolean LOW_SECURITY_MAXIMUM_COMPLIANCE = true;
+    private boolean LOW_SECURITY_MAXIMUM_COMPLIANCE;
     /**
      * If true, default the `alwaysUv` option to on, and prevent disabling it.
      */
-    private static final boolean FORCE_ALWAYS_UV = false;
+    private boolean FORCE_ALWAYS_UV;
     /**
      * If true, the authenticator will refuse to reset itself until the following three steps happen in order:
      * <p>
@@ -38,28 +38,28 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * Note that you still don't need the PIN in order to reset the authenticator: that would defeat the purpose of
      * the full reset...
      */
-    private static final boolean PROTECT_AGAINST_MALICIOUS_RESETS = false;
+    private boolean PROTECT_AGAINST_MALICIOUS_RESETS;
     /**
      * If true, credProtect level 0/1/2 (but not 3) resident keys will use the "low security"
      * wrapping key. This improves CTAP2.1 standards compliance, but means those resident keys
      * could be accessed without your PIN in the event of a compromise of the authenticator or
      * a software bug.
      */
-    private static final boolean USE_LOW_SECURITY_FOR_SOME_RKS = !FORCE_ALWAYS_UV;
+    private boolean USE_LOW_SECURITY_FOR_SOME_RKS;
     /**
      * Maximum size for the in-memory portion of the "scratch" working buffer. Larger will reduce flash use.
      * If this is larger than the available memory, all available memory will be used.
      */
-    private static final byte MAX_RAM_SCRATCH_SIZE = (byte) 254;
+    private byte MAX_RAM_SCRATCH_SIZE;
     /**
      * Size of buffer used for receiving incoming data and sending responses.
      * To be standards-compliant, must be at least 1024 bytes, but can be larger.
      */
-    private static final short BUFFER_MEM_SIZE = 1024;
+    private short BUFFER_MEM_SIZE;
     /**
      * Amount of "scratch" working memory in flash
      */
-    private static final short SCRATCH_SIZE = 1024;
+    private short FLASH_SCRATCH_SIZE;
     /**
      * How many resident key slots to allocate in one go
      */
@@ -67,27 +67,27 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * Length of initialization vector for key encryption/decryption
      */
-    public static final short IV_LEN = 16;
+    private static final short IV_LEN = 16;
     /**
      * How long an RP identifier is allowed to be for a resident key. Values longer than this are truncated.
      * The CTAP2.1 standard says the minimum value for this is 32.
      */
-    private static final short MAX_RESIDENT_RP_ID_LENGTH = 32;
+    private short MAX_RESIDENT_RP_ID_LENGTH;
     /**
      * How long an RP's user identifier is allowed to be - affects storage used by resident keys.
      */
-    public static final short MAX_USER_ID_LENGTH = 64;
+    private static final short MAX_USER_ID_LENGTH = 64;
     /**
      * Maximum number of credBlob bytes to store per resident key
      */
-    public static final short MAX_CRED_BLOB_LEN = 32;
+    private byte MAX_CRED_BLOB_LEN;
     /**
      * Number of iterations of PBKDF2 to run on user PINs to get a crypto key.
      * Higher means it's slower to get a PIN token, but also harder to brute force the device open with physical
      * access to it. Can theoretically be any number but surely there are limits to how long you're willing to
      * wait, and there's no way a smartcard is outcompeting a desktop computer...
      */
-    private static final short PIN_KDF_ITERATIONS = 5;
+    private byte PIN_KDF_ITERATIONS;
     /**
      * Number of times PIN entry can be attempted before the device will self-lock. FIDO2 standards say eight.
      */
@@ -106,15 +106,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private static final short MAX_ATTEMPTS_TO_GET_GOOD_KEY = 3;
     /**
-     * Size of the largeBlobStore, in bytes. Standard says >= 1024
-     */
-    private static final short LARGE_BLOB_STORE_MAX_SIZE = 1024;
-    /**
      * Maximum amount of the large blob store that can be affected at once
      */
     private static final short MAX_FRAGMENT_LEN = 960;
-
-    // Fields for decoding incoming APDUs and encoding outgoing ones
     /**
      * Total byte length of output FIDO2 Credential ID struct.
      * Most authenticators use 64, so you probably want to use 64 as well so creds that come from this authenticator
@@ -143,6 +137,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * Required byte length of wrapped incoming PINs. FIDO standards say 64
      */
     private static final short PIN_PAD_LENGTH = 64;
+
     /**
      * Request/response buffer
      */
@@ -294,8 +289,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     private ECPrivateKey attestationKey;
     /**
      * If set to true, allow loading an attestation certificate.
-     * Will become false after install completed unless params are
-     * provided.
+     * Will become false after cert installed.
      */
     private boolean attestationSwitchingEnabled;
     /**
@@ -319,7 +313,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * Set to true when the use of a PIN is forced for all operations
      */
-    private boolean alwaysUv = FORCE_ALWAYS_UV;
+    private boolean alwaysUv;
     /**
      * Whether enterprise attestation is """enabled"""
      */
@@ -766,7 +760,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
 
             // we won't store cred blobs on non-RKs
-            credBlobLen = (short)(MAX_CRED_BLOB_LEN + 1);
+            credBlobLen = (byte)(MAX_CRED_BLOB_LEN + 1);
         }
 
         if (pinAuthIdx != -1) {
@@ -899,10 +893,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             } else {
                 for (short i = 0; i < (short) residentKeys.length; i++) {
                     if (residentKeys[i] == null) {
-                        if (targetRKSlot == -1) {
-                            targetRKSlot = i;
-                        }
-                        // Don't decode empty/non-valid credentials
+                        targetRKSlot = i;
                         break;
                     }
 
@@ -2852,7 +2843,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         // Use these vars to avoid unnecessary decryption attempts
-        boolean potentiallyTryLowSecKey = true;
+        boolean potentiallyTryLowSecKey = !FORCE_ALWAYS_UV;
         boolean potentiallyTryHighSecKey = maximumCredProtectLevel >= 3;
 
         if (rkNum >= 0) {
@@ -2955,7 +2946,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         boolean isResident = residentKeyNum >= 0;
         final byte[] iv = isResident ? residentKeys[residentKeyNum].getCredentialIV() :
             (lowSecurity ? lowSecurityWrappingIV : externalCredentialIV);
-        AESKey key = (LOW_SECURITY_MAXIMUM_COMPLIANCE || lowSecurity) ? lowSecurityWrappingKey : highSecurityWrappingKey;
+        AESKey key = !FORCE_ALWAYS_UV && (LOW_SECURITY_MAXIMUM_COMPLIANCE || lowSecurity) ?
+                lowSecurityWrappingKey : highSecurityWrappingKey;
         symmetricUnwrapper.init(key, Cipher.MODE_DECRYPT, iv, (short) 0, IV_LEN);
         short ret = symmetricUnwrapper.doFinal(credentialBuffer, credentialIndex, CREDENTIAL_ID_LEN,
                 outputBuffer, outputOffset);
@@ -3739,7 +3731,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
         }
 
-        if (offset < 0 || offset > LARGE_BLOB_STORE_MAX_SIZE) {
+        if (offset < 0 || offset > (short) largeBlobStore.length) {
             // Offset is mandatory and must be reasonable
             sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
         }
@@ -3770,7 +3762,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 if (setTotalLength < 17) {
                     sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
                 }
-                if (setTotalLength > LARGE_BLOB_STORE_MAX_SIZE) {
+                if (setTotalLength > (short) largeBlobStore.length) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_LARGE_BLOB_STORAGE_FULL);
                 }
             } else {
@@ -4234,7 +4226,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             JCSystem.beginTransaction();
             boolean ok = false;
             try {
-                bufferManager = new BufferManager(transientMem, SCRATCH_SIZE);
+                bufferManager = new BufferManager(transientMem, FLASH_SCRATCH_SIZE);
 
                 bufferManager.initializeAPDU(apdu);
 
@@ -5252,7 +5244,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @return An AES key object to pass to ResidentKeyData methods
      */
     private AESKey getAESKeyForCreatingWithCredProtectLevel(byte credProt) {
-        final boolean highSec = !LOW_SECURITY_MAXIMUM_COMPLIANCE && (!USE_LOW_SECURITY_FOR_SOME_RKS || credProt > 2);
+        final boolean highSec = FORCE_ALWAYS_UV ||
+                (!LOW_SECURITY_MAXIMUM_COMPLIANCE && (!USE_LOW_SECURITY_FOR_SOME_RKS || credProt > 2));
         return highSec ? highSecurityWrappingKey : lowSecurityWrappingKey;
     }
 
@@ -5350,7 +5343,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             alwaysUv = FORCE_ALWAYS_UV;
             enterpriseAttestation = false;
             pinRetryCounter.reset(pinIdx);
-            Util.arrayFillNonAtomic(largeBlobStore, (short) 0, LARGE_BLOB_STORE_MAX_SIZE, (byte) 0x00);
+            Util.arrayFillNonAtomic(largeBlobStore, (short) 0, (short) largeBlobStore.length, (byte) 0x00);
             Util.arrayCopyNonAtomic(CannedCBOR.INITIAL_LARGE_BLOB_ARRAY, (short) 0,
                     largeBlobStore, (short) 0, (short) CannedCBOR.INITIAL_LARGE_BLOB_ARRAY.length);
             largeBlobStoreFill = (short) CannedCBOR.INITIAL_LARGE_BLOB_ARRAY.length;
@@ -5507,7 +5500,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         buffer[offset++] = 0x0B; // map key: maxSerializedLargeBlobArray
         buffer[offset++] = 0x19; // two-byte integer
-        Util.setShort(buffer, offset, LARGE_BLOB_STORE_MAX_SIZE);
+        Util.setShort(buffer, offset, (short) largeBlobStore.length);
         offset += 2;
 
         buffer[offset++] = 0x0C; // map key: forcePinChange
@@ -5520,7 +5513,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         offset = encodeIntTo(buffer, offset, FIRMWARE_VERSION);
 
         buffer[offset++] = 0x0F; // map key: maxCredBlobLength
-        offset = encodeIntTo(buffer, offset, (byte) MAX_CRED_BLOB_LEN);
+        offset = encodeIntTo(buffer, offset, MAX_CRED_BLOB_LEN);
 
         buffer[offset++] = 0x10; // map key: maxRPIDsForSetMinPinLength
         offset = encodeIntTo(buffer, offset, MAX_RP_IDS_MIN_PIN_LENGTH);
@@ -6610,17 +6603,114 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     @SuppressWarnings("unused")
     private FIDO2Applet(byte[] array, short offset, byte length) {
+        // set up parameters
+        // first, defaults
+        attestationSwitchingEnabled = false;
+        LOW_SECURITY_MAXIMUM_COMPLIANCE = true;
+        FORCE_ALWAYS_UV = false;
+        USE_LOW_SECURITY_FOR_SOME_RKS = true;
+        PROTECT_AGAINST_MALICIOUS_RESETS = false;
+        PIN_KDF_ITERATIONS = 5;
+        MAX_CRED_BLOB_LEN = 32;
+        short largeBlobStoreSize = 1024;
+        MAX_RESIDENT_RP_ID_LENGTH = 32;
+        MAX_RAM_SCRATCH_SIZE = (byte) 254;
+        BUFFER_MEM_SIZE = 1024;
+        FLASH_SCRATCH_SIZE = 1024;
+
+        // Next, read any overrides
+        final short initOffset = offset;
+        if (length > 0) {
+            short sb = ub(array[offset++]);
+            short numOptions = (short)(sb - 0xA0);
+            for (; numOptions > 0; numOptions--) {
+                if (offset > (short)(length + initOffset - 1)) {
+                    ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+                }
+                switch (array[offset++]) {
+                    case 0x00:
+                        attestationSwitchingEnabled = array[offset++] == (byte) 0xF5;
+                        break;
+                    case 0x01:
+                        LOW_SECURITY_MAXIMUM_COMPLIANCE = array[offset++] == (byte) 0xF5;
+                        break;
+                    case 0x02:
+                        FORCE_ALWAYS_UV = array[offset++] == (byte) 0xF5;
+                        break;
+                    case 0x03:
+                        USE_LOW_SECURITY_FOR_SOME_RKS = array[offset++] == (byte) 0xF5;
+                        break;
+                    case 0x04:
+                        PROTECT_AGAINST_MALICIOUS_RESETS = array[offset++] == (byte) 0xF5;
+                        break;
+                    case 0x05:
+                        PIN_KDF_ITERATIONS = array[offset++];
+                        break;
+                    case 0x06:
+                        if (array[offset++] != 0x18) {
+                            ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+                        }
+                        MAX_CRED_BLOB_LEN = array[offset++];
+                        if (MAX_CRED_BLOB_LEN < 32) {
+                            ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+                        }
+                        break;
+                    case 0x07:
+                        if (array[offset++] != 0x19) {
+                            ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+                        }
+                        largeBlobStoreSize = Util.getShort(array, offset);
+                        if (largeBlobStoreSize < 1024) {
+                            ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+                        }
+                        offset += 2;
+                        break;
+                    case 0x08:
+                        if (array[offset++] != 0x18) {
+                            ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+                        }
+                        MAX_RESIDENT_RP_ID_LENGTH = array[offset++];
+                        if (MAX_RESIDENT_RP_ID_LENGTH < 32) {
+                            ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+                        }
+                        break;
+                    case 0x09:
+                        if (array[offset++] != 0x18) {
+                            ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+                        }
+                        MAX_RAM_SCRATCH_SIZE = array[offset++];
+                        break;
+                    case 0x0A:
+                        if (array[offset++] != 0x19) {
+                            ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+                        }
+                        BUFFER_MEM_SIZE = Util.getShort(array, offset);
+                        offset += 2;
+                        break;
+                    case 0x0B:
+                        if (array[offset++] != 0x19) {
+                            ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+                        }
+                        FLASH_SCRATCH_SIZE = Util.getShort(array, offset);
+                        offset += 2;
+                        break;
+                }
+            }
+        }
+
+        alwaysUv = FORCE_ALWAYS_UV;
+
         // Flash usage
         pinKDFSalt = new byte[28];
         wrappingKeySpace = new byte[32];
         wrappingKeyValidation = new byte[64];
         hmacWrapperBytesUV = new byte[32];
         hmacWrapperBytesNoUV = new byte[32];
-        highSecurityWrappingIV = new byte[16];
-        lowSecurityWrappingIV = new byte[16];
-        externalCredentialIV = new byte[16];
-        largeBlobStore = new byte[LARGE_BLOB_STORE_MAX_SIZE];
-        pendingLargeBlobStore = new byte[LARGE_BLOB_STORE_MAX_SIZE];
+        highSecurityWrappingIV = new byte[IV_LEN];
+        lowSecurityWrappingIV = new byte[IV_LEN];
+        externalCredentialIV = new byte[IV_LEN];
+        largeBlobStore = new byte[largeBlobStoreSize];
+        pendingLargeBlobStore = new byte[largeBlobStoreSize];
         Util.arrayCopyNonAtomic(CannedCBOR.INITIAL_LARGE_BLOB_ARRAY, (short) 0,
                 largeBlobStore, (short) 0, (short) CannedCBOR.INITIAL_LARGE_BLOB_ARRAY.length);
         largeBlobStoreFill = (short) CannedCBOR.INITIAL_LARGE_BLOB_ARRAY.length;
@@ -6655,7 +6745,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         initAuthenticatorKey(authenticatorKeyInRam);
         initCredKey(ecPairInRam);
-        attestationSwitchingEnabled = length == 1 && array[offset] == 1;
     }
 
     /**

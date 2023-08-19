@@ -8,9 +8,6 @@ import javacard.security.RandomData;
 
 import javacardx.crypto.Cipher;
 
-import static us.q3q.fido2.FIDO2Applet.IV_LEN;
-import static us.q3q.fido2.FIDO2Applet.MAX_USER_ID_LENGTH;
-
 /**
  * This class stores all the data associated with a Discoverable Credential
  * (also called a Resident Key). It doesn't handle encrypting the credential
@@ -18,6 +15,11 @@ import static us.q3q.fido2.FIDO2Applet.MAX_USER_ID_LENGTH;
  * appropiately protected.
  */
 public class ResidentKeyData {
+    /**
+     * How long, in bytes, initialization vectors within this class are
+     */
+    private static final short IV_LEN = 16;
+
     /**
      * IV for encrypting the credential ID itself
      */
@@ -110,7 +112,7 @@ public class ResidentKeyData {
         creationCounter.pack(counter, (short) 0);
 
         if (credBlobLen > 0) {
-            credBlob = new byte[FIDO2Applet.MAX_CRED_BLOB_LEN];
+            credBlob = new byte[encryptableLength(credBlobLen)];
             wrapper.init(key, Cipher.MODE_ENCRYPT, credBlobIV, (short) 0, (short) credBlobIV.length);
             wrapper.doFinal(credBlobBuffer, credBlobOffset, (short) credBlob.length,
                     credBlob, (short) 0);
@@ -138,23 +140,37 @@ public class ResidentKeyData {
                 this.credential, (short) 0, credLen);
     }
 
+    /**
+     * We can only encrypt/decrypt in 16-byte chunks
+     *
+     * @param rawLength Original length value
+     * @return Multiple of encryptable byte length that will contain rawLength
+     */
+    private short encryptableLength(short rawLength) {
+        short num16s = (short)(rawLength >> 4);
+        if ((rawLength & 0x07) != 0) {
+            num16s += 1;
+        }
+        return (short)(num16s * 16);
+    }
+
     public void setRpId(AESKey key, Cipher wrapper, byte[] rpIdBuffer, short rpIdOffset, byte rpIdLength) {
         if (rpId != null) {
             ISOException.throwIt(ISO7816.SW_COMMAND_NOT_ALLOWED);
         }
-        rpId = new byte[32];
+        rpId = new byte[encryptableLength(rpIdLength)];
         wrapper.init(key, Cipher.MODE_ENCRYPT, RPIV, (short) 0, (short) RPIV.length);
-        wrapper.doFinal(rpIdBuffer, rpIdOffset, (short) 32,
+        wrapper.doFinal(rpIdBuffer, rpIdOffset, (short) rpId.length,
                 rpId, (short) 0);
         this.rpIdLength = rpIdLength;
     }
 
     public void setUser(AESKey key, Cipher wrapper, byte[] userIdBuffer, short userIdOffset, short userIdLength) {
         if (userId == null) {
-            userId = new byte[MAX_USER_ID_LENGTH];
+            userId = new byte[encryptableLength(userIdLength)];
         }
         wrapper.init(key, Cipher.MODE_ENCRYPT, userIV, (short) 0, (short) userIV.length);
-        wrapper.doFinal(userIdBuffer, userIdOffset, MAX_USER_ID_LENGTH,
+        wrapper.doFinal(userIdBuffer, userIdOffset, (short) userId.length,
                 userId, (short) 0);
         userIdBuffer[(short)(userIdLength + 1)] = 0x00;
         this.userIdLength = userIdLength;

@@ -10,7 +10,7 @@ from ctap.ctap_test import BasicAttestationTestCase
 
 class AttestationModeSwitchTestCase(BasicAttestationTestCase):
     def setUp(self, install_params: Optional[bytes] = None) -> None:
-        super().setUp(bytes([0x01]))
+        super().setUp(bytes([0xA1, 0x00, 0xF5]))
 
     @parameterized.expand([
         ("tiny", 3),

@@ -42,11 +42,13 @@ is then AES256-CBC encrypted along with the RP ID, using a random
 IV, and the result is used as the "credential ID". Which wrapping key
 is used depends on how the credential is generated:
 
+- all credentials use the high security key if `FORCE_ALWAYS_UV`
 - credentials created with `credProtect` level 3, "require user
-  verification for any discovery" always use the high security key
+  verification for any discovery" always use the high security key,
+  unless `LOW_SECURITY_MAXIMUM_COMPATIBILITY` is set
 - credentials stored on the authenticator itself ("discoverable") use
-  the high security if the tunable `USE_LOW_SECURITY_FOR_SOME_RKS` is
-  false
+  the high security key if the tunable `USE_LOW_SECURITY_FOR_SOME_RKS`
+  is false
 - other credentials (non-discoverable, `credProtect` level zero
   through two) use the low security key
 
@@ -236,6 +238,8 @@ at all, and although HMA-SHA256 is it's not implemented on any of my cards.
 Open source is open.
 
 ## That's all too complicated! Show me a table!
+
+The below table applies with `FORCE_ALWAYS_UV` and `LOW_SECURITY_HIGH_COMPATIBILITY` disabled.
 
 | Usage / Creation                      | L1D     | L2D      | L3D      | L1 | L2 | L3       |
 |---------------------------------------|---------|----------|----------|----|----|----------|
