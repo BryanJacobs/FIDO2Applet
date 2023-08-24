@@ -723,7 +723,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     }
                     continue;
                 case 0x07: // options
-                    readIdx = processOptionsMap(apdu, buffer, readIdx, lc, true);
+                    readIdx = processOptionsMap(apdu, buffer, readIdx, lc, true, true);
                     continue;
                 case 0x08: // pinAuth
                     // Read past this, because we need the pinProtocol option first
@@ -1978,7 +1978,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
                         break;
                     case 0x05: // options
-                        readIdx = processOptionsMap(apdu, buffer, readIdx, lc, false);
+                        readIdx = processOptionsMap(apdu, buffer, readIdx, lc, false, false);
                         break;
                     case 0x06: // pinAuth
                         pinAuthIdx = readIdx;
@@ -2555,10 +2555,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param readIdx Read index into request buffer
      * @param lc Length of incoming request, as sent by the platform
      * @param requireUP Disallow UP=false, and set UP=true afterwards if option omitted
+     * @param allowRK If false, error on the RK option (with any value)
      *
      * @return New read index after consuming the options map object
      */
-    private short processOptionsMap(APDU apdu, byte[] buffer, short readIdx, short lc, boolean requireUP) {
+    private short processOptionsMap(APDU apdu, byte[] buffer, short readIdx, short lc, boolean requireUP, boolean allowRK) {
         short numOptions = getMapEntryCount(apdu, buffer[readIdx++]);
         if (readIdx >= lc) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
@@ -2585,6 +2586,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     transientStorage.setRKOption(false);
                 } else {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                }
+                if (!allowRK) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_OPTION);
                 }
             } else {
                 short pOrVPos = ++readIdx;
@@ -3254,9 +3258,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             if (isType && foundType) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
             }
-            /*if (keyLen == 4 && buffer[readIdx] == 'i' && buffer[(short)(readIdx+1)] == 'c'
-                    && buffer[(short)(readIdx+2)] == 'o' && buffer[(short)(readIdx+3)] == 'n') {
-            }*/
 
             readIdx += keyLen;
             if (readIdx >= lc) {
@@ -3269,7 +3270,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
             short idPos = readIdx;
 
-            byte valLen = 0;
+            short valLen = 0;
             if (valDef == 0x78 || valDef == 0x58) {
                 if (isId) {
                     if (valDef == 0x78 && byteString) {
@@ -3292,6 +3293,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 if (readIdx >= lc) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
                 }
+            } else if (valDef == 0x79) {
+                if (isId) {
+                    // Whoa nelly.
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                }
+                valLen = Util.getShort(buffer, readIdx);
+                readIdx += 2;
             } else if (valDef >= 0x60 && valDef < 0x78) {
                 if (isId && byteString) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
@@ -3316,7 +3324,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
             if (isId) {
                 foundId = true;
-                transientStorage.setStoredVars(idPos, valLen);
+                transientStorage.setStoredVars(idPos, (byte) valLen);
             }
 
             if (!foundType && isType && checkTypePublicKey) {
@@ -3326,7 +3334,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         CannedCBOR.PUBLIC_KEY_TYPE, (short) 0, valLen) == 0;
             }
 
-            readIdx += ub(valLen);
+            readIdx += valLen;
             if (readIdx >= lc) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
             }

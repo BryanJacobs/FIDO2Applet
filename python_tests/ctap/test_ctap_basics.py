@@ -189,6 +189,10 @@ class CTAPBasicsTestCase(CTAPTestCase):
             [x.credential['id'] for x in asserts]
         )
 
+    def test_accepts_long_utf8_display_name(self):
+        self.basic_makecred_params['user']['display_name'] = "猫" * 144
+        self.ctap2.make_credential(**self.basic_makecred_params)
+
     def test_makecred_rk_disallowed_by_exclude_list(self):
         non_resident_cred = self.ctap2.make_credential(**self.basic_makecred_params)
         self.basic_makecred_params['options'] = {
