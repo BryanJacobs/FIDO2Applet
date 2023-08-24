@@ -1,11 +1,13 @@
 import abc
+import asyncio
 import enum
 import os
 import random
 import secrets
 from datetime import datetime, timedelta
 from multiprocessing import Queue, Process
-from typing import ClassVar, Optional, Any, Type
+from threading import Event
+from typing import ClassVar, Optional, Any, Type, Iterator, Callable, List
 from unittest import TestCase
 
 from cryptography import x509
@@ -16,10 +18,12 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey, EllipticCurvePrivateKey
 from fido2.client import UserInteraction, Fido2Client, _Ctap2ClientBackend
 from fido2.cose import ES256
+from fido2.ctap import CtapDevice
 from fido2.ctap1 import Ctap1
 from fido2.ctap2 import Ctap2, ClientPin, AttestationResponse, AssertionResponse, CredentialManagement, PinProtocolV2
 from fido2.ctap2.base import args
 from fido2.ctap2.extensions import Ctap2Extension
+from fido2.hid import CtapHidDevice, open_device
 from fido2.pcsc import CtapPcscDevice
 from fido2.webauthn import ResidentKeyRequirement, PublicKeyCredentialCreationOptions, PublicKeyCredentialUserEntity, \
     PublicKeyCredentialRpEntity, PublicKeyCredentialParameters, PublicKeyCredentialType, \
@@ -27,6 +31,8 @@ from fido2.webauthn import ResidentKeyRequirement, PublicKeyCredentialCreationOp
     AuthenticatorAttestationResponse, PublicKeyCredentialRequestOptions
 
 import fido2.features
+
+from ctap.ctap_hid_device import CTAPHIDDevice
 
 fido2.features.webauthn_json_mapping.enabled = False
 
@@ -44,12 +50,47 @@ class LogPrintHandler:
         print(r.msg % r.args)
 
 
+class TestModes(enum.Enum):
+    PCSC = "pcsc"
+    HID = "hid"
+    RAW = "raw"
+
+
+class WrapperDevice(CtapDevice):
+    def __init__(self, VSim, sim):
+        self.VSim = VSim
+        self.sim = sim
+
+    @property
+    def capabilities(self) -> int:
+        print("cap check")
+        return 0x04  # CBOR capability
+
+    def call(self, cmd: int, data: bytes = b"", event: Optional[Event] = None,
+             on_keepalive: Optional[Callable[[int], None]] = None) -> bytes:
+        print(f"Call {cmd} - {data.hex()}")
+        encoded_data = bytes([0x80, 0x10, 0x00, 0x00,
+                              0x00,
+                              (len(data) & 0xFF00) >> 8, len(data) & 0x00FF] + list(data) + [0x00, 0x00])
+        result = self.VSim.transmitCommand(self.sim, encoded_data)
+        ret = bytes([(x + 256) % 256 for x in result])
+        if ret[-2] != 0x90 or ret[-1] != 0x00:
+            print(f"ERROR: {bytes([ret[-2], ret[-1]]).hex()}")
+            raise ValueError("Failed")
+        print(f"result {ret.hex()}")
+        return ret[:-2]
+
+    @classmethod
+    def list_devices(cls) -> Iterator[CtapDevice]:
+        pass
+
+
 class JCardSimTestCase(TestCase, abc.ABC):
-    PCSC_MODE = False
+    MODE: TestModes = TestModes.RAW
 
     q_in: ClassVar[Queue]
     q_out: ClassVar[Queue]
-    p: ClassVar[Process]
+    p: ClassVar[List[Process]]
 
     DEBUG_PORT = 5005
     SUSPEND_ON_LAUNCH = False
@@ -118,15 +159,32 @@ class JCardSimTestCase(TestCase, abc.ABC):
             return None
 
     @classmethod
+    async def run_hid_proxy(cls, device: CtapDevice):
+        device = CTAPHIDDevice(device)
+        await device.start()
+
+    @classmethod
+    def launch_hid_proxy(cls, VSim, sim, launch_q = None):
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(cls.run_hid_proxy(WrapperDevice(VSim, sim)))
+        if launch_q is not None:
+            launch_q.put(None)
+        loop.run_forever()
+
+    @classmethod
     def launch_sim(cls, incoming_q: Queue, outgoing_q: Queue, startup_q: Queue):
         cls.start_jvm()
         from us.q3q.fido2 import VSim
 
-        if cls.PCSC_MODE:
+        if cls.MODE in (TestModes.PCSC,):
             sim = VSim.startBackgroundSimulator()
         else:
             sim = VSim.startForegroundSimulator()
         VSim.installApplet(sim, bytes())
+
+        if cls.MODE == TestModes.HID:
+            cls.launch_hid_proxy(VSim, sim, None)
+
         startup_q.put(None)
         while True:
             command_type, command = incoming_q.get(block=True)
@@ -147,17 +205,20 @@ class JCardSimTestCase(TestCase, abc.ABC):
         cls.q_in = Queue(maxsize=1)
         cls.q_out = Queue(maxsize=1)
         q_startup = Queue(maxsize=1)
-        cls.p = Process(target=cls.launch_sim, args=(cls.q_out, cls.q_in, q_startup))
-        cls.p.start()
+        cls.p = [Process(target=cls.launch_sim, args=(cls.q_out, cls.q_in, q_startup))]
+        cls.p[0].start()
         q_startup.get(block=True)
 
     @classmethod
     def tearDownClass(cls) -> None:
-        cls.p.kill()
-        cls.p.join()
+        for p in cls.p:
+            print(f"Killing {p}")
+            p.kill()
+            p.join()
+        cls.p = []
 
     def setUp(self, install_params: Optional[bytes] = None) -> None:
-        assert self.p.is_alive()
+        assert self.p[0].is_alive()
         if install_params is None:
             install_params = bytes()
         # Javacard install parameters are prefixed by AID and platform info
@@ -202,7 +263,7 @@ class FakeSCConnection:
 
 class CTAPTestCase(JCardSimTestCase, abc.ABC):
     VIRTUAL_DEVICE_NAME = "Virtual PCD"
-    device: CtapPcscDevice
+    device: CtapDevice
     ctap2: Ctap2
     client_data: bytes
     rp_id: str
@@ -223,8 +284,12 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
         if install_params is None:
             install_params = bytes([0xA1, 0x00, 0xF5])
         super().setUp(install_params)
-        if self.PCSC_MODE:
+        if self.MODE == TestModes.PCSC:
             devs = list(CtapPcscDevice.list_devices(self.VIRTUAL_DEVICE_NAME))
+            assert 1 == len(devs)
+            self.device = devs[0]
+        elif self.MODE == TestModes.HID:
+            devs = list(CtapHidDevice.list_devices())
             assert 1 == len(devs)
             self.device = devs[0]
         else:
@@ -369,7 +434,8 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
                                                 client_data: Optional[bytes] = None, rp_id: Optional[str] = None,
                                                 extensions: Optional[
                                                     dict[str, Any]] = None,
-                                                user_verification: Optional[UserVerificationRequirement] = None) -> PublicKeyCredentialRequestOptions:
+                                                user_verification: Optional[
+                                                    UserVerificationRequirement] = None) -> PublicKeyCredentialRequestOptions:
         if extensions is None:
             extensions = {}
         if client_data is None:
@@ -448,21 +514,21 @@ class BasicAttestationTestCase(CTAPTestCase):
 
         authenticator_cert_bytes = (
             x509.CertificateBuilder()
-                .subject_name(this_cert_name)
-                .issuer_name(ca_name)
-                .serial_number(x509.random_serial_number())
-                .public_key(self.public_key)
-                .not_valid_before(now - timedelta(days=1))
-                .not_valid_after(now + timedelta(days=3650))
-                .add_extension(
-                    x509.BasicConstraints(ca=False, path_length=None), critical=True,
-                )
-                #.add_extension(x509.UnrecognizedExtension(
-                #    x509.ObjectIdentifier("1.3.6.1.4.1.45724.1.1.4"),
-                #    value= < DER bytes >
-                #))
-                .sign(private_key=ca_privkey, algorithm=hashes.SHA256())
-                .public_bytes(Encoding.DER)
+            .subject_name(this_cert_name)
+            .issuer_name(ca_name)
+            .serial_number(x509.random_serial_number())
+            .public_key(self.public_key)
+            .not_valid_before(now - timedelta(days=1))
+            .not_valid_after(now + timedelta(days=3650))
+            .add_extension(
+                x509.BasicConstraints(ca=False, path_length=None), critical=True,
+            )
+            # .add_extension(x509.UnrecognizedExtension(
+            #    x509.ObjectIdentifier("1.3.6.1.4.1.45724.1.1.4"),
+            #    value= < DER bytes >
+            # ))
+            .sign(private_key=ca_privkey, algorithm=hashes.SHA256())
+            .public_bytes(Encoding.DER)
         )
         return [authenticator_cert_bytes, ca_cert_bytes]
 
@@ -515,7 +581,6 @@ class FixedPinUserInteraction(UserInteraction):
 
 
 class CredManagementBaseTestCase(CTAPTestCase, abc.ABC):
-
     PERMISSION_CRED_MGMT = 4
     pin: str
 
@@ -537,4 +602,3 @@ class CredManagementBaseTestCase(CTAPTestCase, abc.ABC):
         token = be._get_token(ClientPin(self.ctap2), permissions=permissions,
                               rp_id=None, event=None, on_keepalive=None, allow_internal_uv=False)
         return CredentialManagement(self.ctap2, pin_uv_protocol=PinProtocolV2(), pin_uv_token=token)
-

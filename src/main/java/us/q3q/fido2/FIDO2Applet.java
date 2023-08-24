@@ -1371,7 +1371,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             } else {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_NOT_SET);
             }
-
         }
 
         if (desiredLength < 24) {
@@ -1448,19 +1447,21 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         // Skip "type" val
-        if ((buffer[readIdx] & 0xF0) != 0x60) {
+        short typeB = ub(buffer[readIdx]);
+        if (typeB < 0x60 || typeB > 0x77) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
         }
-        short valLen = (short) (buffer[readIdx] & 0x0F);
+        short valLen = (short)(typeB - 0x60);
         readIdx += valLen + 1;
         if (readIdx >= lc) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
         }
 
-        if ((buffer[readIdx] & 0xF0) != 0x60) {
+        short typeValB = ub(buffer[readIdx]);
+        if (typeValB < 0x60 || typeValB > 0x77) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
         }
-        short typeValLen = (short) (buffer[readIdx] & 0x0F);
+        short typeValLen = (short)(typeValB - 0x60);
         if (typeValLen != CannedCBOR.PUBLIC_KEY_TYPE.length) {
             // not the same length as type "public-key": can't be a match
             transientStorage.readyStoredVars();
