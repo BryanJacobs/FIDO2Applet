@@ -123,10 +123,6 @@ This is the minimum to make the credentials management API work. It would
 be possible to encrypt the length fields too, they just aren't and I didn't
 see it as important.
 
-The default is to have fifty slots for resident keys, which is double what a
-Yubikey supports. You can turn this up, with a performance and flash cost, or
-turn it down with a performance and flash benefit.
-
 ## Why is the code quality so low?
 
 You're welcome to contribute to improving it. I wrote this for a purpose and
@@ -218,7 +214,8 @@ the app will be locked and you won't be able to use it without clearing everythi
 
 ## I'm getting "operation denied" for certain requests
 
-The authenticator will refuse to create credProtect=3 non-discoverable credentials without a PIN set.
-This is to avoid needing to store the credProtect level in the credential ID itself.
+The authenticator will, by default, refuse to create credProtect=3 non-discoverable
+credentials without a PIN set. This is to avoid needing to store the credProtect
+level in the credential ID itself.
 
 If you want to use this authenticator with those relying parties, set a PIN.

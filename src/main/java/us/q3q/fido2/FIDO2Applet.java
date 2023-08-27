@@ -1029,7 +1029,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     JCSystem.abortTransaction();
                 }
             }
-
         } else {
             // Non-resident credProtect Level 3 creds still need to use the high security key (to require PIN auth)
             final boolean credMayUseLowSecurityForDiscoverable = credProtectLevel < 3;
