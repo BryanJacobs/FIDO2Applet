@@ -3038,7 +3038,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             amountFromMem = outputLen;
         }
 
-        apdu.setOutgoingLength(amountFitInBuffer);
+        if (isExtendedAPDU) {
+            apdu.setOutgoingLength(totalOutputLen);
+        } else {
+            apdu.setOutgoingLength(amountFitInBuffer);
+        }
         final byte[] apduBytes = apdu.getBuffer();
         Util.arrayCopyNonAtomic(bufferMem, (short) 0,
                 apduBytes, (short) 0, amountFromMem);
@@ -3067,8 +3071,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
         apdu.sendBytes((short) 0, amountFitInBuffer);
         if (totalOutputLen > amountFitInBuffer) {
-            // we're not done; set state to continue response delivery later
-            setupChainedResponse(amountFitInBuffer, (short)(totalOutputLen - amountFitInBuffer));
+            // we're not done; set state to continue response delivery later, with chaining
+            if (isExtendedAPDU) {
+                transientStorage.setOutgoingContinuation(amountFitInBuffer, (short)(totalOutputLen - amountFitInBuffer));
+                // deliver it right now, by repeatedly overwriting the APDU buffer
+                while (!streamOutgoingContinuation(apdu, apduBytes, false));
+            } else {
+                setupChainedResponse(amountFitInBuffer, (short)(totalOutputLen - amountFitInBuffer));
+            }
         }
     }
 
@@ -3397,7 +3407,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         if (cla_ins == 0x00C0 || cla_ins == (short) 0x80C0) {
-            streamOutgoingContinuation(apdu, apduBytes);
+            streamOutgoingContinuation(apdu, apduBytes, true);
             return;
         } else {
             if (transientStorage.getLargeBlobWriteOffset() == -1) {
@@ -4141,12 +4151,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      *
      * @param apdu Request/response context object
      * @param apduBytes APDU buffer to hold outgoing data
+     * @param chaining If true, set the APDU outgoing length, and throw an exception to indicate remaining bytes
+     * @return true if response delivery is complete
      */
-    private void streamOutgoingContinuation(APDU apdu, byte[] apduBytes) {
+    private boolean streamOutgoingContinuation(APDU apdu, byte[] apduBytes, boolean chaining) {
         // continue outgoing response from buffer
         if (transientStorage.getOutgoingContinuationRemaining() == 0) {
             // Nothing to send here, nothing left.
-            return;
+            return true;
         }
 
         short outgoingOffset = transientStorage.getOutgoingContinuationOffset();
@@ -4180,7 +4192,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         final short writeSize = chunkSize <= outgoingRemaining ? chunkSize : outgoingRemaining;
-        apdu.setOutgoingLength(writeSize);
+        if (chaining) {
+            apdu.setOutgoingLength(writeSize);
+        }
         short chunkToWrite = writeSize;
         if (remainingValidInBufMem > 0) {
             short writeFromBufMem = remainingValidInBufMem;
@@ -4208,12 +4222,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         outgoingOffset += writeSize;
         outgoingRemaining -= writeSize;
         transientStorage.setOutgoingContinuation(outgoingOffset, outgoingRemaining);
-        if (outgoingRemaining >= 256) {
-            throwException(ISO7816.SW_BYTES_REMAINING_00);
-        } else if (outgoingRemaining > 0) {
-            throwException((short) (ISO7816.SW_BYTES_REMAINING_00 + outgoingRemaining));
+        if (chaining) {
+            if (outgoingRemaining >= 256) {
+                throwException(ISO7816.SW_BYTES_REMAINING_00);
+            } else if (outgoingRemaining > 0) {
+                throwException((short) (ISO7816.SW_BYTES_REMAINING_00 + outgoingRemaining));
+            }
+            transientStorage.clearOutgoingContinuation();
         }
-        transientStorage.clearOutgoingContinuation();
+        return false;
     }
 
     /**
@@ -5505,51 +5522,75 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         buffer[offset++] = 0x0A; // ten
 
         final short amountInApduBuf = offset;
+
+        final short availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_PERSISTENT);
+        final short approximateKeyCount = (short)(availableMem / 128);
+        boolean partiallySent = false;
         if (!longResponse) {
             // We're going to have too much for one 256-byte buffer
             // So let's split into two halves, one directly APDU-written and one saved
             buffer = bufferMem;
             offset = 0;
+        } else if (apdu.getBuffer().length > 300) {
+            // We have an E-APDU, but there's room for our reply in the
+            // APDU outgoing buffer: keep writing
+        } else {
+            // We have an E-APDU, buf there's not room for our response in the outgoing
+            // buffer. Write aside.
+            final short remainingAmountToWrite = (short)(CannedCBOR.ES256_ALG_TYPE.length
+                    + (approximateKeyCount > 23 ? 2 : 1) // encoded length of approxKeyCount
+                    + (minPinLength > 23 ? 2 : 1) // encoded length of minPinLength
+                    + 23 // fixed overhead;
+            );
+            apdu.setOutgoing();
+            apdu.setOutgoingLength((short)(offset + remainingAmountToWrite));
+            apdu.sendBytes((short) 0, offset);
+            // And overwrite the same buffer again
+            offset = 0;
+            partiallySent = true;
         }
 
-        buffer[offset++] = 0x08; // map key: maxCredentialIdLength
-        offset = encodeIntTo(buffer, offset, (byte) CREDENTIAL_ID_LEN);
+        buffer[offset++] = 0x08; // map key: maxCredentialIdLength: 1 byte
+        offset = encodeIntTo(buffer, offset, (byte) CREDENTIAL_ID_LEN); // 2 bytes = 3
 
-        buffer[offset++] = 0x0A; // map key: algorithms
+        buffer[offset++] = 0x0A; // map key: algorithms: 1 byte = 4
         offset = Util.arrayCopyNonAtomic(CannedCBOR.ES256_ALG_TYPE, (short) 0,
-                buffer, offset, (short) CannedCBOR.ES256_ALG_TYPE.length);
+                buffer, offset, (short) CannedCBOR.ES256_ALG_TYPE.length); // added separately
 
-        buffer[offset++] = 0x0B; // map key: maxSerializedLargeBlobArray
-        buffer[offset++] = 0x19; // two-byte integer
-        Util.setShort(buffer, offset, (short) largeBlobStore.length);
+        buffer[offset++] = 0x0B; // map key: maxSerializedLargeBlobArray: 1 byte = 5
+        buffer[offset++] = 0x19; // two-byte integer: 1 byte = 6
+        Util.setShort(buffer, offset, (short) largeBlobStore.length); // 2 bytes = 8
         offset += 2;
 
-        buffer[offset++] = 0x0C; // map key: forcePinChange
-        buffer[offset++] = (byte)(forcePinChange ? 0xF5 : 0xF4);
+        buffer[offset++] = 0x0C; // map key: forcePinChange: 1 byte = 9
+        buffer[offset++] = (byte)(forcePinChange ? 0xF5 : 0xF4); // 1 byte = 10
 
-        buffer[offset++] = 0x0D; // map key: minPinLength
-        offset = encodeIntTo(buffer, offset, minPinLength);
+        buffer[offset++] = 0x0D; // map key: minPinLength: 1 byte = 11
+        offset = encodeIntTo(buffer, offset, minPinLength); // encoded separately
 
-        buffer[offset++] = 0x0E; // map key: firmwareVersion
-        offset = encodeIntTo(buffer, offset, FIRMWARE_VERSION);
+        buffer[offset++] = 0x0E; // map key: firmwareVersion: 1 byte = 12
+        offset = encodeIntTo(buffer, offset, FIRMWARE_VERSION); // 1 byte = 13
 
-        buffer[offset++] = 0x0F; // map key: maxCredBlobLength
-        offset = encodeIntTo(buffer, offset, MAX_CRED_BLOB_LEN);
+        buffer[offset++] = 0x0F; // map key: maxCredBlobLength: 1 byte = 14
+        offset = encodeIntTo(buffer, offset, MAX_CRED_BLOB_LEN); // 2 bytes = 16
 
-        buffer[offset++] = 0x10; // map key: maxRPIDsForSetMinPinLength
-        offset = encodeIntTo(buffer, offset, MAX_RP_IDS_MIN_PIN_LENGTH);
+        buffer[offset++] = 0x10; // map key: maxRPIDsForSetMinPinLength: 1 byte = 17
+        offset = encodeIntTo(buffer, offset, MAX_RP_IDS_MIN_PIN_LENGTH); // 1 byte = 18
 
-        buffer[offset++] = 0x12; // map key: uvModality
-        buffer[offset++] = 0x19; // two-byte integer
-        offset = Util.setShort(buffer, offset, (short) 0x0200); // uvModality "none"*/
+        buffer[offset++] = 0x12; // map key: uvModality: 1 byte = 19
+        buffer[offset++] = 0x19; // two-byte integer: 1 byte = 20
+        offset = Util.setShort(buffer, offset, (short) 0x0200); // uvModality "none": 2 bytes = 22
 
-        buffer[offset++] = 0x14; // map key: remainingDiscoverableCredentials
-        short availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_PERSISTENT);
-        short approximateKeyCount = (short)(availableMem / 128);
-        offset = encodeIntTo(buffer, offset, (byte)(approximateKeyCount > 100 ? 100 : approximateKeyCount));
+        buffer[offset++] = 0x14; // map key: remainingDiscoverableCredentials: 1 byte = 23
+        offset = encodeIntTo(buffer, offset, (byte)(approximateKeyCount > 100 ? 100 : approximateKeyCount)); // variable
 
         if (longResponse) {
-            sendNoCopy(apdu, offset);
+            if (partiallySent) {
+                bufferManager.clear();
+                apdu.sendBytes((short) 0, offset);
+            } else {
+                sendNoCopy(apdu, offset);
+            }
         } else {
             sendNoCopy(apdu, amountInApduBuf);
             setupChainedResponse((short) 0, offset);
