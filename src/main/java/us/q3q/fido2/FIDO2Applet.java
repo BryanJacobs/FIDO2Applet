@@ -5424,123 +5424,116 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param apdu Request/response object
      */
     private void sendAuthInfo(APDU apdu) {
-        byte[] buffer = apdu.getBuffer();
         boolean longResponse = apdu.getOffsetCdata() == ISO7816.OFFSET_EXT_CDATA;
 
         short offset = 0;
 
-        buffer[offset++] = FIDOConstants.CTAP2_OK;
-        buffer[offset++] = (byte) 0xAF; // Map - fifteen keys
-        buffer[offset++] = 0x01; // map key: versions
+        bufferMem[offset++] = FIDOConstants.CTAP2_OK;
+        bufferMem[offset++] = (byte) 0xAF; // Map - fifteen keys
+        bufferMem[offset++] = 0x01; // map key: versions
 
         if (alwaysUv || attestationData == null || filledAttestationData < attestationData.length) {
             offset = Util.arrayCopyNonAtomic(CannedCBOR.VERSIONS_WITHOUT_U2F, (short) 0,
-                    buffer, offset, (short) CannedCBOR.VERSIONS_WITHOUT_U2F.length);
+                    bufferMem, offset, (short) CannedCBOR.VERSIONS_WITHOUT_U2F.length);
         } else {
             offset = Util.arrayCopyNonAtomic(CannedCBOR.VERSIONS_WITH_U2F, (short) 0,
-                    buffer, offset, (short) CannedCBOR.VERSIONS_WITH_U2F.length);
+                    bufferMem, offset, (short) CannedCBOR.VERSIONS_WITH_U2F.length);
         }
 
         offset = Util.arrayCopyNonAtomic(CannedCBOR.AUTH_INFO_START, (short) 0,
-                buffer, offset, (short) CannedCBOR.AUTH_INFO_START.length);
+                bufferMem, offset, (short) CannedCBOR.AUTH_INFO_START.length);
 
         offset = Util.arrayCopyNonAtomic(aaguid, (short) 0,
-                buffer, offset, (short) aaguid.length);
+                bufferMem, offset, (short) aaguid.length);
 
-        buffer[offset++] = 0x04; // map key: options
-        buffer[offset++] = (byte) 0xAA; // map: ten entries
-        /*buffer[offset++] = 0x62; // string: two bytes long
-        buffer[offset++] = 0x65; // 'e'
-        buffer[offset++] = 0x70; // 'p'
-        buffer[offset++] = (byte)(enterpriseAttestation ? 0xF5 : 0xF4); // enabled or not */
+        bufferMem[offset++] = 0x04; // map key: options
+        bufferMem[offset++] = (byte) 0xAA; // map: ten entries
+        /*bufferMem[offset++] = 0x62; // string: two bytes long
+        bufferMem[offset++] = 0x65; // 'e'
+        bufferMem[offset++] = 0x70; // 'p'
+        bufferMem[offset++] = (byte)(enterpriseAttestation ? 0xF5 : 0xF4); // enabled or not */
 
         offset = Util.arrayCopyNonAtomic(CannedCBOR.AUTH_INFO_SECOND, (short) 0,
-                buffer, offset, (short) CannedCBOR.AUTH_INFO_SECOND.length);
+                bufferMem, offset, (short) CannedCBOR.AUTH_INFO_SECOND.length);
 
-        buffer[offset++] = (byte)(alwaysUv ? 0xF5 : 0xF4); // alwaysUv
+        bufferMem[offset++] = (byte)(alwaysUv ? 0xF5 : 0xF4); // alwaysUv
 
         offset = Util.arrayCopyNonAtomic(CannedCBOR.AUTH_INFO_THIRD, (short) 0,
-                buffer, offset, (short) CannedCBOR.AUTH_INFO_THIRD.length);
+                bufferMem, offset, (short) CannedCBOR.AUTH_INFO_THIRD.length);
 
-        buffer[offset++] = (byte)(pinSet ? 0xF5 : 0xF4); // clientPin
+        bufferMem[offset++] = (byte)(pinSet ? 0xF5 : 0xF4); // clientPin
 
-        offset = encodeIntLenTo(buffer, offset, (short) CannedCBOR.LARGE_BLOBS.length, false);
+        offset = encodeIntLenTo(bufferMem, offset, (short) CannedCBOR.LARGE_BLOBS.length, false);
         offset = Util.arrayCopyNonAtomic(CannedCBOR.LARGE_BLOBS, (short) 0,
-                buffer, offset, (short) CannedCBOR.LARGE_BLOBS.length);
-        buffer[offset++] = (byte) 0xF5; // largeBlobs = true
+                bufferMem, offset, (short) CannedCBOR.LARGE_BLOBS.length);
+        bufferMem[offset++] = (byte) 0xF5; // largeBlobs = true
 
-        offset = encodeIntLenTo(buffer, offset, (short) CannedCBOR.PIN_UV_AUTH_TOKEN.length, false);
+        offset = encodeIntLenTo(bufferMem, offset, (short) CannedCBOR.PIN_UV_AUTH_TOKEN.length, false);
         offset = Util.arrayCopyNonAtomic(CannedCBOR.PIN_UV_AUTH_TOKEN, (short) 0,
-                buffer, offset, (short) CannedCBOR.PIN_UV_AUTH_TOKEN.length);
-        buffer[offset++] = (byte) 0xF5; // pinUvAuthToken = true
+                bufferMem, offset, (short) CannedCBOR.PIN_UV_AUTH_TOKEN.length);
+        bufferMem[offset++] = (byte) 0xF5; // pinUvAuthToken = true
 
-        offset = encodeIntLenTo(buffer, offset, (short) CannedCBOR.SET_MIN_PIN_LENGTH.length, false);
+        offset = encodeIntLenTo(bufferMem, offset, (short) CannedCBOR.SET_MIN_PIN_LENGTH.length, false);
         offset = Util.arrayCopyNonAtomic(CannedCBOR.SET_MIN_PIN_LENGTH, (short) 0,
-                buffer, offset, (short) CannedCBOR.SET_MIN_PIN_LENGTH.length);
-        buffer[offset++] = (byte) 0xF5; // setMinPINLength = true
+                bufferMem, offset, (short) CannedCBOR.SET_MIN_PIN_LENGTH.length);
+        bufferMem[offset++] = (byte) 0xF5; // setMinPINLength = true
 
-        offset = encodeIntLenTo(buffer, offset, (short) CannedCBOR.MAKE_CRED_UV_NOT_REQD.length, false);
+        offset = encodeIntLenTo(bufferMem, offset, (short) CannedCBOR.MAKE_CRED_UV_NOT_REQD.length, false);
         offset = Util.arrayCopyNonAtomic(CannedCBOR.MAKE_CRED_UV_NOT_REQD, (short) 0,
-                buffer, offset, (short) CannedCBOR.MAKE_CRED_UV_NOT_REQD.length);
-        buffer[offset++] = (byte)(LOW_SECURITY_MAXIMUM_COMPLIANCE && !alwaysUv ? 0xF5 : 0xF4); // makeCredUvNotRequired = true or false
+                bufferMem, offset, (short) CannedCBOR.MAKE_CRED_UV_NOT_REQD.length);
+        bufferMem[offset++] = (byte)(LOW_SECURITY_MAXIMUM_COMPLIANCE && !alwaysUv ? 0xF5 : 0xF4); // makeCredUvNotRequired = true or false
 
-        buffer[offset++] = 0x06; // map key: pinProtocols
-        buffer[offset++] = (byte) 0x82; // array: two items
-        buffer[offset++] = 0x01; // pin protocol version 1
-        buffer[offset++] = 0x02; // pin protocol version 2
+        bufferMem[offset++] = 0x06; // map key: pinProtocols
+        bufferMem[offset++] = (byte) 0x82; // array: two items
+        bufferMem[offset++] = 0x01; // pin protocol version 1
+        bufferMem[offset++] = 0x02; // pin protocol version 2
 
-        buffer[offset++] = 0x07; // map key: maxCredentialCountInList
-        buffer[offset++] = 0x0A; // ten
+        bufferMem[offset++] = 0x07; // map key: maxCredentialCountInList
+        bufferMem[offset++] = 0x0A; // ten
 
-        buffer[offset++] = 0x08; // map key: maxCredentialIdLength
-        offset = encodeIntTo(buffer, offset, (byte) CREDENTIAL_ID_LEN);
-        final short amountInApduBuf = offset;
+        bufferMem[offset++] = 0x08; // map key: maxCredentialIdLength
+        offset = encodeIntTo(bufferMem, offset, (byte) CREDENTIAL_ID_LEN);
 
-        if (!longResponse) {
-            // We're going to have too much for one 256-byte buffer
-            // So let's split into two halves, one directly APDU-written and one saved
-            buffer = bufferMem;
-            offset = 0;
-        }
-
-        buffer[offset++] = 0x0A; // map key: algorithms
+        bufferMem[offset++] = 0x0A; // map key: algorithms
         offset = Util.arrayCopyNonAtomic(CannedCBOR.ES256_ALG_TYPE, (short) 0,
-                buffer, offset, (short) CannedCBOR.ES256_ALG_TYPE.length);
+                bufferMem, offset, (short) CannedCBOR.ES256_ALG_TYPE.length);
 
-        buffer[offset++] = 0x0B; // map key: maxSerializedLargeBlobArray
-        buffer[offset++] = 0x19; // two-byte integer
-        Util.setShort(buffer, offset, (short) largeBlobStore.length);
+        bufferMem[offset++] = 0x0B; // map key: maxSerializedLargeBlobArray
+        bufferMem[offset++] = 0x19; // two-byte integer
+        Util.setShort(bufferMem, offset, (short) largeBlobStore.length);
         offset += 2;
 
-        buffer[offset++] = 0x0C; // map key: forcePinChange
-        buffer[offset++] = (byte)(forcePinChange ? 0xF5 : 0xF4);
+        bufferMem[offset++] = 0x0C; // map key: forcePinChange
+        bufferMem[offset++] = (byte)(forcePinChange ? 0xF5 : 0xF4);
 
-        buffer[offset++] = 0x0D; // map key: minPinLength
-        offset = encodeIntTo(buffer, offset, minPinLength);
+        bufferMem[offset++] = 0x0D; // map key: minPinLength
+        offset = encodeIntTo(bufferMem, offset, minPinLength);
 
-        buffer[offset++] = 0x0E; // map key: firmwareVersion
-        offset = encodeIntTo(buffer, offset, FIRMWARE_VERSION);
+        bufferMem[offset++] = 0x0E; // map key: firmwareVersion
+        offset = encodeIntTo(bufferMem, offset, FIRMWARE_VERSION);
 
-        buffer[offset++] = 0x0F; // map key: maxCredBlobLength
-        offset = encodeIntTo(buffer, offset, MAX_CRED_BLOB_LEN);
+        bufferMem[offset++] = 0x0F; // map key: maxCredBlobLength
+        offset = encodeIntTo(bufferMem, offset, MAX_CRED_BLOB_LEN);
 
-        buffer[offset++] = 0x10; // map key: maxRPIDsForSetMinPinLength
-        offset = encodeIntTo(buffer, offset, MAX_RP_IDS_MIN_PIN_LENGTH);
+        bufferMem[offset++] = 0x10; // map key: maxRPIDsForSetMinPinLength
+        offset = encodeIntTo(bufferMem, offset, MAX_RP_IDS_MIN_PIN_LENGTH);
 
-        /*buffer[offset++] = 0x12; // map key: uvModality
-        buffer[offset++] = 0x19; // two-byte integer
-        offset = Util.setShort(buffer, offset, (short) 0x0200); // uvModality "none"*/
+        /*bufferMem[offset++] = 0x12; // map key: uvModality
+        bufferMem[offset++] = 0x19; // two-byte integer
+        offset = Util.setShort(bufferMem, offset, (short) 0x0200); // uvModality "none"*/
 
-        buffer[offset++] = 0x14; // map key: remainingDiscoverableCredentials
+        bufferMem[offset++] = 0x14; // map key: remainingDiscoverableCredentials
         short availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_PERSISTENT);
         short approximateKeyCount = (short)(availableMem / 128);
-        offset = encodeIntTo(buffer, offset, (byte)(approximateKeyCount > 100 ? 100 : approximateKeyCount));
+        offset = encodeIntTo(bufferMem, offset, (byte)(approximateKeyCount > 100 ? 100 : approximateKeyCount));
 
         if (longResponse) {
-            sendNoCopy(apdu, offset);
+            apdu.setOutgoing();
+            apdu.setOutgoingLength(offset);
+            apdu.sendBytesLong(bufferMem, (short) 0, offset);
         } else {
-            sendNoCopy(apdu, amountInApduBuf);
-            setupChainedResponse((short) 0, offset);
+            sendByteArray(apdu, bufferMem, (short) 240);
+            setupChainedResponse((short) 240, (short) (offset - 240));
         }
     }
 
