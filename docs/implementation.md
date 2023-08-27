@@ -110,7 +110,7 @@ Each RK gets a separate IV for each of its data structures:
 When a particular item has a dynamic length, the length is stored unencrypted. All objects are multiples of 32
 bytes long to allow easy AES256 decryption.
 
-Discoverable credentials use one of two different IVs depending on the `credProtect` level. Credentials with
+Non-discoverable credentials use one of two different IVs depending on the `credProtect` level. Credentials with
 `credProtect=3` use the "high security" IV. Credentials with `credProtect=2` or below use the "low security"
 IV.
 
