@@ -118,19 +118,20 @@ If you're a really detail-oriented person, you might enjoy reading
 
 ## Software Compatibility
 
-| Platform              | Status     |
-|-----------------------|------------|
-| Android (hwsecurity)  | Working    |
-| Android (Google Play) | Broken [1] |
-| iOS                   | Untested   |
-| Linux (libfido2)      | Working    |
-| Windows 10            | Working    |
+| Platform              | Status           |
+|-----------------------|------------------|
+| Android (hwsecurity)  | Working          |
+| Android (Google Play) | Broken [1]       |
+| iOS                   | Reported working |
+| Linux (libfido2)      | Working          |
+| Windows 10            | Working          |
 
-| Smartcard                  | Status  |
-|----------------------------|---------|
-| J3H145 (NXP JCOP3)         | Working |
-| OMNI Ring (Infineon SLE78) | Working |
-| jCardSim                   | Working |
+| Smartcard                  | Status           |
+|----------------------------|------------------|
+| J3H145 (NXP JCOP3)         | Working          |
+| OMNI Ring (Infineon SLE78) | Working          |
+| jCardSim                   | Working          |
+| A40CR                      | Reported Working |
 
 | Application         | Status                         |
 |---------------------|--------------------------------|
@@ -142,7 +143,7 @@ If you're a really detail-oriented person, you might enjoy reading
 | Firefox on Linux    | Working, USBHID only [2]       |
 | Firefox on Windows  | Working                        |
 | MS Edge on Windows  | Working                        |
-| Safari on iOS       | Untested                       |
+| Safari on iOS       | Reported working               |
 | OpenSSH             | Working                        |
 | pam_u2f             | Working                        |
 | systemd-cryptenroll | Working                        |
