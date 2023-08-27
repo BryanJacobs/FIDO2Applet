@@ -4186,9 +4186,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         short chunkSize = (short)(APDU.getOutBlockSize() - 2);
-        final short requestedChunkSize = apdu.setOutgoing();
-        if (requestedChunkSize < chunkSize) {
-            chunkSize = requestedChunkSize;
+        if (chaining) {
+            final short requestedChunkSize = apdu.setOutgoing();
+            if (requestedChunkSize < chunkSize) {
+                chunkSize = requestedChunkSize;
+            }
         }
 
         final short writeSize = chunkSize <= outgoingRemaining ? chunkSize : outgoingRemaining;
