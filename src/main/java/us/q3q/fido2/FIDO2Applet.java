@@ -3286,7 +3286,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 if (checkAllFieldsText && !isId && valDef == 0x58) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                 }
-                valLen = buffer[readIdx++];
+                valLen = ub(buffer[readIdx++]);
                 if (isId) {
                     idPos++;
                 }
@@ -3304,7 +3304,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 if (isId && byteString) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                 }
-                valLen = (byte) (valDef - 0x60);
+                valLen = (short)(valDef - 0x60);
             } else if (valDef >= 0x40 && valDef < 0x58) {
                 if (isId && !byteString) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
@@ -3317,12 +3317,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 if (checkAllFieldsText && !isId) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                 }
-                valLen = (byte) (valDef - 0x40);
+                valLen = (short) (valDef - 0x40);
             } else {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
             }
 
             if (isId) {
+                if (valLen > 255) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
+                }
                 foundId = true;
                 transientStorage.setStoredVars(idPos, (byte) valLen);
             }
