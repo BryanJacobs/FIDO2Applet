@@ -5429,8 +5429,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         short offset = 0;
 
+        boolean includeMaxMsgSize = bufferMem.length != 1024;
+
         buffer[offset++] = FIDOConstants.CTAP2_OK;
-        buffer[offset++] = (byte) 0xAF; // Map - fifteen keys
+        buffer[offset++] = (byte) (includeMaxMsgSize ? 0xB1 : 0xB0); // Map - sixteen or seventeen keys
         buffer[offset++] = 0x01; // map key: versions
 
         if (alwaysUv || attestationData == null || filledAttestationData < attestationData.length) {
@@ -5484,6 +5486,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 buffer, offset, (short) CannedCBOR.MAKE_CRED_UV_NOT_REQD.length);
         buffer[offset++] = (byte)(LOW_SECURITY_MAXIMUM_COMPLIANCE && !alwaysUv ? 0xF5 : 0xF4); // makeCredUvNotRequired = true or false
 
+        if (includeMaxMsgSize) {
+            buffer[offset++] = 0x05; // map key: maxMsgSize
+            buffer[offset++] = 0x19; // two-byte integer
+            Util.setShort(buffer, offset, (short) bufferMem.length);
+            offset += 2;
+        }
+
         buffer[offset++] = 0x06; // map key: pinProtocols
         buffer[offset++] = (byte) 0x82; // array: two items
         buffer[offset++] = 0x01; // pin protocol version 1
@@ -5492,16 +5501,16 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         buffer[offset++] = 0x07; // map key: maxCredentialCountInList
         buffer[offset++] = 0x0A; // ten
 
-        buffer[offset++] = 0x08; // map key: maxCredentialIdLength
-        offset = encodeIntTo(buffer, offset, (byte) CREDENTIAL_ID_LEN);
         final short amountInApduBuf = offset;
-
         if (!longResponse) {
             // We're going to have too much for one 256-byte buffer
             // So let's split into two halves, one directly APDU-written and one saved
             buffer = bufferMem;
             offset = 0;
         }
+
+        buffer[offset++] = 0x08; // map key: maxCredentialIdLength
+        offset = encodeIntTo(buffer, offset, (byte) CREDENTIAL_ID_LEN);
 
         buffer[offset++] = 0x0A; // map key: algorithms
         offset = Util.arrayCopyNonAtomic(CannedCBOR.ES256_ALG_TYPE, (short) 0,
@@ -5527,7 +5536,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         buffer[offset++] = 0x10; // map key: maxRPIDsForSetMinPinLength
         offset = encodeIntTo(buffer, offset, MAX_RP_IDS_MIN_PIN_LENGTH);
 
-        /*buffer[offset++] = 0x12; // map key: uvModality
+        buffer[offset++] = 0x12; // map key: uvModality
         buffer[offset++] = 0x19; // two-byte integer
         offset = Util.setShort(buffer, offset, (short) 0x0200); // uvModality "none"*/
 
@@ -6703,6 +6712,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         FLASH_SCRATCH_SIZE = Util.getShort(array, offset);
                         offset += 2;
                         break;
+                    default:
+                        ISOException.throwIt(ISO7816.SW_WRONG_DATA);
                 }
             }
         }
