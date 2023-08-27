@@ -1151,7 +1151,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             outputLen += 32;
         }
 
-        doSendResponse(apdu, outputLen);
+        if (apdu.getOffsetCdata() == ISO7816.OFFSET_EXT_CDATA) {
+            apdu.setOutgoing();
+            apdu.setOutgoingLength(outputLen);
+            apdu.sendBytesLong(bufferMem, (short) 0, outputLen);
+        } else {
+            doSendResponse(apdu, outputLen);
+        }
     }
 
 
