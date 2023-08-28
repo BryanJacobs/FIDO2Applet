@@ -5309,8 +5309,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         outBuf[writeOffset++] = 0x01; // map key: existingResidentCredentialsCount
         writeOffset = encodeIntTo(outBuf, writeOffset, numResidentCredentials);
         outBuf[writeOffset++] = 0x02; // map key: maxPossibleRemainingCredentialsCount
-        short remainingCredentials = (short)((short) residentKeys.length - numResidentCredentials);
-        writeOffset = encodeIntTo(outBuf, writeOffset, (byte) remainingCredentials);
+        writeOffset = encodeIntTo(outBuf, writeOffset, getApproximateRemainingKeyCount());
 
         sendNoCopy(apdu, writeOffset);
     }
@@ -5524,8 +5523,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         final short amountInApduBuf = offset;
 
-        final short availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_PERSISTENT);
-        final short approximateKeyCount = (short)(availableMem / 128);
+        final byte approximateKeyCount = getApproximateRemainingKeyCount();
         boolean partiallySent = false;
         if (!longResponse) {
             // We're going to have too much for one 256-byte buffer
@@ -5560,8 +5558,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         buffer[offset++] = 0x0B; // map key: maxSerializedLargeBlobArray: 1 byte = 5
         buffer[offset++] = 0x19; // two-byte integer: 1 byte = 6
-        Util.setShort(buffer, offset, (short) largeBlobStore.length); // 2 bytes = 8
-        offset += 2;
+        offset = Util.setShort(buffer, offset, (short) largeBlobStore.length); // 2 bytes = 8
 
         buffer[offset++] = 0x0C; // map key: forcePinChange: 1 byte = 9
         buffer[offset++] = (byte)(forcePinChange ? 0xF5 : 0xF4); // 1 byte = 10
@@ -5583,7 +5580,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         offset = Util.setShort(buffer, offset, (short) 0x0200); // uvModality "none": 2 bytes = 22
 
         buffer[offset++] = 0x14; // map key: remainingDiscoverableCredentials: 1 byte = 23
-        offset = encodeIntTo(buffer, offset, (byte)(approximateKeyCount > 100 ? 100 : approximateKeyCount)); // variable
+        offset = encodeIntTo(buffer, offset, approximateKeyCount); // variable
 
         if (longResponse) {
             if (partiallySent) {
@@ -5596,6 +5593,17 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendNoCopy(apdu, amountInApduBuf);
             setupChainedResponse((short) 0, offset);
         }
+    }
+
+    /**
+     * Returns the approximate number of discoverable credentials that may still be created
+     *
+     * @return Estimated number of creds
+     */
+    private static byte getApproximateRemainingKeyCount() {
+        final short availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_PERSISTENT);
+        final short approx = (short)(availableMem / 128);
+        return (byte)(approx > 100 ? 100 : approx);
     }
 
     /**
