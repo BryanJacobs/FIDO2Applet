@@ -5515,8 +5515,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         buffer[offset++] = 0x06; // map key: pinProtocols
         buffer[offset++] = (byte) 0x82; // array: two items
-        buffer[offset++] = 0x01; // pin protocol version 1
         buffer[offset++] = 0x02; // pin protocol version 2
+        buffer[offset++] = 0x01; // pin protocol version 1
 
         buffer[offset++] = 0x07; // map key: maxCredentialCountInList
         buffer[offset++] = 0x0A; // ten
