@@ -1098,22 +1098,28 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             attestationPreamble = CannedCBOR.BASIC_ATTESTATION_STATEMENT_PREAMBLE;
         }
         final short sigLength = attester.sign(bufferMem, offsetForStartOfAuthData, (short)(adLen + CLIENT_DATA_HASH_LEN),
-                bufferMem, (short) (outputLen + 1 + attestationPreamble.length));
+                bufferMem, (short) (outputLen + attestationPreamble.length + 2));
 
         // EC key pair COULD be stored in flash (if device doesn't support transient EC privKeys), so might as
         // well clear it out here since we don't need it anymore. We'll get its private key back from the credential
         // ID to use later...
         ecKeyPair.getPrivate().clearKey();
 
-        if (sigLength > 255 || sigLength < 24) {
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
-        }
-
         // Attestation statement
         outputLen = Util.arrayCopyNonAtomic(attestationPreamble, (short) 0,
                 bufferMem, outputLen, (short) attestationPreamble.length);
 
-        bufferMem[outputLen++] = (byte) sigLength;
+        if (sigLength < 24) {
+            // We won't be needing that extra byte... shift the signature back one byte
+            Util.arrayCopyNonAtomic(bufferMem, (short)(outputLen + 2),
+                    bufferMem, (short)(outputLen + 1), sigLength);
+        } else if (sigLength > 255) {
+            // We'll be needing an EXTRA byte! This doesn't happen with ES256 signatures though.
+            Util.arrayCopyNonAtomic(bufferMem, (short)(outputLen + 2),
+                    bufferMem, (short)(outputLen + 3), sigLength);
+        }
+
+        outputLen = encodeIntLenTo(bufferMem, outputLen, sigLength, true);
         outputLen += sigLength;
 
         if (!selfAttestation) {
@@ -2384,14 +2390,21 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 outputBuffer, outputIdx, CLIENT_DATA_HASH_LEN);
         final short sigLength = attester.sign(outputBuffer, startOfAD, (short)(adLen + extensionDataLen + CLIENT_DATA_HASH_LEN),
                 outputBuffer, (short)(outputIdx + 3)); // 3 byte space: map key, byte array type, byte array length
-        if (sigLength > 255 || sigLength < 24) { // would not require exactly one byte to encode the length...
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
-        }
 
         // advance past the signature we just wrote, which overwrote the clientDataHash in the buffer
         outputBuffer[outputIdx++] = 0x03; // map key: signature
-        outputBuffer[outputIdx++] = 0x58; // one-byte length
-        outputBuffer[outputIdx++] = (byte) sigLength;
+
+        if (sigLength < 24) {
+            // Short signature: move in one byte
+            Util.arrayCopyNonAtomic(outputBuffer, (short)(outputIdx + 2),
+                    outputBuffer, (short)(outputIdx + 1), sigLength);
+        } else if (sigLength > 255) {
+            // Long signature: move out one byte
+            Util.arrayCopyNonAtomic(outputBuffer, (short)(outputIdx + 2),
+                    outputBuffer, (short)(outputIdx + 3), sigLength);
+        }
+
+        outputIdx = encodeIntLenTo(outputBuffer, outputIdx, sigLength, true);
         outputIdx += sigLength;
 
         if (rkMatch > -1 && allowListLength == 0) {
@@ -6897,7 +6910,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         try {
             attestationSwitchingEnabled = false; // We're loading a cert here and now.
 
-            Util.arrayCopyNonAtomic(params, offset, aaguid, (short) 0, (short) aaguid.length);
+            Util.arrayCopy(params, offset, aaguid, (short) 0, (short) aaguid.length);
             offset += (short) aaguid.length;
 
             attestationKey = getECPrivKey(false);
@@ -6925,7 +6938,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
             attestationData = new byte[expectedLength];
             filledAttestationData = amountToRead;
-            Util.arrayCopyNonAtomic(params, offset,
+            Util.arrayCopy(params, offset,
                     attestationData, (short) 0, amountToRead);
 
             if (filledAttestationData == attestationData.length) {
@@ -6972,7 +6985,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         boolean ok = false;
         boolean done;
         try {
-            Util.arrayCopyNonAtomic(buffer, offset,
+            Util.arrayCopy(buffer, offset,
                     attestationData, filledAttestationData, lc);
             filledAttestationData += lc;
             done = filledAttestationData == attestationData.length;

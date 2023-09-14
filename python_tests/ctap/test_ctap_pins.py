@@ -45,8 +45,8 @@ class CTAPPINTestCase(CTAPTestCase):
 
         self.assertFalse(info_before_switch.options['clientPin'])
         self.assertTrue(info_after_switch.options['clientPin'])
-        self.assertEqual([1, 2], info_before_switch.pin_uv_protocols)
-        self.assertEqual([1, 2], info_after_switch.pin_uv_protocols)
+        self.assertEqual([2, 1], info_before_switch.pin_uv_protocols)
+        self.assertEqual([2, 1], info_after_switch.pin_uv_protocols)
 
     def test_pin_cleared_by_reset(self):
         first_pin = secrets.token_hex(16)

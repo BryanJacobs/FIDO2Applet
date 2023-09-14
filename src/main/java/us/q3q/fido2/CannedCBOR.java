@@ -153,7 +153,6 @@ public abstract class CannedCBOR {
                         0x26, // integer (-7) - means ES256 algorithm
                     0x63, // string: three characters
                         0x73, 0x69, 0x67, // sig
-                        0x58, // byte string with one-byte length
     };
 
     static final byte[] BASIC_ATTESTATION_STATEMENT_PREAMBLE = {
@@ -164,7 +163,6 @@ public abstract class CannedCBOR {
                     0x26, // integer (-7) - means ES256 algorithm
                 0x63, // string: three characters
                     0x73, 0x69, 0x67, // sig
-                    0x58, // byte string with one-byte length
     };
 
     static final byte[] X5C = {
