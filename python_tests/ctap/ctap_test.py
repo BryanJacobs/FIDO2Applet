@@ -32,8 +32,6 @@ from fido2.webauthn import ResidentKeyRequirement, PublicKeyCredentialCreationOp
 
 import fido2.features
 
-from ctap.ctap_hid_device import CTAPHIDDevice
-
 fido2.features.webauthn_json_mapping.enabled = False
 
 
@@ -160,6 +158,8 @@ class JCardSimTestCase(TestCase, abc.ABC):
 
     @classmethod
     async def run_hid_proxy(cls, device: CtapDevice):
+        from fido2.ctap import CTAPHIDDevice
+
         device = CTAPHIDDevice(device)
         await device.start()
 
