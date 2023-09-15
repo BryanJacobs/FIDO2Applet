@@ -193,6 +193,17 @@ class CTAPBasicsTestCase(CTAPTestCase):
         self.basic_makecred_params['user']['display_name'] = "猫" * 144
         self.ctap2.make_credential(**self.basic_makecred_params)
 
+    def test_makecred_rk_max_len_user_id(self):
+        self.basic_makecred_params['user']['id'] = secrets.token_bytes(64)
+        self.basic_makecred_params['options'] = {
+            'rk': True
+        }
+        self.ctap2.make_credential(**self.basic_makecred_params)
+
+        assert_res = self.get_assertion(rp_id=self.rp_id)
+        self.assertEqual(self.basic_makecred_params['user']['id'],
+                         assert_res.user['id'])
+
     def test_makecred_rk_disallowed_by_exclude_list(self):
         non_resident_cred = self.ctap2.make_credential(**self.basic_makecred_params)
         self.basic_makecred_params['options'] = {
