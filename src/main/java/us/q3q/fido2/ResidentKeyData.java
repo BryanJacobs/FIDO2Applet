@@ -148,7 +148,7 @@ public class ResidentKeyData {
      */
     private short encryptableLength(short rawLength) {
         short num16s = (short)(rawLength >> 4);
-        if ((rawLength & 0x07) != 0) {
+        if ((rawLength & 0x0F) != 0) {
             num16s += 1;
         }
         return (short)(num16s * 16);
@@ -169,10 +169,11 @@ public class ResidentKeyData {
         if (userId == null) {
             userId = new byte[encryptableLength(userIdLength)];
         }
+        Util.arrayCopy(userIdBuffer, userIdOffset,
+                userId, (short) 0, (short) userId.length);
         wrapper.init(key, Cipher.MODE_ENCRYPT, userIV, (short) 0, (short) userIV.length);
-        wrapper.doFinal(userIdBuffer, userIdOffset, (short) userId.length,
+        wrapper.doFinal(userId, (short) 0, (short) userId.length,
                 userId, (short) 0);
-        userIdBuffer[(short)(userIdLength + 1)] = 0x00;
         this.userIdLength = userIdLength;
     }
 
