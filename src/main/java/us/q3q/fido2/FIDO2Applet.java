@@ -492,10 +492,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private short getMapEntryCount(APDU apdu, byte cborMapDeclaration) {
         short sb = ub(cborMapDeclaration);
-        if (sb < 0xA0 || sb > 0xB7) {
+        if (sb < 0x00A0 || sb > 0x00B7) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
         }
-        return (short)(sb - 0xA0);
+        return (short)(sb - 0x00A0);
     }
 
     /**
@@ -6490,6 +6490,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
             highSecurityWrappingKey.clearKey();
             pinWrapKey.clearKey();
+            forcePinChange = false;
 
             forceInitKeyAgreementKey();
 
