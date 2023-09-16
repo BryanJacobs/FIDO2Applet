@@ -1,7 +1,7 @@
 import secrets
 
 from fido2.ctap2.extensions import CredProtectExtension
-from fido2.webauthn import ResidentKeyRequirement
+from fido2.webauthn import ResidentKeyRequirement, PublicKeyCredentialUserEntity, PublicKeyCredentialDescriptor
 from parameterized import parameterized
 
 from ctap.ctap_test import CredManagementBaseTestCase, FixedPinUserInteraction
@@ -58,7 +58,6 @@ class CredManagementTestCase(CredManagementBaseTestCase):
     def test_enumerating_mixed_security_creds(self):
         pin_client = self.get_high_level_client(extensions=[CredProtectExtension],
                                                 user_interaction=FixedPinUserInteraction(self.pin))
-        no_pin_client = self.get_high_level_client(extensions=[CredProtectExtension])
         resident_key = ResidentKeyRequirement.REQUIRED
         hs_cred = pin_client.make_credential(options=self.get_high_level_make_cred_options(
             resident_key,
@@ -82,8 +81,6 @@ class CredManagementTestCase(CredManagementBaseTestCase):
         self.basic_makecred_params['user']['id'] = secrets.token_bytes(20)
         ls_cred = self.ctap2.make_credential(**self.basic_makecred_params)
 
-        info = self.ctap2.get_info()
-
         rps = self.get_credential_management().enumerate_rps()
         self.assertEqual(2, len(rps))
 
@@ -103,3 +100,23 @@ class CredManagementTestCase(CredManagementBaseTestCase):
         self.assertEqual(3, other_creds[0][10])
         self.assertEqual(other_hs_cred.attestation_object.auth_data.credential_data.credential_id,
                          other_creds[0][7]['id'])
+
+    def test_updating_user(self):
+        pin_client = self.get_high_level_client(user_interaction=FixedPinUserInteraction(self.pin))
+        cred = pin_client.make_credential(options=self.get_high_level_make_cred_options(
+            ResidentKeyRequirement.REQUIRED
+        ))
+        cm = self.get_credential_management()
+        new_id = secrets.token_bytes(64)
+
+        cm.update_user_info(cred_id=PublicKeyCredentialDescriptor(
+            type='public-key',
+            id=cred.attestation_object.auth_data.credential_data.credential_id
+        ), user_info=PublicKeyCredentialUserEntity(
+            id=new_id,
+            name="Frooby Bobble",
+            display_name='Some very long stuff that makes this inconvenient to work with'
+        ))
+
+        after_cred = cm.enumerate_creds(rp_id_hash=self.rp_id_hash(self.rp_id))[0]
+        self.assertEqual(new_id, after_cred[6]['id'])

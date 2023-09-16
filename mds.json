@@ -33,7 +33,7 @@
   "tcDisplay": [],
   "attestationRootCertificates": [],
   "authenticatorGetInfo": {
-      "versions": [ "FIDO_2_0", "FIDO_2_1", "FIDO_2_1_PRE" ],
+      "versions": [ "FIDO_2_0", "FIDO_2_1", "FIDO_2_1_PRE", "U2F_V2" ],
       "extensions": [ "uvm", "credBlob", "credProtect", "hmac-secret", "largeBlobKey" ],
       "aaguid": "00000000000000000000000000000000",
       "options": {
@@ -50,13 +50,14 @@
       "algorithms": [{"alg": -7, "type": "public-key"}],
       "maxMsgSize": 1024,
       "maxCredBlobLength": 32,
-      "pinUvAuthProtocols": [1, 2],
+      "pinUvAuthProtocols": [2, 1],
       "maxCredentialCountInList": 10,
       "maxCredentialIdLength": 64,
       "maxSerializedLargeBlobArray": 1024,
       "firmwareVersion": 1,
-      "remainingDiscoverableCredentials": 50,
+      "remainingDiscoverableCredentials": 100,
       "minPINLength": 4,
       "maxRPIDsForSetMinPINLength": 2,
+      "uvModality": 512
   }
 }

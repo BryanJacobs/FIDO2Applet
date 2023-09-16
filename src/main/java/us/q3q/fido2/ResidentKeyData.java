@@ -166,7 +166,8 @@ public class ResidentKeyData {
     }
 
     public void setUser(AESKey key, Cipher wrapper, byte[] userIdBuffer, short userIdOffset, short userIdLength) {
-        if (userId == null) {
+        short newUserIdBufferLength = encryptableLength(userIdLength);
+        if (userId == null || newUserIdBufferLength > userId.length) {
             userId = new byte[encryptableLength(userIdLength)];
         }
         Util.arrayCopy(userIdBuffer, userIdOffset,

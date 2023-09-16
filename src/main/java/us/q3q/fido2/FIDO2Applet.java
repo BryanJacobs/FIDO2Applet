@@ -626,7 +626,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             switch (buffer[readIdx++]) {
                 case 0x05: // excludeList
                     excludeListTypeVal = ub(buffer[readIdx]);
-                    if (excludeListTypeVal < 0x80 || excludeListTypeVal > 0x97) {
+                    if (!(excludeListTypeVal >= 0x0080 && excludeListTypeVal <= 0x0097)) {
                         sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                     }
 
@@ -636,7 +636,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 case 0x06: // extensions
                     numExtensions = getMapEntryCount(apdu, buffer[readIdx++]);
                     for (j = 0; j < numExtensions; j++) {
-                        if (buffer[readIdx] < 0x61 || buffer[readIdx] > 0x77) {
+                        if (!(buffer[readIdx] >= 0x0061 && buffer[readIdx] <= 0x0077)) {
                             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                         }
                         sLen = (short) (buffer[readIdx] - 0x60);
@@ -3117,93 +3117,96 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @return New index into incoming request buffer after consuming one CBOR object of any type
      */
     private short consumeAnyEntity(APDU apdu, byte[] buffer, short readIdx, short lc) {
-        if (readIdx >= lc) {
+        if (readIdx >= lc || readIdx < 0) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
         }
 
         byte b = buffer[readIdx];
         short s = ub(b);
 
-        if ((b >= 0 && b <= 0x17) || (b >= 0x20 && b <= 0x37) || b == (byte)0xF4 || b == (byte)0xF5 || b == (byte)0xF6) {
+        if ((s >= 0x0000 && s <= 0x0017) || (s >= 0x0020 && s <= 0x0037) || s == 0x00F4 || s == 0x00F5 || s == 0x00F6) {
             return (short)(readIdx + 1);
         }
-        if (b == 0x18 || b == 0x38) {
+        if (s == 0x0018 || s == 0x0038) {
             return (short) (readIdx + 2);
         }
-        if (b == 0x19 || b == 0x39) {
+        if (s == 0x0019 || s == 0x0039) {
             return (short) (readIdx + 3);
         }
-        if (b == 0x58 || b == 0x78) {
-            return (short) (readIdx + 2 + buffer[(short)(readIdx+1)]);
+        if (s == 0x0058 || s == 0x0078) {
+            return (short) (readIdx + 2 + ub(buffer[(short)(readIdx+1)]));
         }
-        if (b == 0x59 || b == 0x79) {
+        if (s == 0x0059 || s == 0x0079) {
             short len = Util.getShort(buffer, (short)(readIdx + 1));
-            return (short) (readIdx + 2 + len);
+            if (len < 0) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
+            }
+            return (short) (readIdx + 3 + len);
         }
-        if (b >= 0x40 && b <= 0x57) {
-            return (short)(readIdx + 1 + b - 0x40);
+        if (s >= 0x0040 && s <= 0x0057) {
+            return (short)(readIdx + 1 + s - 0x0040);
         }
-        if (b >= 0x60 && b <= 0x77) {
-            return (short)(readIdx + 1 + b - 0x60);
+        if (s >= 0x0060 && s <= 0x0077) {
+            return (short)(readIdx + 1 + s - 0x0060);
         }
-        if (b == (byte)0x98) {
+        if (s == 0x0098) {
             short l = ub(buffer[++readIdx]);
             readIdx++;
             for (short i = 0; i < l; i++) {
-                if (readIdx >= lc) {
+                if (readIdx >= lc || readIdx < 0) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
                 }
                 readIdx = consumeAnyEntity(apdu, buffer, readIdx, lc);
             }
             return readIdx;
         }
-        if (b == (byte)0x99) {
+        if (s == 0x0099) {
             short l = Util.getShort(buffer, (short)(readIdx + 1));
-            if (l == Short.MAX_VALUE) {
+            if (l == Short.MAX_VALUE || l < 0) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
             }
-            readIdx += 2;
+            readIdx += 3;
             for (short i = 0; i < l; i++) {
-                if (readIdx >= lc) {
+                if (readIdx >= lc || readIdx < 0) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
                 }
                 readIdx = consumeAnyEntity(apdu, buffer, readIdx, lc);
             }
             return readIdx;
         }
-        if (s >= 0x80 && s <= 0x97) {
+        if (s >= 0x0080 && s <= 0x0097) {
             readIdx++;
-            for (short i = 0; i < (short)(s - 0x80); i++) {
-                if (readIdx >= lc) {
+            for (short i = 0; i < (short)(s - 0x0080); i++) {
+                if (readIdx >= lc || readIdx < 0) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
                 }
                 readIdx = consumeAnyEntity(apdu, buffer, readIdx, lc);
             }
             return readIdx;
         }
-        if (s >= 0xA0 && s <= 0xB7) {
+        if (s >= 0x00A0 && s <= 0x00B7) {
             readIdx++;
-            for (short i = 0; i < (short)(s - 0xA0); i++) {
-                if (readIdx >= lc) {
+            for (short i = 0; i < (short)(s - 0x00A0); i++) {
+                if (readIdx >= lc || readIdx < 0) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
                 }
                 readIdx = consumeAnyEntity(apdu, buffer, readIdx, lc);
-                if (readIdx >= lc) {
+                if (readIdx >= lc || readIdx < 0) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
                 }
                 readIdx = consumeAnyEntity(apdu, buffer, readIdx, lc);
             }
             return readIdx;
         }
-        if (s == 0xB8) {
+        if (s == 0x00B8) {
             short l = ub(buffer[++readIdx]);
             readIdx++;
             for (short i = 0; i < l; i++) {
-                if (readIdx >= lc) {
+                if (readIdx >= lc || readIdx < 0) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
                 }
                 readIdx = consumeAnyEntity(apdu, buffer, readIdx, lc);
-                if (readIdx >= lc) {
+                if (readIdx >= lc || readIdx < 0) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
                 }
                 readIdx = consumeAnyEntity(apdu, buffer, readIdx, lc);
@@ -3260,13 +3263,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
             }
 
-            if (keyDef == 0x78) {
+            if (keyDef == 0x0078) {
                 keyLen = ub(buffer[readIdx++]);
                 if (readIdx >= lc) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
                 }
-            } else if (keyDef >= 0x60 && keyDef < 0x78) {
-                keyLen = (short)(keyDef - 0x60);
+            } else if (keyDef >= 0x0060 && keyDef < 0x0078) {
+                keyLen = (short)(keyDef - 0x0060);
             } else {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
             }
@@ -3286,26 +3289,26 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
             }
 
-            short valDef = buffer[readIdx++];
+            short valDef = ub(buffer[readIdx++]);
             if (readIdx >= lc) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
             }
             short idPos = readIdx;
 
             short valLen = 0;
-            if (valDef == 0x78 || valDef == 0x58) {
+            if (valDef == 0x0078 || valDef == 0x0058) {
                 if (isId) {
-                    if (valDef == 0x78 && byteString) {
+                    if (valDef == 0x0078 && byteString) {
                         sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
-                    } else if (valDef == 0x58 && !byteString) {
+                    } else if (valDef == 0x0058 && !byteString) {
                         sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                     }
                 }
-                if (isType && valDef == 0x58) {
+                if (isType && valDef == 0x0058) {
                     // heh, literally "unexpected type" here
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                 }
-                if (checkAllFieldsText && !isId && valDef == 0x58) {
+                if (checkAllFieldsText && !isId && valDef == 0x0058) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                 }
                 valLen = ub(buffer[readIdx++]);
@@ -3315,19 +3318,22 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 if (readIdx >= lc) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
                 }
-            } else if (valDef == 0x79) {
+            } else if (valDef == 0x0079) {
                 if (isId) {
                     // Whoa nelly.
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                 }
                 valLen = Util.getShort(buffer, readIdx);
+                if (valLen < 0) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                }
                 readIdx += 2;
-            } else if (valDef >= 0x60 && valDef < 0x78) {
+            } else if (valDef >= 0x0060 && valDef < 0x0078) {
                 if (isId && byteString) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                 }
-                valLen = (short)(valDef - 0x60);
-            } else if (valDef >= 0x40 && valDef < 0x58) {
+                valLen = (short)(valDef - 0x0060);
+            } else if (valDef >= 0x0040 && valDef < 0x0058) {
                 if (isId && !byteString) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                 }
@@ -3339,8 +3345,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 if (checkAllFieldsText && !isId) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                 }
-                valLen = (short) (valDef - 0x40);
+                valLen = (short) (valDef - 0x0040);
             } else {
+                /*valLen = (short)(consumeAnyEntity(apdu, buffer, (short)(readIdx - 1), lc)
+                    - readIdx);*/
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
             }
 
@@ -4679,9 +4687,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
 
             // Check PIN token
-            if (subCommandParamsLen > 189) {
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
-            }
             if ((transientStorage.getPinPermissions() & FIDOConstants.PERM_CRED_MANAGEMENT) == 0x00) {
                 // PIN token doesn't have appropriate permissions for credential management operations
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
@@ -4773,16 +4778,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         boolean foundHit = false;
-        short uidHandle = bufferManager.allocate(apdu, MAX_USER_ID_LENGTH, BufferManager.ANYWHERE);
-        short uidOffset = bufferManager.getOffsetForHandle(uidHandle);
-        byte[] uidBuffer = bufferManager.getBufferForHandle(apdu, uidHandle);
         for (short i = 0; i < (short) residentKeys.length; i++) {
             if (residentKeys[i] == null) {
                 break;
-            }
-            if (residentKeys[i].getUserIdLength() != userIdLen) {
-                // Can't possibly match
-                continue;
             }
 
             // Don't need to decrypt creds, just byte-compare them
@@ -4806,23 +4804,28 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     bufferManager.release(apdu, scratchExtractedCredHandle, CREDENTIAL_ID_LEN);
                 }
 
-                // Now that we have permission, check the user ID
-                residentKeys[i].unpackUserID(getAESKeyForExistingRK(i), symmetricUnwrapper,
-                        uidBuffer, uidOffset);
-                if (Util.arrayCompare(uidBuffer, uidOffset,
-                        buffer, userIdIdx, userIdLen) == 0) {
-                    // Matches both credential and user ID - it's a hit.
-                    // No actual updating work to do here because we don't store anything other than the ID
-
-                    foundHit = true;
-                    break;
-                } else {
-                    // matches credential ID, but doesn't match user ID
-                    sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
+                // If we're here, it's time to update the user info for the stored cred
+                foundHit = true;
+                JCSystem.beginTransaction();
+                boolean ok = false;
+                try {
+                    residentKeys[i].setUser(getAESKeyForExistingRK(i), symmetricWrapper, buffer, userIdIdx, userIdLen);
+                    ok = true;
+                } finally {
+                    if (ok) {
+                        JCSystem.commitTransaction();
+                    } else {
+                        JCSystem.abortTransaction();
+                    }
                 }
+                try {
+                    JCSystem.requestObjectDeletion();
+                } catch (Exception e) {
+                    // No real problem, I guess
+                }
+                break;
             }
         }
-        bufferManager.release(apdu, uidHandle, MAX_USER_ID_LENGTH);
 
         if (!foundHit) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NO_CREDENTIALS);
