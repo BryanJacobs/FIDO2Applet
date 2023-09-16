@@ -348,11 +348,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * Storage for the largeBlobs extension
      */
-    private byte[] largeBlobStore;
+    private final byte[][] largeBlobStores;
     /**
-     * Double buffer for the large blob store
+     * Which large blob store is in use
      */
-    private byte[] pendingLargeBlobStore;
+    private byte largeBlobStoreIndex = 0;
     /**
      * Length of the currently stored large-blob array
      */
@@ -3773,7 +3773,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
         }
 
-        if (offset < 0 || offset > (short) largeBlobStore.length) {
+        if (offset < 0 || offset > (short) largeBlobStores[largeBlobStoreIndex].length) {
             // Offset is mandatory and must be reasonable
             sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
         }
@@ -3804,7 +3804,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 if (setTotalLength < 17) {
                     sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
                 }
-                if (setTotalLength > (short) largeBlobStore.length) {
+                if (setTotalLength > (short) largeBlobStores[largeBlobStoreIndex].length) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_LARGE_BLOB_STORAGE_FULL);
                 }
             } else {
@@ -3875,8 +3875,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private void handleLargeBlobSet(APDU apdu, byte[] buffer, short incomingDataOffset,
                                     short blobWriteOffset, short incomingDataLength, short totalLength) {
+        final byte tempBlobStoreIndex = (byte)(largeBlobStoreIndex == 0 ? 1 : 0);
         Util.arrayCopyNonAtomic(buffer, incomingDataOffset,
-                pendingLargeBlobStore, blobWriteOffset, incomingDataLength);
+                largeBlobStores[tempBlobStoreIndex], blobWriteOffset, incomingDataLength);
         // Done with incoming request now
         bufferManager.informAPDUBufferAvailability(apdu, (short) 0xFF);
 
@@ -3889,11 +3890,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             byte[] scratch = bufferManager.getBufferForHandle(apdu, scratchHandle);
             short scratchOffset = bufferManager.getOffsetForHandle(scratchHandle);
 
-            sha256.doFinal(pendingLargeBlobStore, (short) 0, (short)(totalLength - 16),
+            sha256.doFinal(largeBlobStores[tempBlobStoreIndex], (short) 0, (short)(totalLength - 16),
                     scratch, scratchOffset);
 
             if (Util.arrayCompare(scratch, scratchOffset,
-                    pendingLargeBlobStore, (short)(totalLength - 16), (short) 16) != 0) {
+                    largeBlobStores[tempBlobStoreIndex], (short)(totalLength - 16), (short) 16) != 0) {
                 // hash mismatch
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INTEGRITY_FAILURE);
             }
@@ -3904,9 +3905,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             JCSystem.beginTransaction();
             boolean ok = false;
             try {
-                byte[] temp = pendingLargeBlobStore;
-                pendingLargeBlobStore = largeBlobStore;
-                largeBlobStore = temp;
+                largeBlobStoreIndex = tempBlobStoreIndex;
                 largeBlobStoreFill = totalLength;
             } finally {
                 if (ok) {
@@ -3953,7 +3952,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         outBuffer[writeIdx++] = (byte) 0xA1; // map - one key
         outBuffer[writeIdx++] = (byte) 0x01; // map key: config
         writeIdx = encodeIntLenTo(outBuffer, writeIdx, bytesToRetrieve, true);
-        writeIdx = Util.arrayCopyNonAtomic(largeBlobStore, offset,
+        writeIdx = Util.arrayCopyNonAtomic(largeBlobStores[largeBlobStoreIndex], offset,
                 outBuffer, writeIdx, bytesToRetrieve);
 
         if (outBuffer == bufferMem) {
@@ -5370,10 +5369,35 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
         }
 
-        short pinIdx = pinRetryCounter.prepareIndex();
+        final short pinIdx = pinRetryCounter.prepareIndex();
+        final byte tempBlobStoreIndex = (byte)(largeBlobStoreIndex == 0 ? 1 : 0);
+        final byte realBlobStoreIndex = largeBlobStoreIndex;
 
+        // Empty the large blob store OUTside the main transaction, since it's non-precious and double buffered
+        Util.arrayFillNonAtomic(largeBlobStores[tempBlobStoreIndex], (short) 0,
+                (short) largeBlobStores[tempBlobStoreIndex].length, (byte) 0x00);
+        Util.arrayCopyNonAtomic(CannedCBOR.INITIAL_LARGE_BLOB_ARRAY, (short) 0,
+                largeBlobStores[tempBlobStoreIndex], (short) 0, (short) CannedCBOR.INITIAL_LARGE_BLOB_ARRAY.length);
         JCSystem.beginTransaction();
         boolean ok = false;
+        try {
+            largeBlobStoreIndex = tempBlobStoreIndex;
+            largeBlobStoreFill = (short) CannedCBOR.INITIAL_LARGE_BLOB_ARRAY.length;
+            ok = true;
+        } finally {
+            if (ok) {
+                JCSystem.commitTransaction();
+            } else {
+                JCSystem.abortTransaction();
+            }
+        }
+        Util.arrayFillNonAtomic(largeBlobStores[realBlobStoreIndex], (short) 0,
+                (short) largeBlobStores[realBlobStoreIndex].length, (byte) 0x00);
+        Util.arrayCopyNonAtomic(CannedCBOR.INITIAL_LARGE_BLOB_ARRAY, (short) 0,
+                largeBlobStores[realBlobStoreIndex], (short) 0, (short) CannedCBOR.INITIAL_LARGE_BLOB_ARRAY.length);
+
+        JCSystem.beginTransaction();
+        ok = false;
         try {
             random.generateData(hmacWrapperBytesUV, (short) 0, (short) hmacWrapperBytesUV.length);
             random.generateData(hmacWrapperBytesNoUV, (short) 0, (short) hmacWrapperBytesNoUV.length);
@@ -5388,10 +5412,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             alwaysUv = FORCE_ALWAYS_UV;
             enterpriseAttestation = false;
             pinRetryCounter.reset(pinIdx);
-            Util.arrayFillNonAtomic(largeBlobStore, (short) 0, (short) largeBlobStore.length, (byte) 0x00);
-            Util.arrayCopyNonAtomic(CannedCBOR.INITIAL_LARGE_BLOB_ARRAY, (short) 0,
-                    largeBlobStore, (short) 0, (short) CannedCBOR.INITIAL_LARGE_BLOB_ARRAY.length);
-            largeBlobStoreFill = (short) CannedCBOR.INITIAL_LARGE_BLOB_ARRAY.length;
             Util.arrayFillNonAtomic(minPinRPIDs, (short) 0, (short) (MAX_RP_IDS_MIN_PIN_LENGTH * RP_HASH_LEN), (byte) 0x00);
 
             random.generateData(pinKDFSalt, (short) 0, (short) pinKDFSalt.length);
@@ -5574,7 +5594,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         buffer[offset++] = 0x0B; // map key: maxSerializedLargeBlobArray: 1 byte = 5
         buffer[offset++] = 0x19; // two-byte integer: 1 byte = 6
-        offset = Util.setShort(buffer, offset, (short) largeBlobStore.length); // 2 bytes = 8
+        offset = Util.setShort(buffer, offset, (short) largeBlobStores[largeBlobStoreIndex].length); // 2 bytes = 8
 
         buffer[offset++] = 0x0C; // map key: forcePinChange: 1 byte = 9
         buffer[offset++] = (byte)(forcePinChange ? 0xF5 : 0xF4); // 1 byte = 10
@@ -6798,10 +6818,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         highSecurityWrappingIV = new byte[IV_LEN];
         lowSecurityWrappingIV = new byte[IV_LEN];
         externalCredentialIV = new byte[IV_LEN];
-        largeBlobStore = new byte[largeBlobStoreSize];
-        pendingLargeBlobStore = new byte[largeBlobStoreSize];
+        largeBlobStores = new byte[2][largeBlobStoreSize];
         Util.arrayCopyNonAtomic(CannedCBOR.INITIAL_LARGE_BLOB_ARRAY, (short) 0,
-                largeBlobStore, (short) 0, (short) CannedCBOR.INITIAL_LARGE_BLOB_ARRAY.length);
+                largeBlobStores[0], (short) 0, (short) CannedCBOR.INITIAL_LARGE_BLOB_ARRAY.length);
+        Util.arrayCopyNonAtomic(CannedCBOR.INITIAL_LARGE_BLOB_ARRAY, (short) 0,
+                largeBlobStores[1], (short) 0, (short) CannedCBOR.INITIAL_LARGE_BLOB_ARRAY.length);
         largeBlobStoreFill = (short) CannedCBOR.INITIAL_LARGE_BLOB_ARRAY.length;
         highSecurityWrappingKey = getTransientAESKey(); // Our most important treasure, from which all other crypto is born...
         lowSecurityWrappingKey = getPersistentAESKey(); // Not really a treasure

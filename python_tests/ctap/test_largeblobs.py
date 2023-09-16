@@ -160,6 +160,7 @@ class LargeBlobsTestCase(BasicAttestationTestCase):
     @parameterized.expand([
         ("empty", 0),
         ("short", 10),
+        ("short2", 78),
         ("onepacket", 200),
         ("onepacket2", 240),
         ("medium", 100),
@@ -176,8 +177,33 @@ class LargeBlobsTestCase(BasicAttestationTestCase):
         res = LargeBlobs(self.ctap2).read_blob_array()
         self.assertEqual(blob_array, res)
 
+    def test_set_fragmented_low_level(self):
+        blob_array = secrets.token_bytes(170)
+        h = hashes.Hash(hashes.SHA256())
+        h.update(blob_array)
+        blob_array += h.finalize()[:16]
+
+        self.ctap2.large_blobs(offset=0, set=blob_array[:10], length=len(blob_array))
+        self.ctap2.large_blobs(offset=10, set=blob_array[10:20])
+        self.ctap2.large_blobs(offset=20, set=blob_array[20:])
+        res = self.ctap2.large_blobs(offset=0, get=200)
+
+        self.assertEqual(blob_array, res[1])
+
+    def test_set_fragmented_incomplete_low_level(self):
+        blob_array = secrets.token_bytes(170)
+        h = hashes.Hash(hashes.SHA256())
+        h.update(blob_array)
+        blob_array += h.finalize()[:16]
+
+        self.ctap2.large_blobs(offset=0, set=blob_array[:10], length=len(blob_array))
+        self.ctap2.large_blobs(offset=10, set=blob_array[10:20])
+        res = self.ctap2.large_blobs(offset=0, get=200)
+
+        self.assertEqual(17, len(res[1]))
+
     def test_get_beyond_end(self):
-        blob_array = secrets.token_bytes(54)
+        blob_array = secrets.token_bytes(62)
         h = hashes.Hash(hashes.SHA256())
         h.update(blob_array)
         blob_array += h.finalize()[:16]
@@ -187,6 +213,18 @@ class LargeBlobsTestCase(BasicAttestationTestCase):
         res = self.ctap2.large_blobs(offset=0, get=200)
 
         self.assertEqual(blob_array, res[1])
+
+    def test_rejects_with_invalid_hash(self):
+        blob_array = secrets.token_bytes(62)
+        h = hashes.Hash(hashes.SHA256())
+        h.update(blob_array)
+        blob_array += h.finalize()[:16]
+        blob_array = blob_array[:-1] + bytes([blob_array[-1] + 1])
+
+        with self.assertRaises(CtapError) as e:
+            self.ctap2.large_blobs(offset=0, set=blob_array, length=len(blob_array))
+
+        self.assertEqual(CtapError.ERR.INTEGRITY_FAILURE, e.exception.code)
 
     def test_set_and_get_large_blobs_high_level(self):
         cred = self.make_large_blob_key()
