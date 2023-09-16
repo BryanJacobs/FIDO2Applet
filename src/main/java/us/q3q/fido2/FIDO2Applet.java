@@ -241,15 +241,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * random IV for authenticator private wrapping with highSecurityWrappingKey
      */
-    private static byte[] highSecurityWrappingIV;
+    private final byte[] highSecurityWrappingIV;
     /**
      * random IV for authenticator private wrapping with lowSecurityWrappingKey
      */
-    private static byte[] lowSecurityWrappingIV;
+    private final byte[] lowSecurityWrappingIV;
     /**
      * random IV for authenticator private wrapping of NON discoverable credentials
      */
-    private static byte[] externalCredentialIV;
+    private final byte[] externalCredentialIV;
     /**
      * first half random data, second half the HMAC of that using the wrapping key:
      * used for checking if a potential wrapping key is the correct one
@@ -357,7 +357,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * Length of the currently stored large-blob array
      */
-    private static short largeBlobStoreFill;
+    private short largeBlobStoreFill;
 
     /**
      * Unique identifier ID - set on loading an attestation,
@@ -3925,6 +3925,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             try {
                 largeBlobStoreIndex = newBlobStoreIndex;
                 largeBlobStoreFill = totalLength;
+                ok = true;
             } finally {
                 if (ok) {
                     JCSystem.commitTransaction();
@@ -5389,7 +5390,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         final short pinIdx = pinRetryCounter.prepareIndex();
         final byte tempBlobStoreIndex = (byte)(largeBlobStoreIndex == 0 ? 1 : 0);
-        final byte realBlobStoreIndex = largeBlobStoreIndex;
 
         // Empty the large blob store OUTside the main transaction, since it's non-precious and double buffered
         final byte[] inactiveLargeBlobStore = getInactiveLargeBlobStore();
@@ -5411,6 +5411,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 JCSystem.abortTransaction();
             }
         }
+        // active is now inactive
         Util.arrayFillNonAtomic(activeLargeBlobStore, (short) 0,
                 (short) activeLargeBlobStore.length, (byte) 0x00);
         Util.arrayCopyNonAtomic(CannedCBOR.INITIAL_LARGE_BLOB_ARRAY, (short) 0,

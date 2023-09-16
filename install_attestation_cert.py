@@ -11,6 +11,8 @@ from fido2.pcsc import CtapPcscDevice
 import secrets
 
 from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives._serialization import Encoding, PrivateFormat, NoEncryption
+from cryptography.hazmat.primitives.serialization import load_der_private_key
 
 from python_tests.ctap.ctap_test import BasicAttestationTestCase
 
@@ -27,7 +29,7 @@ if __name__ == '__main__':
                         help='CA certificate, expressed as base64-encoded DER')
     parser.add_argument('--ca-private-key',
                         default=None,
-                        help='CA private key, expressed as a hex string')
+                        help='CA private key, expressed as base64-encoded unencrypted PKCS8 DER')
     parser.add_argument('--org',
                         default='ACME',
                         help='Organization name to use for certificates')
@@ -51,17 +53,25 @@ if __name__ == '__main__':
     tc = BasicAttestationTestCase()
     if args.ca_private_key is None:
         ca_privkey_and_cert = tc.get_ca_cert(org=args.org)
+        privkey_bytes = ca_privkey_and_cert[0].private_bytes(
+            encoding=Encoding.DER,
+            format=PrivateFormat.PKCS8,
+            encryption_algorithm=NoEncryption()
+        )
+        print(f"Generated CA private key: {base64.b64encode(privkey_bytes)}")
+        print(f"Generated CA cert: {base64.b64encode(ca_privkey_and_cert[1])}")
     else:
-        ca_privkey_and_cert = bytes.fromhex(args.ca_private_key), base64.b64decode(args.ca_cert_bytes)
-    private_key = ec.generate_private_key(ec.SECP256R1())
+        privkey = load_der_private_key(data=base64.b64decode(args.ca_private_key), password=None)
+        ca_privkey_and_cert = privkey, base64.b64decode(args.ca_cert_bytes)
 
+    print(f"Using AAGUID: {aaguid.hex()}")
+
+    private_key = ec.generate_private_key(ec.SECP256R1())
     cert_bytes = tc.get_x509_certs(private_key, name=args.name, ca_privkey_and_cert=ca_privkey_and_cert,
                                    org=args.org, country=args.country)
-    print(f"Using AAGUID: {aaguid.hex()}")
-    print(f"Using CA certificate: {base64.b64encode(cert_bytes[-1])}")
 
     at_bytes = tc.assemble_cbor_from_attestation_certs(private_key=private_key,
-                                                       cert_bytes=cert_bytes,
+                                                       cert_bytes=cert_bytes[:-1],
                                                        aaguid=aaguid)
 
     devices = list(CtapPcscDevice.list_devices())
