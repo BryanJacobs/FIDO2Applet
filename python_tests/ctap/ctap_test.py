@@ -476,34 +476,13 @@ class BasicAttestationTestCase(CTAPTestCase):
     def _short_to_bytes(self, b: int) -> list[int]:
         return [(b & 0xFF00) >> 8, b & 0x00FF]
 
-    def get_x509_certs(self, private_key: EllipticCurvePrivateKey, name: Optional[str] = None,
-                       country: Optional[str] = "US", org: Optional[str] = "ACME") -> list[bytes]:
-        self.public_key = private_key.public_key()
-
-        if name is None:
-            name = secrets.token_hex(4)
-
+    def gen_authenticator_cert_from_ca(self, name: str,
+                                       ca_name: x509.Name,
+                                       ca_privkey: EllipticCurvePrivateKey,
+                                       country: Optional[str] = "US",
+                                       org: Optional[str] = "ACME",
+                                       ) -> bytes:
         now = datetime.now()
-
-        ca_privkey = ec.generate_private_key(ec.SECP256R1())
-        ca_pubkey = ca_privkey.public_key()
-        self.ca_public_key = ca_pubkey
-
-        ca_name = x509.Name([
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, org),
-            x509.NameAttribute(NameOID.COMMON_NAME, "AuthCA"),
-        ])
-        ca_cert_bytes = (
-            x509.CertificateBuilder()
-            .subject_name(ca_name)
-            .issuer_name(ca_name)
-            .serial_number(x509.random_serial_number())
-            .public_key(ca_pubkey)
-            .not_valid_before(now - timedelta(days=1))
-            .not_valid_after(now + timedelta(days=3650))
-            .sign(private_key=ca_privkey, algorithm=hashes.SHA256())
-            .public_bytes(Encoding.DER)
-        )
 
         this_cert_name = x509.Name([
             x509.NameAttribute(NameOID.COUNTRY_NAME, country),
@@ -530,19 +509,60 @@ class BasicAttestationTestCase(CTAPTestCase):
             .sign(private_key=ca_privkey, algorithm=hashes.SHA256())
             .public_bytes(Encoding.DER)
         )
+
+        return authenticator_cert_bytes
+
+    def get_ca_cert(self, org: str) -> tuple[bytes, bytes]:
+        now = datetime.now()
+
+        ca_privkey = ec.generate_private_key(ec.SECP256R1())
+        ca_pubkey = ca_privkey.public_key()
+        self.ca_public_key = ca_pubkey
+
+        ca_name = x509.Name([
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, org),
+            x509.NameAttribute(NameOID.COMMON_NAME, "AuthCA"),
+        ])
+        return ca_privkey, (
+            x509.CertificateBuilder()
+            .subject_name(ca_name)
+            .issuer_name(ca_name)
+            .serial_number(x509.random_serial_number())
+            .public_key(ca_pubkey)
+            .not_valid_before(now - timedelta(days=1))
+            .not_valid_after(now + timedelta(days=3650))
+            .sign(private_key=ca_privkey, algorithm=hashes.SHA256())
+            .public_bytes(Encoding.DER)
+        )
+
+    def get_x509_certs(self, private_key: EllipticCurvePrivateKey, name: Optional[str] = None,
+                       country: Optional[str] = "US", org: Optional[str] = "ACME",
+                       ca_privkey_and_cert: Optional[tuple[bytes, bytes]] = None) -> list[bytes]:
+        self.public_key = private_key.public_key()
+
+        if name is None:
+            name = secrets.token_hex(4)
+
+        if ca_privkey_and_cert is None:
+            ca_privkey_and_cert = self.get_ca_cert(org)
+
+        ca_privkey, ca_cert_bytes = ca_privkey_and_cert
+
+        loaded_cacert = x509.load_der_x509_certificate(ca_cert_bytes)
+        ca_name = loaded_cacert.subject
+
+        authenticator_cert_bytes = self.gen_authenticator_cert_from_ca(
+            name=name,
+            ca_name=ca_name,
+            ca_privkey=ca_privkey,
+            country=country,
+            org=org
+        )
+
         return [authenticator_cert_bytes, ca_cert_bytes]
 
-    def gen_attestation_cert(self, cert_bytes: Optional[list[bytes]] = None, name: Optional[str] = None,
-                             aaguid: Optional[bytes] = None) -> bytes:
-        if aaguid is None:
-            aaguid = secrets.token_bytes(16)
-
-        self.aaguid = aaguid
-        private_key = ec.generate_private_key(ec.SECP256R1())
-
-        if cert_bytes is None:
-            cert_bytes = self.get_x509_certs(private_key, name)
-
+    def assemble_cbor_from_attestation_certs(self, private_key: bytes, cert_bytes: list[bytes],
+                                             aaguid: bytes) -> bytes:
         num_certs = len(cert_bytes)
         self.cert = cert_bytes[0]
         cert_cbor_bytes = [0x80 + num_certs]
@@ -564,8 +584,23 @@ class BasicAttestationTestCase(CTAPTestCase):
         private_bytes = s.to_bytes(length=32)
         self.assertEqual(32, len(private_bytes))
         cbor_len_bytes = bytes(self._short_to_bytes(len(cert_cbor)))
-        res = self.aaguid + private_bytes + cbor_len_bytes + cert_cbor
+        res = aaguid + private_bytes + cbor_len_bytes + cert_cbor
         return res
+
+    def gen_attestation_cert(self, cert_bytes: Optional[list[bytes]] = None, name: Optional[str] = None,
+                             aaguid: Optional[bytes] = None) -> bytes:
+        if aaguid is None:
+            aaguid = secrets.token_bytes(16)
+
+        self.aaguid = aaguid
+        private_key = ec.generate_private_key(ec.SECP256R1())
+
+        if cert_bytes is None:
+            cert_bytes = self.get_x509_certs(private_key, name)
+
+        return self.assemble_cbor_from_attestation_certs(private_key=private_key,
+                                                         cert_bytes=cert_bytes,
+                                                         aaguid=aaguid)
 
 
 class FixedPinUserInteraction(UserInteraction):
