@@ -3437,6 +3437,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
         }
 
+        initKeyAgreementKeyIfNecessary();
+
         if (attestationData != null && filledAttestationData < attestationData.length &&
                 transientStorage.getChainIncomingReadOffset() > 0
                 && bufferMem[0] == FIDOConstants.CMD_INSTALL_CERTS
@@ -3541,8 +3543,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         if (amtRead == 0) {
             throwException(ISO7816.SW_DATA_INVALID);
         }
-
-        initKeyAgreementKeyIfNecessary();
 
         short lcEffective = (short)(lc + 1);
         byte cmdByte = apduBytes[apdu.getOffsetCdata()];
