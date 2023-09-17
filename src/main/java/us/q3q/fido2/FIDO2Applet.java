@@ -1440,16 +1440,18 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
         }
 
-        byte algIntType = buffer[readIdx++];
-        if (algIntType == 0x26) { // ES256...
+        short algIntType = ub(buffer[readIdx++]);
+        if (algIntType == 0x0026) { // ES256...
             transientStorage.setStoredVars((short) 1, (byte) 1);
-        } else if (algIntType == 0x38 || algIntType == 0x18) {
+        } else if (algIntType == 0x0038 || algIntType == 0x0018) {
             readIdx++;
-        } else if (algIntType == 0x39 || algIntType == 0x19) {
+        } else if (algIntType == 0x0039 || algIntType == 0x0019) {
             readIdx += 2;
-        } else if (!(algIntType >= (byte)0x20 && algIntType <= (byte)0x37)
-            && !(ub(algIntType) >= 0x00 && algIntType <= (byte) 0x17)) {
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+        } else {
+            if (!(algIntType >= 0x0020 && algIntType <= 0x0037)
+                    && !(algIntType >= 0x0000 && algIntType <= 0x0017)) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+            }
         }
 
         // Skip "type" val
@@ -6607,7 +6609,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     private void forceInitKeyAgreementKey() {
         P256Constants.setCurve((ECKey) authenticatorKeyAgreementKey.getPrivate());
         P256Constants.setCurve((ECKey) authenticatorKeyAgreementKey.getPublic());
-        if (!makeGoodKeyPair(authenticatorKeyAgreementKey, bufferMem, (short) 0)) {
+        if (!makeGoodKeyPair(authenticatorKeyAgreementKey, bufferMem, (short) (bufferMem.length - 128))) {
             throwException(ISO7816.SW_DATA_INVALID);
         }
         keyAgreement.init(authenticatorKeyAgreementKey.getPrivate());
@@ -7133,8 +7135,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
         permissionsRpId = getTempOrFlashByteBuffer((short)(RP_HASH_LEN + 1), permRpIdInRam);
 
-        initKeyAgreementKeyIfNecessary();
-
         if (availableMem >= (short)(targetMemAmount + 32)) {
             targetMemAmount += 32;
             sharedSecretAESKey = getTransientAESKey();
@@ -7153,6 +7153,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             targetMemAmount += BUFFER_MEM_SIZE;
         }
         bufferMem = getTempOrFlashByteBuffer(BUFFER_MEM_SIZE, requestBufferInRam);
+
+        initKeyAgreementKeyIfNecessary();
 
         // Five things are truly random and persist until we hard-FIDO2-reset the authenticator:
         // - The wrapping key (generated at first use of the applet)
