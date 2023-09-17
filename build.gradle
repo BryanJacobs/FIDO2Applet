@@ -5,9 +5,16 @@ buildscript {
     }
 }
 
+
 plugins {
     id("java")
-    id("com.klinec.gradle.javacard") version "1.8.0"
+    id("com.klinec.gradle.javacard") version "1.8.0" apply false
+}
+
+var jcHomeSet = System.getenv("JC_HOME") != null
+if (!jcHomeSet) {
+    project.logger.warn("JC_HOME environment variable not set - doing a testing/fake build with jCardSim!")
+    project.logger.warn("YOU WILL NOT BE ABLE TO BUILD A JAVACARD APPLET THIS WAY")
 }
 
 group = "us.q3q"
@@ -18,9 +25,14 @@ repositories {
 }
 
 dependencies {
-    testImplementation(group: 'com.klinec', name: 'jcardsim', version: '3.0.5.11') {
-        // Javacard will be provided by the user at runtime through the JC_HOME env var
-        exclude(group: 'oracle.javacard', module: 'api_classic')
+    if (jcHomeSet) {
+        testImplementation(group: 'com.klinec', name: 'jcardsim', version: '3.0.5.11') {
+            // Javacard will be provided by the user at runtime through the JC_HOME env var
+            exclude(group: 'oracle.javacard', module: 'api_classic')
+        }
+    } else {
+        // Perform a full-test build, since there's no javacard SDK
+        implementation(group: 'com.klinec', name: 'jcardsim', version: '3.0.5.11')
     }
     testImplementation group: 'org.junit.jupiter', name: 'junit-jupiter-api', version: '5.8.1'
 
@@ -44,16 +56,19 @@ tasks.register('testJar', Jar) {
     }
 }
 
-javacard {
-    config {
-        cap {
-            packageName 'us.q3q.fido2'
-            version '0.1'
-            aid 'A0:00:00:06:47'
-            output 'FIDO2.cap'
-            applet {
-                className 'us.q3q.fido2.FIDO2Applet'
-                aid 'A0:00:00:06:47:2F:00:01'
+if (jcHomeSet) {
+    apply plugin: "com.klinec.gradle.javacard"
+    javacard {
+        config {
+            cap {
+                packageName 'us.q3q.fido2'
+                version '0.1'
+                aid 'A0:00:00:06:47'
+                output 'FIDO2.cap'
+                applet {
+                    className 'us.q3q.fido2.FIDO2Applet'
+                    aid 'A0:00:00:06:47:2F:00:01'
+                }
             }
         }
     }
