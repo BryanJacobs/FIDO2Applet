@@ -126,12 +126,13 @@ If you're a really detail-oriented person, you might enjoy reading
 | Linux (libfido2)      | Working          |
 | Windows 10            | Working          |
 
-| Smartcard                  | Status           |
-|----------------------------|------------------|
-| J3H145 (NXP JCOP3)         | Working          |
-| OMNI Ring (Infineon SLE78) | Working          |
-| jCardSim                   | Working          |
-| A40CR                      | Reported Working |
+| Smartcard                                                                         | Status           |
+|-----------------------------------------------------------------------------------|------------------|
+| J3H145 (NXP JCOP3)                                                                | Working          |
+| OMNI Ring (Infineon SLE78)                                                        | Working          |
+| jCardSim                                                                          | Working          |
+| [Vivokey FlexSecure (NXP JCOP4)](https://dangerousthings.com/product/flexsecure/) | Working          |
+| A40CR                                                                             | Reported Working |
 
 | Application         | Status                         |
 |---------------------|--------------------------------|
@@ -148,6 +149,7 @@ If you're a really detail-oriented person, you might enjoy reading
 | pam_u2f             | Working                        |
 | systemd-cryptenroll | Working                        |
 | python-fido2        | Working                        |
+| FIDOk               | Working                        |
 
 There are two compatibility issues in the table above:
 1. Google Play Services on Android contains a complete webauthn implementation, but it appears to be

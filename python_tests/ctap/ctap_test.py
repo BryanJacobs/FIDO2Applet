@@ -43,9 +43,13 @@ class CommandType(enum.Enum):
 
 class LogPrintHandler:
     level = 0
+    msg = None
 
     def handle(self, r):
-        print(r.msg % r.args)
+        msg = r.msg % r.args
+        if msg != self.msg:
+            self.msg = msg
+            print(msg)
 
 
 class TestModes(enum.Enum):

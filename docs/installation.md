@@ -9,3 +9,6 @@ The help the script provides (`--help`) explains each options.
 The defaults - when no install parameters are provided - are for maximum FIDO standards compatibility, but
 won't accept an attestation certificate. So if you want CTAP1/U2F, you'll need to install the applet with
 parameters.
+
+If you want attestation to work, you'll also need to run `./install_attestation_cert.py` after installing the
+applet itself!
