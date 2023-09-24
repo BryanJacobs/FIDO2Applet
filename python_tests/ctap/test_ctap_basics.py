@@ -43,6 +43,7 @@ class CTAPBasicsTestCase(CTAPTestCase):
         # This one can go either way depending on settings
         del info.options["makeCredUvNotRqd"]
         self.assertEqual({
+            "uvAcfg": True,
             "alwaysUv": False,
             "authnrCfg": True,
             "clientPin": False,

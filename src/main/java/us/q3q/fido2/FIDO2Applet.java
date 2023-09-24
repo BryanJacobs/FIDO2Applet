@@ -1068,7 +1068,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         // CBOR requires us to know how long authData is before we can start writing it out...
         // ... so let's calculate that
-        final short adLen = getAuthDataLen(flags, true, hmacSecretEnabled,
+        final short adLen = getAuthDataLen(true, hmacSecretEnabled,
                 credProtectLevel > 0,
                 credBlobIdx != -1, uvmRequested, minPinRequested);
 
@@ -1560,7 +1560,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                           boolean minPinRequested, byte credBlobState,
                           byte[] encodedCredBuffer, short encodedCredOffset) {
         short adAddlBytes = writeADBasic(outBuf, adLen, writeIdx, flags, rpIdHashBuffer, rpIdHashOffset);
-        writeIdx += getAuthDataLen(flags, false, hmacSecretEnabled, credProtectLevel > 0,
+        writeIdx += getAuthDataLen(false, hmacSecretEnabled, credProtectLevel > 0,
                 credBlobState != 0, uvmRequested, minPinRequested) + adAddlBytes;
 
         // aaguid
@@ -1747,7 +1747,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      *
      * @return The number of bytes in the authentication data segment
      */
-    private short getAuthDataLen(byte flags, boolean includeAttestedKey, boolean useHmacSecret, boolean useCredProtect,
+    private short getAuthDataLen(boolean includeAttestedKey, boolean useHmacSecret, boolean useCredProtect,
                                  boolean useCredBlob, boolean useUVM, boolean useMinPin) {
         short basicLen = (short) (RP_HASH_LEN + // RP ID hash
                 1 + // flags byte
@@ -2302,7 +2302,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             flags = (byte)(flags | 0x04);
         }
 
-        short adLen = getAuthDataLen(flags, false, false,
+        short adLen = getAuthDataLen(false, false,
                 false, false, false, false);
         short extensionDataLen = 0;
         byte numExtensions = 0;
@@ -5529,7 +5529,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 buffer, offset, (short) aaguid.length);
 
         buffer[offset++] = 0x04; // map key: options
-        buffer[offset++] = (byte) 0xAA; // map: ten entries
+        buffer[offset++] = (byte) 0xAB; // map: eleven entries
         /*buffer[offset++] = 0x62; // string: two bytes long
         buffer[offset++] = 0x65; // 'e'
         buffer[offset++] = 0x70; // 'p'
