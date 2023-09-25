@@ -41,13 +41,8 @@ You might be interested in [reading about the security model](docs/security_mode
 1. **Virtual SmartCard**: While you can test on an actual smartcard, using VSmartCard and JCardSim is recommended for ease and speed.
 2. **Third-Party Testing Suites**: Utilize third-party testing suites like SoloKey's fido2-tests to analyze the applet's behavior.
 3. **Python Tests**: Run Python-language tests located in the `python_tests` directory.
-   \`\`\`bash
-   export JC_HOME=<your_jckit>
-   ./gradlew jar testJar
-   python -m venv venv
-   ./venv/bin/pip install -U -r requirements.txt
-   ./venv/bin/python -m unittest discover -s python_tests
-   \`\`\`hon -m unittest discover -s python_tests
+ ```bash
+./gradlew buildJavaCard
 ```
 
 By default, these will use extremely fast interprocess communication with the JVM -
