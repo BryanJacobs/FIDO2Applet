@@ -24,7 +24,7 @@ detailed requirements.
 You might be interested in [reading about the security model](docs/security_model.md).
 
 ## Environment Setup and Building the application
-1. **Download JavacardKit**: Obtain a copy of JavacardKit version 3.0.4 (or jckit_303 if you prefer).
+1. **Download JavacardKit**: Obtain a copy of [JavacardKit version 3.0.4](https://www.oracle.com/java/technologies/javacard-sdk-downloads.html) (or jckit_303 if you prefer).
 2. **Set Environment Variable**: Configure the `JC_HOME` environment variable to point to your JavacardKit directory.
    ```bash
    export JC_HOME=<path_to_your_jckit_directory>
