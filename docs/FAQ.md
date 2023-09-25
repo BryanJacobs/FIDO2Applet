@@ -6,11 +6,15 @@ You caught me, I'm a fraud and these are anticipatory questions.
 
 ## What's FIDO2?
 
-If you don't know what that is, you don't need this.
+FIDO2 is a standard to replace passwords with secure, intercompatible devices.
+With a FIDO2 Authenticator - like this software implements - you can log in to
+a web site without choosing a username or password, and be confident that nobody
+without the Authenticator will be able to pretend to be you.
 
 ## What's a Javacard?
 
-If you don't know what that is, you DEFINITELY don't need this.
+Javacard (Classic) is an operating system that runs, mostly, on secure microprocessors.
+It lets you put little applications on things like phone SIM cards, passports, or ID badges.
 
 ## Don't you need a CBOR parser to write a CTAP2 authenticator?
 
