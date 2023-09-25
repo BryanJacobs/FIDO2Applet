@@ -24,54 +24,59 @@ detailed requirements.
 
 You might be interested in [reading about the security model](docs/security_model.md).
 
-## Building the application
+## Environment Setup and Building the application
+1. **Download JavacardKit**: Obtain a copy of [JavacardKit version 3.0.4](https://www.oracle.com/java/technologies/javacard-sdk-downloads.html) (or jckit_303 if you prefer).
+2. **Set Environment Variable**: Configure the `JC_HOME` environment variable to point to your JavacardKit directory.
+   ```bash
+   export JC_HOME=<path_to_your_jckit_directory>
+   ```
 
-You'll need to get a copy of JavacardKit, version 3.0.4 (`jckit_304`):
-you can build with jckit_303 if you prefer.
+3. **Run Gradle Build**: Execute the following command to build the JavaCard application, which will produce a `.cap` file for installation.
+    ```bash
+   ./gradlew buildJavaCard
+    ```
 
-Set the environment variable `JC_HOME` to point to your jckit folder.
 
-Run `./gradlew buildJavaCard`, which will produce a `.cap` file
-for installation.
+## Testing the Application
 
-## Testing the application
+### Overview
+You have multiple options for testing the JavaCard application:
 
-While you can test on an actual smartcard, I prefer to use VSmartCard
-and run JCardSim connected to that for ease and speed.
+1. **Actual Smartcard**: You can test on a physical smartcard.
+2. **Virtual SmartCard**: Alternatively, you can use VSmartCard and JCardSim for quicker and easier testing.
 
-You can get great analysis of the applet's behaviour using real applications
-or third-party testing suites like SoloKey's `fido2-tests`, which you can run
-against the simulated application - the `VSim` class might get you started.
+### Detailed Steps
 
-There are also a reasonable number of Python-language tests in the
-`python_tests` top level directory. These start up JCardSim and use the
-Python `python-fido2` library to interact the with applet. They're in Python
-because, as of this writing, there is no FIDO2 client library available for
-the JVM. And hey, interoperability testing, right? You can test with `libfido2`,
-or Python libraries, or the official FIDO Standards Tests (Javascript). The
-applet should pass everything you throw at it.
+#### Option 1: Using Actual Smartcard
+Simply install the `.cap` file onto the smartcard and proceed with testing.
 
-To set up and run these tests, use:
+#### Option 2: Using Virtual SmartCard and JCardSim
+1. **VSmartCard and JCardSim**: Use these tools for a simulated environment.
+2. **Third-Party Testing Suites**: Utilize tools like SoloKey's `fido2-tests` for comprehensive analysis. The `VSim` class can help you get started.
 
-```shell
-export JC_HOME=<your jckit> 
-./gradlew jar testJar
-python -m venv venv
-./venv/bin/pip install -U -r requirements.txt
-./venv/bin/python -m unittest discover -s python_tests
-```
+#### Python Tests
+1. **Python Test Suite**: Navigate to the `python_tests` directory, which contains Python-language tests.
+2. **Run the Tests**: Execute the following commands to set up and run the tests.
+   ```bash
+   export JC_HOME=<your_jckit>
+   ./gradlew jar testJar
+   python -m venv venv
+   ./venv/bin/pip install -U -r requirements.txt
+   ./venv/bin/python -m unittest discover -s python_tests
+   ```
+3. **Interoperability**: These tests use the Python `python-fido2` library because there is currently no FIDO2 client library for the JVM. You can also test with `libfido2`, Python libraries, or the official FIDO Standards Tests (Javascript).
 
-By default, these will use extremely fast interprocess communication with the JVM -
-no PC/SC, just direct method calls on the running applet. The tests take less than
+#### Advanced Settings
+- **Fast IPC**: By default, the tests use fast interprocess communication with the JVM, bypassing PC/SC. The tests take less than
 fifteen seconds to run, for me, even though there are almost two hundred cases.
-You can change a variety of settings in `python_tests/ctap/ctap_test.py`,
-such as enabling logging of all CTAP traffic, or making the JVM wait for a remote
-debugger on startup, or using a VSmartCard PC/SC connection instead of direct method
-invocation.
+- **Customization**: You can modify settings in `python_tests/ctap/ctap_test.py` to enable CTAP traffic logging, allow JVM remote debugging, or use a VSmartCard PC/SC connection.
+
+
+
 
 ## Contributing
 
-If you want to, feel free! Just raise a pull request or open an issue.
+- If you wish to contribute to the project, feel free to raise a pull request or open an issue.
 
 ## Where to go Next
 
