@@ -26,14 +26,14 @@ You might be interested in [reading about the security model](docs/security_mode
 ## Environment Setup and Building the application
 1. **Download JavacardKit**: Obtain a copy of JavacardKit version 3.0.4 (or jckit_303 if you prefer).
 2. **Set Environment Variable**: Configure the `JC_HOME` environment variable to point to your JavacardKit directory.
-   \`\`\`bash
+   ```bash
    export JC_HOME=<path_to_your_jckit_directory>
-   \`\`\`
+   ```
 
 3. **Run Gradle Build**: Execute the following command to build the JavaCard application, which will produce a `.cap` file for installation.
-   \`\`\`bash
+    ```bash
    ./gradlew buildJavaCard
-   \`\`\`
+    ```
 
 
 ## Testing the application
