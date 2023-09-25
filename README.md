@@ -36,22 +36,42 @@ You might be interested in [reading about the security model](docs/security_mode
     ```
 
 
-## Testing the application
+## Testing the Application
 
-1. **Virtual SmartCard**: While you can test on an actual smartcard, using VSmartCard and JCardSim is recommended for ease and speed.
-2. **Third-Party Testing Suites**: Utilize third-party testing suites like SoloKey's fido2-tests to analyze the applet's behavior.
-3. **Python Tests**: Run Python-language tests located in the `python_tests` directory.
- ```bash
-./gradlew buildJavaCard
-```
+### Overview
+You have multiple options for testing the JavaCard application:
 
-By default, these will use extremely fast interprocess communication with the JVM -
-no PC/SC, just direct method calls on the running applet. The tests take less than
+1. **Actual Smartcard**: You can test on a physical smartcard.
+2. **Virtual SmartCard**: Alternatively, you can use VSmartCard and JCardSim for quicker and easier testing.
+
+### Detailed Steps
+
+#### Option 1: Using Actual Smartcard
+Simply install the `.cap` file onto the smartcard and proceed with testing.
+
+#### Option 2: Using Virtual SmartCard and JCardSim
+1. **VSmartCard and JCardSim**: Use these tools for a simulated environment.
+2. **Third-Party Testing Suites**: Utilize tools like SoloKey's `fido2-tests` for comprehensive analysis. The `VSim` class can help you get started.
+
+#### Python Tests
+1. **Python Test Suite**: Navigate to the `python_tests` directory, which contains Python-language tests.
+2. **Run the Tests**: Execute the following commands to set up and run the tests.
+   ```bash
+   export JC_HOME=<your_jckit>
+   ./gradlew jar testJar
+   python -m venv venv
+   ./venv/bin/pip install -U -r requirements.txt
+   ./venv/bin/python -m unittest discover -s python_tests
+   ```
+3. **Interoperability**: These tests use the Python `python-fido2` library because there is currently no FIDO2 client library for the JVM. You can also test with `libfido2`, Python libraries, or the official FIDO Standards Tests (Javascript).
+
+#### Advanced Settings
+- **Fast IPC**: By default, the tests use fast interprocess communication with the JVM, bypassing PC/SC. The tests take less than
 fifteen seconds to run, for me, even though there are almost two hundred cases.
-You can change a variety of settings in `python_tests/ctap/ctap_test.py`,
-such as enabling logging of all CTAP traffic, or making the JVM wait for a remote
-debugger on startup, or using a VSmartCard PC/SC connection instead of direct method
-invocation.
+- **Customization**: You can modify settings in `python_tests/ctap/ctap_test.py` to enable CTAP traffic logging, allow JVM remote debugging, or use a VSmartCard PC/SC connection.
+
+
+
 
 ## Contributing
 
