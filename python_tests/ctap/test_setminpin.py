@@ -138,8 +138,18 @@ class SetMinPinTestCase(CTAPTestCase):
 
         self.assertEqual(False, info.force_pin_change)
 
-    def test_change_with_pin_does_force_change(self):
+    def test_change_with_pin_does_not_force_change_when_length_adequate(self):
         self.pin = secrets.token_hex(10)
+        self.cp.set_pin(self.pin)
+
+        self.get_cfg().set_min_pin_length(min_pin_length=10)
+        info = self.ctap2.get_info()
+
+        self.assertEqual(False, info.force_pin_change)
+        self.assertEqual(10, info.min_pin_length)
+
+    def test_change_with_pin_does_force_change_when_length_inadequate(self):
+        self.pin = "AAAAAAAAA"
         self.cp.set_pin(self.pin)
 
         self.get_cfg().set_min_pin_length(min_pin_length=10)
@@ -147,6 +157,15 @@ class SetMinPinTestCase(CTAPTestCase):
 
         self.assertEqual(True, info.force_pin_change)
         self.assertEqual(10, info.min_pin_length)
+
+    def test_length_adequacy_is_in_codepoints(self):
+        self.get_cfg().set_min_pin_length(min_pin_length=10)
+        self.pin = "✈✈✈✈"  # 12 bytes, 4 codepoints
+
+        with self.assertRaises(CtapError) as e:
+            self.cp.set_pin(self.pin)
+
+        self.assertEqual(CtapError.ERR.PIN_POLICY_VIOLATION, e.exception.code)
 
     def test_change_with_pin_to_same_length_does_not_force_change(self):
         self.pin = secrets.token_hex(10)

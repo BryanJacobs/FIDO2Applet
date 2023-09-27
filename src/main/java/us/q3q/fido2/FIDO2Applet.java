@@ -25,6 +25,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private boolean FORCE_ALWAYS_UV;
     /**
+     * If true, the *length* of the user's set PIN is stored, for the `setMinPinLength` extension
+     */
+    private boolean STORE_PIN_LENGTH;
+    /**
      * If true, the authenticator will refuse to reset itself until the following three steps happen in order:
      * <p>
      * 1. a reset command is sent
@@ -215,6 +219,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * key to be set from KDF derivation of PIN
      */
     private AESKey pinWrapKey;
+    /**
+     * The length (in UTF-8 code points) of the user's PIN
+     */
+    private short pinCodePointLength;
     /**
      * used for signing the authData we send to the platform, to prove it came from us
      */
@@ -4524,7 +4532,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         JCSystem.beginTransaction();
         boolean ok = false;
         try {
-            if (newMinPINLength > minPinLength && pinSet) {
+            if (STORE_PIN_LENGTH) {
+                if (pinSet && newMinPINLength > pinCodePointLength) {
+                    forcePinChange = true; // current PIN is inadequately long
+                }
+            } else if (newMinPINLength > minPinLength && pinSet) {
                 forcePinChange = true; // ALWAYS force a PIN change because we don't know the PIN length
             }
             minPinLength = newMinPINLength;
@@ -5430,6 +5442,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             numResidentRPs = 0;
 
             pinSet = false;
+            if (STORE_PIN_LENGTH) {
+                pinCodePointLength = 0;
+            }
             minPinLength = 4;
             forcePinChange = false;
             alwaysUv = FORCE_ALWAYS_UV;
@@ -6453,6 +6468,25 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
         }
 
+        // Count the UTF-8 code points to determine if length sufficient, and store it if necessary
+        short newPinCodePointLength = 0;
+        for (short i = offset; i < pinLength; i++) {
+            newPinCodePointLength++;
+            if ((pinBuf[i] & 0x80) == 0x00) {
+                continue;
+            } else if ((pinBuf[i] & 0xB0) == 0xB0) {
+                i++;
+            } else if ((pinBuf[i] & 0xD0) == 0xD0) {
+                i += 2;
+            } else if ((pinBuf[i] & 0xF8) == 0xF8) {
+                i += 3;
+            }
+        }
+        if (newPinCodePointLength < minPinLength) {
+            // Too short, in UTF-8 terms, even though it's long enough in bytes...
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_POLICY_VIOLATION);
+        }
+
         // Take the SHA256 of the PIN before we start, and only pass the first 16 bytes to the change function
         // since that's all the protocol sends us to validate the PIN, that is our *real* PIN...
         sha256.doFinal(pinBuf, offset, pinLength,
@@ -6483,6 +6517,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
 
             pinSet = true;
+            if (STORE_PIN_LENGTH) {
+                pinCodePointLength = newPinCodePointLength;
+            }
             short pinIdx = pinRetryCounter.prepareIndex();
             pinRetryCounter.reset(pinIdx);
 
@@ -6748,6 +6785,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         MAX_RAM_SCRATCH_SIZE = (byte) 254;
         BUFFER_MEM_SIZE = 1024;
         FLASH_SCRATCH_SIZE = 1024;
+        STORE_PIN_LENGTH = true;
 
         // Next, read any overrides
         final short initOffset = offset;
@@ -6825,6 +6863,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         FLASH_SCRATCH_SIZE = Util.getShort(array, offset);
                         offset += 2;
                         break;
+                    case 0x0C:
+                        STORE_PIN_LENGTH = array[offset++] == (byte) 0xF5;
+                        break;
                     default:
                         ISOException.throwIt(ISO7816.SW_WRONG_DATA);
                 }
@@ -6858,6 +6899,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         resetRequested = false;
         counter = new SigOpCounter();
         pinRetryCounter = new PinRetryCounter(MAX_PIN_RETRIES);
+        pinCodePointLength = 0;
 
         // Trivial amounts of flash, object allocations without buffers
         random = RandomData.getInstance(RandomData.ALG_SECURE_RANDOM);

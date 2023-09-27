@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository contains sources for a feature complete, FIDO2 CTAP2.1
+This repository contains sources for a feature-rich, FIDO2 CTAP2.1
 compatible applet targeting the Javacard Classic system, version 3.0.4. In a
 nutshell, this lets you take a smartcard, install an app onto it,
 and have it work as a FIDO2 authenticator device with a variety of
@@ -101,6 +101,7 @@ If you're a really detail-oriented person, you might enjoy reading
 | Self attestation                   | Implemented                                             |
 | Basic attestation with ECDSA certs | Implemented (see [install guide](docs/certs.md))        |
 | Webauthn (NOT CTAP!) uvm extension | Implemented                                             |
+| Webauthn devicePubKey extension    | Not implemented                                         |
 | CTAP2.1 hmac-secret extension      | Implemented                                             |
 | CTAP2.1 alwaysUv option            | Implemented                                             |
 | CTAP2.1 credProtect option         | Implemented                                             |
@@ -114,6 +115,7 @@ If you're a really detail-oriented person, you might enjoy reading
 | CTAP2.1 largeBlobKey extension     | Implemented                                             |
 | CTAP2.1 authenticatorLargeBlobs    | Implemented, default 1024 bytes storage (max 4k)        |
 | CTAP2.1 bio-stuff                  | Not implemented (doesn't make sense in this context?)   |
+| Key backups                        | Not implemented                                         |
 | APDU chaining                      | Supported                                               |
 | Extended APDUs                     | Supported                                               |
 | Performance                        | Adequate (sub-3-second common operations)               |
@@ -124,13 +126,13 @@ If you're a really detail-oriented person, you might enjoy reading
 
 ## Software Compatibility
 
-| Platform              | Status           |
-|-----------------------|------------------|
-| Android (hwsecurity)  | Working          |
-| Android (Google Play) | Broken [1]       |
-| iOS                   | Reported working |
-| Linux (libfido2)      | Working          |
-| Windows 10            | Working          |
+| Platform                  | Status           |
+|---------------------------|------------------|
+| Android (hwsecurity)      | Working          |
+| Android (Google Play)     | Broken [1]       |
+| iOS                       | Reported working |
+| Linux (libfido2 or FIDOk) | Working          |
+| Windows 10                | Working          |
 
 | Smartcard                                                                         | Status           |
 |-----------------------------------------------------------------------------------|------------------|

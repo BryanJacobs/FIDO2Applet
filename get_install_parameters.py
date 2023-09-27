@@ -34,6 +34,9 @@ if __name__ == '__main__':
                         help="Number of bytes of RAM to use for request processing. Reduces flash wear. Must be >=1024")
     parser.add_argument('--flash-scratch', type=int, default=1024,
                         help="Number of bytes of flash to use when RAM is exhausted. For low-memory situations")
+    parser.add_argument('--do-not-store-pin-length', action='store_false', default=None,
+                        help="Avoid storing the length of the user PIN internally. Causes setMinPin to force a PIN "
+                             "change")
 
     args = parser.parse_args()
 
@@ -51,7 +54,8 @@ if __name__ == '__main__':
         'max_rk_rp_length',
         'max_ram_scratch',
         'buffer_mem',
-        'flash_scratch'
+        'flash_scratch',
+        'do_not_store_pin_length'
     ]):
         val = getattr(args, option_string)
         if val is None:

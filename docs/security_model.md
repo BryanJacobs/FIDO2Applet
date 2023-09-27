@@ -160,6 +160,9 @@ flash memory read or computation corrupted, this is the same as
 the "malware" case above. **If not**, then we are in an interesting
 situation.
 
+If you installed with the default parameters, the attacker can tell how
+long your PIN is in UTF-8 code points, but can't get the PIN itself.
+
 If you set the force-always-uv flag, the attacker needs to decrypt the
 on-device wrapping key. Without doing that, they can read incidentals like:
 - how many different resident keys are currently stored on the device
