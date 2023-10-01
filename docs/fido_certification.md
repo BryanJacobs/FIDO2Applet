@@ -544,9 +544,20 @@ cryptographic operations are performed in hardware by the TEE.
 
 Thus, the effective security of all ASPs maintain their full strength values even in the presence of timing observation.
 
+5.7
+---
+All cryptographic operations are performed in hardware, and the number of iterations/calls to the hardware/backed
+function does NOT depend on the value of any ASP.
+
+5.8
+---
+The physical module on which the authenticator code executes does not contain any physical or logical debug interfaces.
+
+The authenticator software does not expose additional logical debug interfaces.
+
 5.8.1
 -----
-The AROE on which the authenticator code executes does not provide debug functionality.
+The physical module on which the authenticator code executes does not provide debug functionality.
 
 5.9
 ---
@@ -583,19 +594,66 @@ The authenticator does NOT have Enterprise Attestation support.
 
 Operating Environment
 =====================
+7.1
+---
+The authenticator application runs in an AROE, as described in the answer to question 1.1.
+
+7.2
+---
+The authenticator software makes use of the cryptographic functionality provided by the AROE; the AROE is configured to
+provide it. No functionality used by the application is disabled.
+
+7.3
+---
+The Javacard environment provided by the JCOP 4 OS protects each applet's memory space against access from another
+applet.
+
+It is possible to allocate "shared" or "exported" objects that disable this protection; additionally, static variables
+are also not subject to the same security controls. For this reason, the authenticator applet does NOT provide any
+exported interfaces, and does NOT store any FIDO-relevant data in static variables.
+
+7.4
+---
+The operating environment is deployed in a configuration that does NOT permit any modification that would compromise
+the security of the authenticator. Additional applets may be installed, but their execution and storage is logically
+isolated from that of the authenticator by the AROE.
+
+7.5
+---
+The security configuration of the AROE is under the control of the vendor and/or its delegates. The only change that
+can be made after shipment is to remove the applet, or install it (again) if not present. The install process is also
+fully under the control of the authenticator vendor and/or its delegates.
+
+7.6
+---
+The security characteristics of the authenticator are not modifiable by anyone after installation, including the
+authenticator device vendor. The security characteristics at install time may only be modified by the authenticator
+vendor and/or its delegates.
+
 7.7
 ---
 The authenticator does NOT have Enterprise Attestation support.
 
+Self-Tests and Firmware Updates
+===============================
+
+8.1
+---
+The authenticator IS resistant to induced fault analysis, due to the implementation of its TEE.
+
 8.1.1
 -----
-The authenticator is resistant to induced fault analysis, due to the implementation of its TEE.
+The authenticator IS resistant to induced fault analysis.
 
-Self-Tests and Firmware updates
-===============================
 8.2
 ---
-The authenticator does NOT mediate (and does NOT permit) the update of its software.
+The authenticator does NOT mediate (and does NOT permit) the update of its software, save by complete removal and
+reinstallation. This installation process is fully under the control of the authenticator vendor and/or its delegates,
+and the application to be loaded is verified using an Allowed Data Authentication method.
+
+8.3
+---
+The authenticator IS resistant to induced fault analysis.
 
 8.4
 ---
@@ -607,6 +665,10 @@ Manufacturing and Development
 ---
 No ASPs are generated during manufacturing; they are generated at the point the authenticator software is loaded into
 the TEE.
+
+9.2
+---
+TODO - attestation private key access policy
 
 9.3
 ---
