@@ -208,7 +208,8 @@ reset the authenticator (invalidating all created credentials) to continue using
 shared across all credentials, discoverable or otherwise.
 
 2^32 is 4,294,967,296 - large enough that you could use the token once per second for 136 years
-without reaching the maximum value.
+without reaching the maximum value. The counter is incremented by up to sixteen per
+operation, so you could get unlucky enough to only get 8.5 years of using it once per second.
 
 That should be enough longevity.
 

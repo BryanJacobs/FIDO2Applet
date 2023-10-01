@@ -118,5 +118,6 @@ class CredManagementTestCase(CredManagementBaseTestCase):
             display_name='Some very long stuff that makes this inconvenient to work with'
         ))
 
+        cm = self.get_credential_management()
         after_cred = cm.enumerate_creds(rp_id_hash=self.rp_id_hash(self.rp_id))[0]
         self.assertEqual(new_id, after_cred[6]['id'])

@@ -35,8 +35,7 @@ class CTAPBasicsTestCase(CTAPTestCase):
         self.basic_makecred_params['options'] = {
             'rk': True
         }
-        res = self.ctap2.make_credential(**self.basic_makecred_params)
-        self.assertEqual(0, res.auth_data.counter)
+        self.ctap2.make_credential(**self.basic_makecred_params)
 
     def test_info_supported_options(self):
         info = self.ctap2.get_info()
@@ -140,12 +139,17 @@ class CTAPBasicsTestCase(CTAPTestCase):
     def test_counter_increases_on_makecred(self):
         cred_res_1 = self.ctap2.make_credential(**self.basic_makecred_params)
         cred_res_2 = self.ctap2.make_credential(**self.basic_makecred_params)
-        self.assertEqual(cred_res_2.auth_data.counter, cred_res_1.auth_data.counter + 1)
+        self.assertTrue(cred_res_2.auth_data.counter > cred_res_1.auth_data.counter)
 
     def test_counter_allows_many_ops(self):
+        cur_counter = 0
         for i in range(350):
             cred_res = self.ctap2.make_credential(**self.basic_makecred_params)
-            self.assertEqual(i, cred_res.auth_data.counter)
+            gotten_counter = cred_res.auth_data.counter
+            self.assertTrue(gotten_counter > cur_counter)
+            ctr_diff = abs(gotten_counter - cur_counter)
+            self.assertTrue(ctr_diff <= 16)
+            cur_counter = gotten_counter
 
     def test_makecred_disallowed_by_exclude_list(self):
         cred_res_1 = self.ctap2.make_credential(**self.basic_makecred_params)
@@ -245,8 +249,8 @@ class CTAPBasicsTestCase(CTAPTestCase):
         cred_res = self.ctap2.make_credential(**self.basic_makecred_params)
         assert_res_1 = self.get_assertion_from_cred(cred_res, client_data=self.get_random_client_data())
         assert_res_2 = self.get_assertion_from_cred(cred_res, client_data=self.get_random_client_data())
-        self.assertEqual(assert_res_1.auth_data.counter, cred_res.auth_data.counter + 1)
-        self.assertEqual(assert_res_2.auth_data.counter, assert_res_1.auth_data.counter + 1)
+        self.assertTrue(assert_res_1.auth_data.counter > cred_res.auth_data.counter)
+        self.assertTrue(assert_res_2.auth_data.counter > assert_res_1.auth_data.counter)
 
     def test_basic_assertion(self):
         cred_res = self.ctap2.make_credential(**self.basic_makecred_params)

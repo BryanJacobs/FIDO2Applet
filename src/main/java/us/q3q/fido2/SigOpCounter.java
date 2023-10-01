@@ -20,15 +20,18 @@ public final class SigOpCounter {
     /**
      * Atomically increase the counter value
      *
+     * @param amt Amount by which to increase the counter
      * @return false if the counter has hit max - true otherwise
      */
-    public boolean increment() {
+    public boolean increment(short amt) {
         boolean ok = false;
 
         JCSystem.beginTransaction();
         short lbIdx = (short)(0x3F & firstBytes[2]);
         try {
-            if (lastBytes[lbIdx] == (byte) 0xFF) {
+            short curLast = (short)(lastBytes[lbIdx] & 0xFF);
+            short amountLeftInLast = (short)(0x00FF - curLast);
+            if (amountLeftInLast < amt) {
                 // Increase the higher-order bytes and move to next lower-order byte slot
                 if (firstBytes[2] == (byte) 0xFF) {
                     if (firstBytes[1] == (byte) 0xFF) {
@@ -45,10 +48,10 @@ public final class SigOpCounter {
                 } else {
                     firstBytes[2]++;
                 }
-                lastBytes[(short)(0x3F & firstBytes[2])] = 0;
+                lastBytes[(short)(0x3F & firstBytes[2])] = (byte)(amt - amountLeftInLast);
             } else {
                 // Straightforward increase of lower-order byte
-                lastBytes[lbIdx]++;
+                lastBytes[lbIdx] = (byte)(lastBytes[lbIdx] + amt);
             }
             ok = true;
         } finally {
