@@ -110,32 +110,36 @@ Key Management and Authenticator Security Parameters
 -----
 The Authenticator Security Parameters are as follows:
 
-| Parameter                        | Implementation        | Strength | Purpose                                                               | Secret | Storage       | Input     | Output    | Deleted                                 |
-|----------------------------------|-----------------------|----------|-----------------------------------------------------------------------|--------|---------------|-----------|-----------|-----------------------------------------|
-| User PIN derivative              | LEFT16(SHA-256(PIN))  | 128      | Determine if a pinUvAuthToken should be granted                       | N      | None          | CTAP      | Never     | N/A                                     |
-| Credential Wrapping Key          | 32-byte random value  | 256      | Encrypt/decrypt KeyHandles                                            | Y      | Flash         | Never     | Never     | CTAP reset                              | 
-| Non-Discoverable Cred IV         | 16-byte random value  | N/A      | Make first block of KeyHandles less predictable                       | N      | Flash         | Never     | Never     | CTAP reset                              | 
-| Non-Discoverable CredProt-3 IV   | 16-byte random value  | N/A      | Distinguish non-discoverable credProtect=3 credentials                | N      | Flash         | Never     | Never     | CTAP reset                              | 
-| PIN Verification Nonce           | 32-byte random value  | N/A      | Verify the correct PIN was provided by the user using HMAC            | N      | Flash         | Never     | Never     | CTAP pin set/change                     | 
-| CTAP Platform Agreement Key      | ECDSA key on P-256    | 128      | ECDH-generate a shared secret between Authenticator and Platform      | Y      | RAM           | Never     | Never     | Applet deselect                         | 
-| CTAP pinToken                    | 32-byte random value  | N/A      | Allow or deny CTAP operations that require a PIN                      | N      | RAM           | CTAP      | CTAP      | Applet deselect OR as per CTAP standard | 
-| CTAP permissions byte            | 1-byte stored value   | N/A      | Check permissions of pinToken                                         | N      | RAM           | Never     | Never     | Applet deselect OR as per CTAP standard | 
-| PIN retry counter                | 1-byte stored value   | N/A      | Count number of times a PIN may be used before locking                | N      | Flash         | Never     | CTAP      | CTAP reset OR correct PIN entry         | 
-| CTAP signature counter           | 4-byte stored value   | N/A      | Ensures every signature is different; wear-leveled across 64 bytes    | N      | Flash         | Never     | CTAP      | CTAP reset                              | 
-| NFC lock state                   | 1-bit stored value    | N/A      | Prevents authenticator from being used after NFC poweroff requested   | N      | RAM           | NFC       | Never     | Applet reset                            | 
-| Attestation Private Key          | ECDSA key on P-256    | 128      | Generate attestation signatures                                       | Y      | Flash         | Vendor[1] | Never     | Never                                   | 
-| Credential Private Key           | ECDSA key on P-256    | 128      | Generate credential signatures                                        | Y      | RAM/KeyHandle | Never     | KeyHandle | From RAM immediately after use          | 
-| CTAP HMAC extension UV bytes     | 32-byte random value  | 256      | Secret to derive CTAP2.1 HMAC Extension key from KeyHandle with UV    | N      | Flash         | Never     | Never     | CTAP reset                              | 
-| CTAP HMAC extension non-UV bytes | 32-byte random value  | 256      | Secret to derive CTAP2.1 HMAC Extension key from KeyHandle without UV | N      | Flash         | Never     | Never     | CTAP reset                              | 
-| Discoverable Cred IV             | 16-byte random value  | N/A      | Ensure every credential has different stored encrypted blocks         | N      | Flash         | Never     | Never     | When credential deleted                 | 
-| Discoverable Credential          | AES256(Credential ID) | 128      | Stored credential ID                                                  | N      | Flash         | KeyHandle | CTAP      | When credential deleted                 | 
-| Discoverable User IV             | 16-byte random value  | N/A      | Ensure every username has different stored encrypted blocks           | N      | Flash         | Never     | Never     | When credential deleted                 | 
-| Discoverable Username            | AES256(Username)      | N/A      | Stored user name for credential                                       | N      | Flash         | CTAP      | CTAP      | When credential deleted                 | 
-| Discoverable Public Key IV       | 16-byte random value  | N/A      | Ensure every public key has different stored encrypted blocks         | N      | Flash         | Never     | Never     | When credential deleted                 | 
-| Discoverable Public Key          | AES256(PubKey)        | N/A      | Stored public key for credential as uncompressed X, Y points on P-256 | N      | Flash         | Never     | CTAP      | When credential deleted                 | 
-| Discoverable CredBlob IV         | 16-byte random value  | N/A      | Ensure every CredBlob has different stored encrypted blocks           | N      | Flash         | Never     | Never     | When credential deleted                 | 
-| Discoverable CredBlob            | AES256(CredBlob)      | N/A      | Stored CredBlob for CTAP2.1 CredBlob extension                        | N      | Flash         | CTAP      | CTAP      | When credential deleted                 | 
-| Discoverable LargeBlob IV        | 16-byte random value  | N/A      | Ensure every LargeBlobKey is unique to a credential                   | N      | Flash         | Never     | Never     | When credential deleted                 |
+| Parameter                        | Implementation        | Strength | Purpose                                                               | Secret | Sharing           | Storage       | Input         | Output    | Deleted                                 |
+|----------------------------------|-----------------------|----------|-----------------------------------------------------------------------|--------|-------------------|---------------|---------------|-----------|-----------------------------------------|
+| User PIN derivative              | LEFT16(SHA-256(PIN))  | 128      | Determine if a pinUvAuthToken should be granted                       | N      | N/A               | None          | CTAP          | Never     | N/A                                     |
+| PIN derivation salt              | 28-byte random value  | 224      | Derive HMAC key from user PIN                                         | N      | Per authenticator | Flash         | Never         | Never     | CTAP reset                              |
+| PIN Verification Nonce           | 32-byte random value  | N/A      | Verify the correct PIN was provided by the user using HMAC            | N      | Per authenticator | Flash         | Never         | Never     | CTAP pin set/change                     | 
+| Credential Wrapping Key          | 32-byte random value  | 256      | Encrypt/decrypt KeyHandles                                            | Y      | Per authenticator | Flash         | Never         | Never     | CTAP reset                              | 
+| Non-Discoverable Cred IV         | 16-byte random value  | N/A      | Make first block of KeyHandles less predictable                       | N      | Per authenticator | Flash         | Never         | Never     | CTAP reset                              | 
+| Non-Discoverable CredProt-3 IV   | 16-byte random value  | N/A      | Distinguish non-discoverable credProtect=3 credentials                | N      | Per authenticator | Flash         | Never         | Never     | CTAP reset                              | 
+| CTAP Platform Agreement Key      | EC key on P-256       | 128      | ECDH-generate a shared secret between Authenticator and Platform      | Y      | Per authenticator | RAM           | Never         | Never     | Applet deselect OR as per CTAP standard | 
+| CTAP Platform shared secret      | 32-byte negotiated    | 256      | Communicate securely with a connected FIDO platform                   | Y      | Per authenticator | RAM           | Half via CTAP | Never     | Applet deselect OR as per CTAP standard | 
+| CTAP pinToken                    | 32-byte random value  | N/A      | Allow or deny CTAP operations that require a PIN                      | N      | Per authenticator | RAM           | CTAP          | CTAP      | Applet deselect OR as per CTAP standard | 
+| CTAP permissions byte            | 1-byte stored value   | N/A      | Check permissions of pinToken                                         | N      | Per authenticator | RAM           | Never         | Never     | Applet deselect OR as per CTAP standard | 
+| PIN retry counter                | 1-byte stored value   | N/A      | Count number of times a PIN may be used before locking                | N      | Per authenticator | Flash         | Never         | CTAP      | CTAP reset OR correct PIN entry         | 
+| CTAP signature counter           | 4-byte stored value   | N/A      | Ensures every signature is different; wear-leveled across 64 bytes    | N      | Per authenticator | Flash         | Never         | CTAP      | CTAP reset                              | 
+| NFC lock state                   | 1-bit stored value    | N/A      | Prevents authenticator from being used after NFC power-off requested  | N      | Per authenticator | RAM           | NFC           | Never     | Applet reset                            | 
+| Attestation Private Key          | ECDSA key on P-256    | 128      | Generate attestation signatures                                       | Y      | Shared            | Flash         | Vendor[1]     | Never     | Never                                   | 
+| Credential Private Key           | ECDSA key on P-256    | 128      | Generate credential signatures                                        | Y      | Per credential    | RAM/KeyHandle | Never         | KeyHandle | From RAM immediately after use          | 
+| CTAP HMAC extension UV bytes     | 32-byte random value  | 256      | Secret to derive CTAP2.1 HMAC Extension key from KeyHandle with UV    | N      | Per authenticator | Flash         | Never         | Never     | CTAP reset                              | 
+| CTAP HMAC extension non-UV bytes | 32-byte random value  | 256      | Secret to derive CTAP2.1 HMAC Extension key from KeyHandle without UV | N      | Per authenticator | Flash         | Never         | Never     | CTAP reset                              |
+| Discoverable Cred IV             | 16-byte random value  | N/A      | Ensure every credential has different stored encrypted blocks         | N      | Per credential    | Flash         | Never         | Never     | When credential deleted                 | 
+| Discoverable Credential          | AES256(Credential ID) | 128      | Stored credential ID                                                  | N      | Per credential    | Flash         | KeyHandle     | CTAP      | When credential deleted                 | 
+| Discoverable RP IV               | 16-byte random value  | N/A      | Ensure every stored relying party ID has different encrypted blocks   | N      | Per credential    | Flash         | Never         | Never     | When credential deleted                 | 
+| Discoverable Relying Party ID    | AES256(RP ID)         | N/A      | Stored SHA-256 hash of relying party ID                               | N      | Per credential    | Flash         | CTAP          | CTAP      | When credential deleted                 | 
+| Discoverable User IV             | 16-byte random value  | N/A      | Ensure every username has different stored encrypted blocks           | N      | Per credential    | Flash         | Never         | Never     | When credential deleted                 | 
+| Discoverable Username            | AES256(Username)      | N/A      | Stored user name for credential                                       | N      | Per credential    | Flash         | CTAP          | CTAP      | When credential deleted                 | 
+| Discoverable Public Key IV       | 16-byte random value  | N/A      | Ensure every public key has different stored encrypted blocks         | N      | Per credential    | Flash         | Never         | Never     | When credential deleted                 | 
+| Discoverable Public Key          | AES256(PubKey)        | N/A      | Stored public key for credential as uncompressed X, Y points on P-256 | N      | Per credential    | Flash         | Never         | CTAP      | When credential deleted                 | 
+| Discoverable CredBlob IV         | 16-byte random value  | N/A      | Ensure every CredBlob has different stored encrypted blocks           | N      | Per credential    | Flash         | Never         | Never     | When credential deleted                 | 
+| Discoverable CredBlob            | AES256(CredBlob)      | N/A      | Stored CredBlob for CTAP2.1 CredBlob extension                        | N      | Per credential    | Flash         | CTAP          | CTAP      | When credential deleted                 | 
+| Discoverable LargeBlob IV        | 16-byte random value  | N/A      | Ensure every LargeBlobKey is unique to a credential                   | N      | Per credential    | Flash         | Never         | Never     | When credential deleted                 |
 
 [1] The attestation private key is installed by the vendor during the authenticator setup process, prior
 to first use
@@ -143,9 +147,16 @@ to first use
 Only the attestation private key is shared between authenticators. All other ASPs are specific to an
 individual device.
 
-NB: In every case where AES-256-CBC is used, an Initialization Vector (IV) is also used. Every IV is
+Note: Every value deleted on "applet deselect" is also deleted when power is removed from the authenticator,
+or when the applet is uninstalled, or when a CTAP reset operation is performed.
+
+Note: In every case where AES-256-CBC is used, an Initialization Vector (IV) is also used. Every IV is
 unique except for that used for wrapping non-discoverable Credential IDs, which is shared across
 credentials.
+
+Note: User-private data are stored encrypted inside the authenticator implementation, even though the authenticator
+software executes inside an AROE. These data are encrypted using unique IVs so as to prevent an inspection of the
+flash contents disclosing e.g. shared usernames or RP IDs between two different stored credentials.
 
 2.1.2
 -----
