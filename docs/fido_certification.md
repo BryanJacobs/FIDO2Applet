@@ -34,7 +34,7 @@ All hashing uses SHA-256.
 Data authentication uses HMAC in conjunction with SHA-256.
 
 Random number generation is a hardware DRBG implemented by the TEE. The module performs power-on self tests checking
-the integrity of the random number generation algorithm. It uses CTR_DRBG as specified by NIST SP800-90A DRBG and
+the integrity of the random number generation algorithm. It uses CTR_DRBG as specified by NIST SP800-90A and
 provides 256 effective security bits.
 
 For key derivation, the authenticator uses a feedback mode with HMAC (approved by NIST SP800-108) and SHA256 as the PRF.
@@ -76,7 +76,7 @@ The authenticator does NOT support Transaction Confirmation Display.
 ---
 The authenticator does NOT use a KHAccessToken; the Key Handle is required to access a key. RP ID binding is
 accomplished through the Key Handle containing the SHA256 hash of the Relying Party ID / App ID. The
-authenticator software validates the RP ID a separately computed hash of the requested RP prior to allowing
+authenticator software validates the RP ID through a separately computed hash of the requested RP prior to allowing
 use of the key.
 
 1.8
@@ -115,6 +115,7 @@ The Authenticator Security Parameters are as follows:
 | User PIN derivative              | LEFT16(SHA-256(PIN))  | 128      | Determine if a pinUvAuthToken should be granted                       | N      | N/A               | None         | CTAP          | Never              | N/A                                     |
 | PIN derivation salt              | 28-byte random value  | 224      | Derive HMAC key from user PIN                                         | N      | Per authenticator | Flash        | Never         | Never              | CTAP reset                              |
 | PIN Verification Nonce           | 32-byte random value  | N/A      | Verify the correct PIN was provided by the user using HMAC            | N      | Per authenticator | Flash        | Never         | Never              | CTAP pin set/change                     | 
+| CTAP PIN Protocol 2 IVs          | 16-byte values        | N/A      | Prevent replay/modification of commands protected by PIN protocol 2   | N      | Per command       | None         | CTAP          | CTAP               | N/A                                     | 
 | Credential Wrapping Key          | 32-byte random value  | 256      | Encrypt/decrypt KeyHandles                                            | Y      | Per authenticator | Flash        | Never         | Never              | CTAP reset                              | 
 | Non-Discoverable Cred IV         | 16-byte random value  | N/A      | Make first block of KeyHandles less predictable                       | N      | Per authenticator | Flash        | Never         | Never              | CTAP reset                              | 
 | Non-Discoverable CredProt-3 IV   | 16-byte random value  | N/A      | Distinguish non-discoverable credProtect=3 credentials                | N      | Per authenticator | Flash        | Never         | Never              | CTAP reset                              | 
@@ -168,24 +169,24 @@ for question 2.1.1.
 
 2.1.3
 -----
-Please see effective security bit strength of keys in table 2.1.1, above.
+Please see the effective security bit strength of keys in table 2.1.1, above.
 
 2.1.4
 -----
 The overall claimed strength of the authenticator is 128 bits. The "weakest link" is the generated
 ECDSA credentials on the P-256 curve, which have a strength of 128 security bits. The user's PIN
-as provided in CTAP is also a 128 bit value. All wrapping/storage operations are 256 security bits
+as provided in CTAP is also a 128 bit value. All wrapping/storage operations are at least 224 security bits
 in strength, not degrading the underlying 128-bit keys.
 
 2.1.5
 -----
 All ASPs stored inside the AROE are protected against modification and substitution by the secure
-element on which the authenticator code executes.
+element on which the authenticator software executes.
 
 Credential IDs for non-discoverable credentials are stored externally. They are protected against
 modification as documented in section 1.3; due to the mixture of credential and Relying Party ID
-the difficulty of modifying the credential in a way that still allows its use is an effective 256
-security bits.
+the difficulty of modifying the credential in a way that still allows its use is greater than
+128 effective security bits.
 
 2.1.6
 -----
@@ -198,8 +199,8 @@ The only ASPs that are stored externally and not also stored internally are non-
 KeyHandles (inside a credential ID). They are wrapped using AES-256-CBC, an approved algorithm.
 They are protected against unauthorized replay - after a CTAP authenticator reset - through the
 regeneration of the "Credential Wrapping Key" and "Non-Discoverable Cred IV" ASPs. Regenerating
-these ASPs prevents any previously-valid credentials from being valid, with a strength of 128
-security bits.
+these ASPs prevents any previously-valid credentials from being valid, with a strength of 128 or
+more security bits.
 
 Other ASPs are stored internally and the internal copy is checked to prevent invalid data from
 being accepted, whether in the context of a replay attack or otherwise.
@@ -215,6 +216,12 @@ KeyHandles themselves are ECDSA keys on NIST P-256, which has an effective stren
 Therefore the claimed strength of the wrapping key is greater than the claimed strength of the
 one being wrapped.
 
+The portion of the user's PIN delivered by the CTAP protocol has 128 security bits. To verify this,
+an HMAC operation in feedback mode (an approved KDF) is performed on the incoming PIN derivative. The
+ASPs for the derivation provide 224 security bits, greater than the 128 for the incoming PIN part.
+
+These are the only cases where keys are wrapped by the authenticator implementation.
+
 2.1.10
 ------
 Each external KeyHandle contains two parts: the private keying material, and the SHA-256 hash
@@ -223,7 +230,7 @@ it is decrypted using AES-256-CBC, and the relying party ID is validated.
 
 Because the decryption is performed using a key and IV that are specific to the authenticator, 
 a KeyHandle from another authenticator would - excepting a coincidence unlikely to happen even
-1 in 2^128 times - not validate.
+1 in 2^128 times, a cryptographic collision - not validate.
 
 Additionally, discoverable credentials are stored on the authenticator itself, and only
 incoming Credential IDs that exactly match them are used.
@@ -243,7 +250,8 @@ incoming Credential IDs that exactly match them are used.
 2.1.13
 ------
 The CTAP2 makeCredential and CTAP1 Register commands result in a unique credential for
-each invocation.
+each invocation. The credential private keys are randomly generated by the AROE, using
+hardware-backed key generation capabilities.
 
 2.1.14
 ------
@@ -322,7 +330,9 @@ The authenticator is a FIDO2 implementation.
 
 2.2.5
 -----
-The SmartMX3 chip uses an Allowed Physical True Random Number Generator to seed its RNG.
+The SmartMX3 chip on which the authenticator software executes uses an Allowed Physical
+True Random Number Generator to seed its RNG. Random number generators other than the
+ones provided by the AROE (and thus backed by the hardware implementation) are NOT used.
 
 
 Signature and Registration
@@ -330,7 +340,8 @@ Signature and Registration
 2.3.1
 -----
 The authenticator implements a global signature counter, shared by all keys.
-No privacy-impact-mitigation measures are implemented.
+Privacy-impact-mitigation measures other than advancing the counter by a random amount
+on each operation are NOT implemented.
 
 2.3.2
 -----
@@ -360,7 +371,7 @@ Question 3.3 was removed from the standard.
 ---
 The authenticator does not support caching user verification.
 
-Each PIN/UV token may be used for a single operation.
+Each PIN/UV token may be used for a single operation, and is marked invalid immediately upon verification.
 
 3.5 - 3.6
 ---------
