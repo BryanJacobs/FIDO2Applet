@@ -130,11 +130,11 @@ The Authenticator Security Parameters are as follows:
 | CTAP signature counter           | 4-byte stored value  | N/A      | Ensures every signature is different; wear-leveled across 64 bytes    | N      | Per authenticator | Flash              | Never         | CTAP            | CTAP reset                                  | 
 | NFC lock state                   | 1-bit stored value   | N/A      | Prevents authenticator from being used after NFC power-off requested  | N      | Per authenticator | RAM                | NFC           | Never           | Applet reset                                | 
 | Attestation Private Key          | ECDSA key on P-256   | 128      | Generate attestation signatures                                       | Y      | Shared            | Flash              | Vendor[1]     | Never           | Never                                       | 
-| Non-Discoverable Credential Key  | ECDSA key on P-256   | 128      | Generate credential signatures                                        | Y      | Per credential    | RAM/External       | Never         | CTAP in Cred    | From RAM immediately after use              | 
+| Non-Discoverable Credential Key  | ECDSA key on P-256   | 128      | Generate credential signatures                                        | Y      | Per credential    | RAM/External       | CTAP in Cred  | CTAP in Cred    | From RAM immediately after use              | 
 | CTAP HMAC extension UV bytes     | 32-byte random value | 256      | Derive CTAP2.1 HMAC Extension key from cred with UV                   | N      | Per authenticator | Flash              | Never         | Never           | CTAP reset                                  | 
 | CTAP HMAC extension non-UV bytes | 32-byte random value | 256      | Derive CTAP2.1 HMAC Extension key from cred without UV                | N      | Per authenticator | Flash              | Never         | Never           | CTAP reset                                  |
 | Discoverable Cred IV             | 16-byte random value | N/A      | Ensure every credential has different stored encrypted blocks         | N      | Per credential    | Flash              | Never         | Never           | When credential deleted                     | 
-| Discoverable Credential Key      | ECDSA key on P-256   | 128      | Same as non-discoverable credential private keys                      | Y      | Per credential    | Flash/RAM/External | CTAP in Cred  | CTAP in Cred    | When credential deleted; from RAM after use | 
+| Discoverable Credential Key      | ECDSA key on P-256   | 128      | Same as non-discoverable credential private keys                      | Y      | Per credential    | Flash/RAM/External | Never[2]      | CTAP in Cred    | When credential deleted; from RAM after use | 
 | Discoverable RP IV               | 16-byte random value | N/A      | Ensure every stored relying party ID has different encrypted blocks   | N      | Per credential    | Flash              | Never         | Never           | When credential deleted                     | 
 | Discoverable Relying Party ID    | AES256(RP ID)        | N/A      | Stored SHA-256 hash of relying party ID                               | N      | Per credential    | Flash              | CTAP          | CTAP            | When credential deleted                     | 
 | Discoverable User IV             | 16-byte random value | N/A      | Ensure every username has different stored encrypted blocks           | N      | Per credential    | Flash              | Never         | Never           | When credential deleted                     | 
@@ -147,6 +147,9 @@ The Authenticator Security Parameters are as follows:
 
 [1] The attestation private key is installed by the vendor during the authenticator setup process, prior
 to first use
+
+[2] Although discoverable credential keys are provided to the authenticator inside Credential IDs via CTAP, the
+stored key (which is checked to be identical) is the source used for cryptographic operations
 
 Only the attestation private key is shared between authenticators. All other ASPs are specific to an
 individual device.
