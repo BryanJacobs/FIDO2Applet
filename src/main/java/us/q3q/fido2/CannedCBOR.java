@@ -168,6 +168,12 @@ public abstract class CannedCBOR {
                     0x73, 0x69, 0x67, // sig
     };
 
+    static final byte[] FIDO_CERT_LEVEL = {
+            (byte) 0xA1, // map with one entry
+            0x64, // string - four bytes long
+                0x46, 0x49, 0x44, 0x4F, // FIDO
+    };
+
     static final byte[] X5C = {
             0x63, // string: three characters
                 0x78, 0x35, 0x63, // x5c

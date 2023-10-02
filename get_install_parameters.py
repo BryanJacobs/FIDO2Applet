@@ -37,6 +37,10 @@ if __name__ == '__main__':
     parser.add_argument('--do-not-store-pin-length', action='store_false', default=None,
                         help="Avoid storing the length of the user PIN internally. Causes setMinPin to force a PIN "
                              "change")
+    parser.add_argument('--cache-pin-token', action='store_false', default=None,
+                        help="Allow a PIN token to be used multiple times, within its permisions")
+    parser.add_argument('--certification-level', type=int, default=None,
+                        help="Obtained FIDO Alliance certification level")
 
     args = parser.parse_args()
 
@@ -55,7 +59,9 @@ if __name__ == '__main__':
         'max_ram_scratch',
         'buffer_mem',
         'flash_scratch',
-        'do_not_store_pin_length'
+        'do_not_store_pin_length',
+        'cache_pin_tokens',
+        'certification_level'
     ]):
         val = getattr(args, option_string)
         if val is None:

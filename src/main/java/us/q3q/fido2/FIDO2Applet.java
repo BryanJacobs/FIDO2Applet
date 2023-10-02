@@ -21,6 +21,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private boolean LOW_SECURITY_MAXIMUM_COMPLIANCE;
     /**
+     * The FIDO Alliance certification level obtained by the authenticator as configured
+     */
+    private byte CERTIFICATION_LEVEL;
+    /**
      * If true, default the `alwaysUv` option to on, and prevent disabling it.
      */
     private boolean FORCE_ALWAYS_UV;
@@ -5542,10 +5546,18 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         short offset = 0;
 
+        byte numOptions = (byte) 0xB0;
         boolean includeMaxMsgSize = bufferMem.length != 1024;
+        boolean includeCertifications = CERTIFICATION_LEVEL > 0;
+        if (includeMaxMsgSize) {
+            numOptions++;
+        }
+        if (includeCertifications) {
+            numOptions++;
+        }
 
         buffer[offset++] = FIDOConstants.CTAP2_OK;
-        buffer[offset++] = (byte) (includeMaxMsgSize ? 0xB1 : 0xB0); // Map - sixteen or seventeen keys
+        buffer[offset++] = numOptions; // Map - some number of options
         buffer[offset++] = 0x01; // map key: versions
 
         if (alwaysUv || attestationData == null || filledAttestationData < attestationData.length) {
@@ -5671,6 +5683,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         buffer[offset++] = 0x12; // map key: uvModality: 1 byte = 19
         buffer[offset++] = 0x19; // two-byte integer: 1 byte = 20
         offset = Util.setShort(buffer, offset, (short) 0x0200); // uvModality "none": 2 bytes = 22
+
+        if (includeCertifications) {
+            buffer[offset++] = 0x13; // map key: certifications
+            offset = Util.arrayCopyNonAtomic(CannedCBOR.FIDO_CERT_LEVEL, (short) 0,
+                    buffer, offset, (short) CannedCBOR.FIDO_CERT_LEVEL.length);
+            buffer[offset++] = CERTIFICATION_LEVEL;
+        }
 
         buffer[offset++] = 0x14; // map key: remainingDiscoverableCredentials: 1 byte = 23
         offset = encodeIntTo(buffer, offset, approximateKeyCount); // variable
@@ -6805,6 +6824,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         BUFFER_MEM_SIZE = 1024;
         FLASH_SCRATCH_SIZE = 1024;
         STORE_PIN_LENGTH = true;
+        CERTIFICATION_LEVEL = 0;
 
         // Next, read any overrides
         final short initOffset = offset;
@@ -6884,6 +6904,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         break;
                     case 0x0C:
                         STORE_PIN_LENGTH = array[offset++] == (byte) 0xF5;
+                        break;
+                    case 0x0D:
+                        ONE_USE_PER_PIN_TOKEN = array[offset++] == (byte) 0xF5;
+                        break;
+                    case 0x0E:
+                        CERTIFICATION_LEVEL = array[offset++];
                         break;
                     default:
                         ISOException.throwIt(ISO7816.SW_WRONG_DATA);

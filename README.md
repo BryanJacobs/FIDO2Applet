@@ -89,40 +89,40 @@ If you're a really detail-oriented person, you might enjoy reading
 
 ## Implementation Status
 
-| Feature                            | Status                                                  |
-|------------------------------------|---------------------------------------------------------|
-| CTAP1/U2F                          | Implemented (see [install guide](docs/certs.md))        |
-| CTAP2.0 core                       | Implemented                                             |
-| CTAP2.1 core                       | Implemented                                             |
-| Resident keys                      | Implemented                                             |
-| User Presence                      | User always considered present: not standards compliant |
-| ECDSA (SecP256r1)                  | Implemented                                             |
-| Other crypto, like ed25519         | Not implemented - availability depends on hardware      |
-| Self attestation                   | Implemented                                             |
-| Basic attestation with ECDSA certs | Implemented (see [install guide](docs/certs.md))        |
-| Webauthn (NOT CTAP!) uvm extension | Implemented                                             |
-| Webauthn devicePubKey extension    | Not implemented                                         |
-| CTAP2.1 hmac-secret extension      | Implemented                                             |
-| CTAP2.1 alwaysUv option            | Implemented                                             |
-| CTAP2.1 credProtect option         | Implemented                                             |
-| CTAP2.1 PIN Protocol 1             | Implemented                                             |
-| CTAP2.1 PIN Protocol 2             | Implemented                                             |
-| CTAP2.1 credential management      | Implemented                                             |
-| CTAP2.1 enterprise attestation     | Implemented but never provided to RPs (defaulted off)   |
-| CTAP2.1 authenticator config       | Implemented                                             |
-| CTAP2.1 minPinLength extension     | Implemented, default max two RPIDs can receive          |
-| CTAP2.1 credBlob extension         | Implemented, discoverable creds only                    |
-| CTAP2.1 largeBlobKey extension     | Implemented                                             |
-| CTAP2.1 authenticatorLargeBlobs    | Implemented, default 1024 bytes storage (max 4k)        |
-| CTAP2.1 bio-stuff                  | Not implemented (doesn't make sense in this context?)   |
-| Key backups                        | Not implemented                                         |
-| APDU chaining                      | Supported                                               |
-| Extended APDUs                     | Supported                                               |
-| Performance                        | Adequate (sub-3-second common operations)               |
-| Resource consumption               | Reasonably optimized for avoiding flash wear            |
-| Bugs                               | Yes                                                     |
-| Code quality                       | No                                                      |
-| Security                           | Theoretical, but see "bugs" row above                   |
+| Feature                            | Status                                                |
+|------------------------------------|-------------------------------------------------------|
+| CTAP1/U2F                          | Implemented (see [install guide](docs/certs.md))      |
+| CTAP2.0 core                       | Implemented                                           |
+| CTAP2.1 core                       | Implemented                                           |
+| Resident keys                      | Implemented                                           |
+| User Presence                      | User always considered present: one verification only |
+| ECDSA (SecP256r1)                  | Implemented                                           |
+| Other crypto, like ed25519         | Not implemented - availability depends on hardware    |
+| Self attestation                   | Implemented                                           |
+| Basic attestation with ECDSA certs | Implemented (see [install guide](docs/certs.md))      |
+| Webauthn (NOT CTAP!) uvm extension | Implemented                                           |
+| Webauthn devicePubKey extension    | Not implemented                                       |
+| CTAP2.1 hmac-secret extension      | Implemented                                           |
+| CTAP2.1 alwaysUv option            | Implemented                                           |
+| CTAP2.1 credProtect option         | Implemented                                           |
+| CTAP2.1 PIN Protocol 1             | Implemented                                           |
+| CTAP2.1 PIN Protocol 2             | Implemented                                           |
+| CTAP2.1 credential management      | Implemented                                           |
+| CTAP2.1 enterprise attestation     | Implemented in code, disabled                         |
+| CTAP2.1 authenticator config       | Implemented                                           |
+| CTAP2.1 minPinLength extension     | Implemented, default max two RPIDs can receive        |
+| CTAP2.1 credBlob extension         | Implemented, discoverable creds only                  |
+| CTAP2.1 largeBlobKey extension     | Implemented                                           |
+| CTAP2.1 authenticatorLargeBlobs    | Implemented, default 1024 bytes storage (max 4k)      |
+| CTAP2.1 bio-stuff                  | Not implemented (doesn't make sense in this context?) |
+| Key backups                        | Not implemented                                       |
+| APDU chaining                      | Supported                                             |
+| Extended APDUs                     | Supported                                             |
+| Performance                        | Adequate (sub-3-second common operations)             |
+| Resource consumption               | Reasonably optimized for avoiding flash wear          |
+| Bugs                               | Yes                                                   |
+| Code quality                       | No                                                    |
+| Security                           | Theoretical, but see "bugs" row above                 |
 
 ## Software Compatibility
 
