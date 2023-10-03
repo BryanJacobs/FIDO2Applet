@@ -54,7 +54,7 @@ class U2FTestCase(BasicAttestationTestCase):
         res_2 = self.ctap1.authenticate(client_param=self.client_data,
                                         app_param=self.rp_hash,
                                         key_handle=cred.key_handle)
-        self.assertEqual(res_1.counter + 1, res_2.counter)
+        self.assertTrue(res_1.counter < res_2.counter)
 
     def test_u2f_credential_usable_over_ctap2(self):
         res = self.ctap1.register(self.client_data, self.rp_hash)

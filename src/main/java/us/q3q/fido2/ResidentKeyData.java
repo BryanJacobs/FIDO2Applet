@@ -21,10 +21,6 @@ public class ResidentKeyData {
     private static final short IV_LEN = 16;
 
     /**
-     * IV for encrypting the credential ID itself
-     */
-    private final byte[] credIV;
-    /**
      * IV for encrypting the user info
      */
     private final byte[] userIV;
@@ -95,8 +91,6 @@ public class ResidentKeyData {
                            byte[] publicKeyBuffer, short publicKeyOffset, short publicKeyLength,
                            byte[] credBlobBuffer, short credBlobOffset, byte credBlobLen,
                            boolean uniqueRP, byte credProtectLevel) {
-        credIV = new byte[IV_LEN];
-        random.generateData(credIV, (short) 0, IV_LEN);
         userIV = new byte[IV_LEN];
         random.generateData(userIV, (short) 0, IV_LEN);
         RPIV = new byte[IV_LEN];
@@ -214,10 +208,6 @@ public class ResidentKeyData {
 
     public byte[] getEncryptedCredentialID() {
         return credential;
-    }
-
-    public byte[] getCredentialIV() {
-        return credIV;
     }
 
     public short getUserIdLength() {

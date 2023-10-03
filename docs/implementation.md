@@ -35,7 +35,7 @@ different areas:
 - The lower half of the APDU, "behind" the read cursor
 - The upper half of the APDU, "above" where the output will reside (or in a place the output will be, 
   if the allocation is first freed)
-- An in-memory temporary buffer whose size is at most 254 bytes and depends on the hardware RAM amount
+- An in-memory temporary buffer
 - A flash buffer as a last resort
 
 In order to abstract away the choice of storage, allocating memory consists of three calls. The first
@@ -110,9 +110,9 @@ Each RK gets a separate IV for each of its data structures:
 When a particular item has a dynamic length, the length is stored unencrypted. All objects are multiples of 32
 bytes long to allow easy AES256 decryption.
 
-Non-discoverable credentials use one of two different IVs depending on the `credProtect` level. Credentials with
-`credProtect=3` use the "high security" IV. Credentials with `credProtect=2` or below use the "low security"
-IV.
+Credentials encode their credProtect level and whether they are "discoverable" or not inside themselves.
+The discoverability bit is necessary because deleting a discoverable credential should invalidate it,
+even if it is given back to the authenticator in an allowList.
 
 ### Enumeration
 

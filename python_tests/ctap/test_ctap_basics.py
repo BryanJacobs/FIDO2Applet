@@ -87,7 +87,7 @@ class CTAPBasicsTestCase(CTAPTestCase):
 
         pubkey = res.auth_data.credential_data.public_key
         pubkey.verify(res.auth_data + self.client_data, res.att_stmt['sig'])
-        self.assertEqual(64, len(res.auth_data.credential_data.credential_id))
+        self.assertEqual(96, len(res.auth_data.credential_data.credential_id))
 
     def test_make_credential_rejects_up_false(self):
         self.basic_makecred_params['options'] = {
