@@ -31,6 +31,9 @@ the PIN. In other words, if you could read all the authenticator's memory
 when a PIN is set, you would only find encrypted data for those
 high-security credentials.
 
+You also opportunistically get this security level for credentials created
+using credProtect level three (user verification required) where the PIN is provided.
+
 ## Details: Security Levels
 
 On boot, the device generates two AES256 keys: the "high security
@@ -45,7 +48,8 @@ is used depends on how the credential is generated:
 - all credentials use the high security key if `FORCE_ALWAYS_UV`
 - credentials created with `credProtect` level 3, "require user
   verification for any discovery" always use the high security key,
-  unless `LOW_SECURITY_MAXIMUM_COMPATIBILITY` is set
+  unless `LOW_SECURITY_MAXIMUM_COMPATIBILITY` is set AND the PIN
+  is unavailable at the point the credential is created
 - credentials stored on the authenticator itself ("discoverable") use
   the high security key if the tunable `USE_LOW_SECURITY_FOR_SOME_RKS`
   is false
@@ -81,7 +85,7 @@ authenticator returns a  32-byte "pinToken", also encrypted. From then on
 proof of possession of the PIN is via challenge-response using 16 bytes of
 the hash of whatever content with pinToken as the key.
 
-In other words, it's pretty secure. The PIN token is rerandomized each time a
+In other words, it's pretty secure. The PIN token is re-randomized each time a
 guess is unsuccessful and each authenticator reset. You can't intercept
 someone's PIN except when it's being initially set, and even then it's sent
 encrypted with ECDH. The least secure part of it is when the **initial** PIN

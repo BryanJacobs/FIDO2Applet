@@ -27,7 +27,7 @@ Transaction confirmation display is NOT implemented.
 1.2
 ---
 The authenticator uses AES-256, in the Cipher Block Chaining (CBC) mode of operation, for confidentiality of data.
-Credential IDs are transmitted externally; these use an interally-stored SHA-256 for integrity.
+Credential IDs are transmitted externally; these use an HMAC-SHA256 truncated to 128 bits for confidentiality.
 
 All hashing uses SHA-256.
 
@@ -47,16 +47,19 @@ The authenticator does NOT provide anonymous attestation.
 ---
 The user private key is stored inside the key handle. The key handle consists of:
 
-AES256-CBC(BYTEMIX(Uauth.priv, SHA256(AppID)))
+Nonce := 15 random bytes
+IV := 16 random bytes
+Payload := SHA256(AppID) || Uauth.priv || CredProtectIndicationByte || Nonce
+EncryptedPayload := IV || AES256-CBC(Payload)
+KeyHandle := EncryptedPayload || Left16(SHA256(EncryptedPayload))
 
 Where:
 
 - AppID is the CTAP1 Application ID or the CTAP2 Relying Party ID
 - Uauth.priv is the generated User Private Key, encoded as a raw point on the NIST P-256 curve
-- BYTEMIX is a function interleaving its inputs, taking one byte at a time from each in sequence and so producing an
-  output where, so long as the number of inputs is less than 16, every 16-byte block contains at least one byte from
-  each input. This prevents the AES256-CBC output from having any single block entirely determined by input originating
-  from outside the authenticator boundary
+- Left16 is a function taking the first 16 bytes of its input
+- CredProtectIndicationByte is a single byte containing the credential protection level applied to the credential. If
+  the credential is generated as discoverable, the high bit of this byte is set to support credential later deletion
 
 The Key Handle is used as the opaque Credential ID, for both discoverable and non-discoverable credentials.
 
@@ -78,6 +81,9 @@ The authenticator does NOT use a KHAccessToken; the Key Handle is required to ac
 accomplished through the Key Handle containing the SHA256 hash of the Relying Party ID / App ID. The
 authenticator software validates the RP ID through a separately computed hash of the requested RP prior to allowing
 use of the key.
+
+The Key Handle itself is authenticated using an HMAC, which is verified prior to the use of any decrypted data from
+within it (including the stored Relying Party ID).
 
 1.8
 ---
@@ -116,9 +122,9 @@ The Authenticator Security Parameters are as follows:
 | PIN derivation salt              | 28-byte random value | 224      | Derive HMAC key from user PIN                                         | N      | Per authenticator | Flash              | Never         | Never           | CTAP reset                                  |
 | PIN Verification Nonce           | 32-byte random value | N/A      | Verify the correct PIN was provided by the user using HMAC            | N      | Per authenticator | Flash              | Never         | Never           | CTAP pin set/change                         | 
 | CTAP PIN Protocol 2 IVs          | 16-byte values       | N/A      | Prevent replay/modification of commands protected by PIN protocol 2   | N      | Per command       | None               | CTAP          | CTAP            | N/A                                         | 
-| Credential Wrapping Key          | 32-byte random value | 256      | Encrypt/decrypt KeyHandles                                            | Y      | Per authenticator | Flash              | Never         | Never           | CTAP reset                                  | 
-| Non-Discoverable Cred IV         | 16-byte random value | N/A      | Make first block of KeyHandles less predictable                       | N      | Per authenticator | Flash              | Never         | Never           | CTAP reset                                  | 
-| Non-Discoverable CredProt-3 IV   | 16-byte random value | N/A      | Distinguish non-discoverable credProtect=3 credentials                | N      | Per authenticator | Flash              | Never         | Never           | CTAP reset                                  | 
+| Credential Wrapping cp3 UV Key   | 32-byte random value | 128[3]   | Encrypt/decrypt KeyHandles using credProtect level 3 with PIN         | Y      | Per authenticator | Flash              | Never         | Never           | CTAP reset                                  | 
+| Credential Wrapping Non-UV Key   | 32-byte random value | 256      | Encrypt/decrypt KeyHandles credProtect<3 or no PIN                    | Y      | Per authenticator | Flash              | Never         | Never           | CTAP reset                                  | 
+| Credential Wrapping HMAC Key     | 32-byte random value | 128      | Verify Credential IDs                                                 | Y      | Per authenticator | Flash              | Never         | Never           | CTAP reset                                  | 
 | CTAP Platform Agreement Key      | EC key on P-256      | 128      | ECDH-generate a shared secret between Authenticator and Platform      | Y      | Per authenticator | RAM                | Never         | Public via CTAP | Applet deselect OR as per CTAP standard     | 
 | CTAP Platform shared secret      | 32-byte negotiated   | 256      | Communicate securely with a connected FIDO platform                   | Y      | Per authenticator | RAM                | Half via CTAP | Never           | Applet deselect OR as per CTAP standard     | 
 | CTAP pinToken                    | 32-byte random value | N/A      | Allow or deny CTAP operations that require a PIN                      | N      | Per authenticator | RAM                | CTAP          | CTAP            | Applet deselect OR as per CTAP standard     | 
@@ -133,7 +139,7 @@ The Authenticator Security Parameters are as follows:
 | Non-Discoverable Credential Key  | ECDSA key on P-256   | 128      | Generate credential signatures                                        | Y      | Per credential    | RAM/External       | CTAP in Cred  | CTAP in Cred    | From RAM immediately after use              | 
 | CTAP HMAC extension UV bytes     | 32-byte random value | 256      | Derive CTAP2.1 HMAC Extension key from cred with UV                   | N      | Per authenticator | Flash              | Never         | Never           | CTAP reset                                  | 
 | CTAP HMAC extension non-UV bytes | 32-byte random value | 256      | Derive CTAP2.1 HMAC Extension key from cred without UV                | N      | Per authenticator | Flash              | Never         | Never           | CTAP reset                                  |
-| Discoverable Cred IV             | 16-byte random value | N/A      | Ensure every credential has different stored encrypted blocks         | N      | Per credential    | Flash              | Never         | Never           | When credential deleted                     | 
+| Cred IV                          | 16-byte random value | N/A      | Ensure every credential has different stored encrypted blocks         | N      | Per credential    | Flash/RAM/External | CTAP in Cred  | CTAP in Cred    | When credential deleted; from RAM after use | 
 | Discoverable Credential Key      | ECDSA key on P-256   | 128      | Same as non-discoverable credential private keys                      | Y      | Per credential    | Flash/RAM/External | Never[2]      | CTAP in Cred    | When credential deleted; from RAM after use | 
 | Discoverable RP IV               | 16-byte random value | N/A      | Ensure every stored relying party ID has different encrypted blocks   | N      | Per credential    | Flash              | Never         | Never           | When credential deleted                     | 
 | Discoverable Relying Party ID    | AES256(RP ID)        | N/A      | Stored SHA-256 hash of relying party ID                               | N      | Per credential    | Flash              | CTAP          | CTAP            | When credential deleted                     | 
@@ -151,15 +157,18 @@ to first use
 [2] Although discoverable credential keys are provided to the authenticator inside Credential IDs via CTAP, the
 stored key (which is checked to be identical) is the source used for cryptographic operations
 
+[3] The credProtect-level-3/UV key is 32 bytes and randomly generated, which would normally be a strength of 256
+bits. However, the claimed security strength is only 128 bits because it may be wrapped with the user's PIN as the key,
+and the portion of the user's PIN used only has a strength of 128 bits.
+
 Only the attestation private key is shared between authenticators. All other ASPs are specific to an
 individual device.
 
 Note: Every value deleted on "applet deselect" is also deleted when power is removed from the authenticator,
 or when the applet is uninstalled, or when a CTAP reset operation is performed.
 
-Note: In every case where AES-256-CBC is used, an Initialization Vector (IV) is also used. Every IV is
-unique except for that used for wrapping non-discoverable Credential IDs, which is shared across
-credentials.
+Note: In every case where AES-256-CBC is used (for confidentiality), an Initialization Vector (IV) is also used.
+Every IV is unique and randomly generated.
 
 Note: User-private data are stored encrypted inside the authenticator implementation, even though the authenticator
 software executes inside an AROE. These data are encrypted using unique IVs so as to prevent an inspection of the
@@ -178,8 +187,17 @@ Please see the effective security bit strength of keys in table 2.1.1, above.
 -----
 The overall claimed strength of the authenticator is 128 bits. The "weakest link" is the generated
 ECDSA credentials on the P-256 curve, which have a strength of 128 security bits. The user's PIN
-as provided in CTAP is also a 128 bit value. All wrapping/storage operations are at least 224 security bits
+as provided in CTAP is also a 128 bit value. All confidentiality operations are at least 224 security bits
 in strength, not degrading the underlying 128-bit keys.
+
+The verification of Credential IDs uses HMAC with a SHA-256 hash, truncated to 16 bytes in length. The effective
+strength of the HMAC is the minimum of:
+
+- the length of the output of the hash used (16 bytes = 128 bits)
+- one-half the number of bits in the hash state (SHA-256 = 256 bits / 2 = 128 bits)
+- the number of bits in the HMAC key (256 bits)
+
+So the overall effective strength of the truncated HMAC is 128 bits, the same as the key it verifies.
 
 2.1.5
 -----
@@ -187,9 +205,11 @@ All ASPs stored inside the AROE are protected against modification and substitut
 element on which the authenticator software executes.
 
 Credential IDs for non-discoverable credentials are stored externally. They are protected against
-modification as documented in section 1.3; due to the mixture of credential and Relying Party ID
-the difficulty of modifying the credential in a way that still allows its use is greater than
-128 effective security bits.
+modification as documented in answers 1.3 and 2.1.4; the HMAC used provides an effective 128 bits of security
+against modification of the Credential ID.
+
+The authenticator test suite contains a test that verifies that modifying any byte of a credential causes the
+authenticator to reject its use.
 
 2.1.6
 -----
@@ -201,7 +221,7 @@ the authenticator code executes.
 The only ASPs that are stored externally and not also stored internally are non-discoverable
 KeyHandles (inside a credential ID). They are made confidential using AES-256, an approved algorithm.
 They are protected against unauthorized replay - after a CTAP authenticator reset - through the
-regeneration of the "Credential Wrapping Key" and "Non-Discoverable Cred IV" ASPs. Regenerating
+regeneration of the "Credential Wrapping UV/non-UV Key" and "Credential Wrapping HMAC Key" ASPs. Regenerating
 these ASPs prevents any previously-valid credentials from being valid, with a strength of 128 or
 more security bits.
 
@@ -210,30 +230,33 @@ being accepted, whether in the context of a replay attack or otherwise.
 
 2.1.8
 -----
-External KeyHandles are protected using AES-256 with CBC, an approved algorithm.
+External KeyHandles are protected using Encrypt-then-HMAC, an approved algorithm.
 
 2.1.9
 -----
-External KeyHandles are protected using AES-256 with CBC, an effective strength of 256 bits. The
-KeyHandles themselves are ECDSA keys on NIST P-256, which has an effective strength of 128 bits.
-Therefore the claimed strength of the wrapping key is greater than the claimed strength of the
-one being wrapped.
+See the response to question 2.1.4.
 
 The portion of the user's PIN delivered by the CTAP protocol has 128 security bits. To verify this,
 an HMAC operation in feedback mode (an approved KDF) is performed on the incoming PIN derivative. The
 ASPs for the derivation provide 224 security bits, greater than the 128 for the incoming PIN part.
 
+External KeyHandles are confidential using AES-256 with CBC, an effective strength of 256 bits (or 128
+bits when the user's PIN is the source of the confidentiality key).
+External KeyHandles are authenticated using HMAC with SHA256, truncated to 16 bytes. The truncation does
+not affect the effective strength of the HMAC - it is still 128 bits. The key used for the HMAC has a
+strength of 256 bits.
+
+KeyHandles themselves are ECDSA keys on NIST P-256, which has an effective strength of 128 bits.
+
+Therefore the claimed strength of both the confidentiality and integrity portions of the key protection
+are as strong or stronger than the key being wrapped.
+
 These are the only cases where keys are wrapped by the authenticator implementation.
 
 2.1.10
 ------
-Each external KeyHandle contains two parts: the private keying material, and the SHA-256 hash
-of the relying party ID for which the key is valid. Prior to allowing the use of the KeyHandle,
-it is decrypted using AES-256-CBC, and the relying party ID is validated.
-
-Because the decryption is performed using a key and IV that are specific to the authenticator, 
-a KeyHandle from another authenticator would - excepting a coincidence unlikely to happen even
-1 in 2^128 times, a cryptographic collision - not validate.
+Each external KeyHandle has its attached HMAC signature validated prior to use. HMAC is an
+Allowed Data Authentication Algorithm.
 
 Additionally, discoverable credentials are stored on the authenticator itself, and only
 incoming Credential IDs that exactly match them are used.
@@ -299,7 +322,7 @@ The authenticator does NOT store or output user verification reference data.
 2.1.20
 ------
 As discussed in 1.3, UAuth.priv is stored inside an AES256-CBC encryption. The encryption uses
-two ASPs specific to this authenticator (and which are also deleted by a CTAP reset operation).
+only ASPs specific to this authenticator (and which are also deleted by a CTAP reset operation).
 
 As only one authenticator has a given credential wrapping key ASP, only it can unwrap UAuth.priv.
 
@@ -460,14 +483,16 @@ stored credentials. But it prevents the disclosure of the validity of a non-disc
 
 4.5
 ---
-The authenticator has two methods that reveal whether a Credential ID is registered. The first is the CTAP GetAssertion
-operation, and the second is the CTAP Credential Management operations.
+The authenticator has three methods that reveal whether a Credential ID is registered. The first is the CTAP GetAssertion
+operation, the second is the CTAP Credential Management operations, and the third is the U2F Authenticate operation.
 
 The GetAssertion operation requires user verification - via a client PIN - to permit an empty AllowList. If the
 AllowList is NOT empty, stored credentials are NOT used. This means that GetAssertion requires either a Credential ID
 or user verification to generate a signature.
 
 The Credential Management API always requires user verification.
+
+The U2F Authenticate operation always requires a provided Credential ID.
 
 So, all methods that reveal a credential require either user verification or a provided Credential ID.
 
@@ -477,26 +502,19 @@ The authenticator implements the CredProtect extension.
 
 4.7
 ---
-For discoverable credentials, the credProtect level is stored alongside the credential itself inside the authenticator.
+For discoverable credentials, the credProtect level is stored alongside the credential inside the authenticator.
 When an attempt is made to use the credential (whether via an AllowList or otherwise), this level is consulted and used
 to ensure the CTAP credProtect extension requirements are met.
 
-For non-discoverable credentials, at creation time one of two different Initialization Vectors is used in wrapping the
-KeyHandle into the Credential ID. The first IV is for credentials with no credprotect level, and for those with 
-credProtect levels one or two. The second IV is for credentials with credProtect level three.
+For non-discoverable credentials, the credProtect level encoded inside the Credential ID itself is checked.
 
-At the time a credential is used, no attempt to decrypt it with the credProtect-three-only IV is made unless user
-verification has been performed.
+Additionally, the authenticator implements an additional layer of protection for credProtect level three credentials:
+if the user PIN was provided to the authenticator at the time of their creation (via the regular CTAP clientPin
+user verification method), the credential itself is encrypted using a key stored wrapped by the user's PIN. This
+ensures that credentials so created require the user's PIN (as user verification) when used again.
 
-As the use of a different IV completely changes the resulting encrypted Credential ID, this means that
-credProtect-level-three non-discoverable credentials will appear just like completely invalid credentials.
-
-credProtect level one and two non-discoverable credentials are not stored on the authenticator itself, so the only
-way they can be considered for use is if they are presented in an AllowList to the GetAssertion call. This satisfies
-the requirements for credProtect levels one and two, and no further checking is required.
-
-The CTAP1 Authenticate operation does NOT attempt to use the IV for non-discoverable level three credentials, and does
-NOT allow the use of discoverable credentials with a stored credProtect level of three.
+The CTAP1 Authenticate operation does NOT allow the use of discoverable credentials with a stored credProtect
+level of three; any such credentials are ignored.
 
 In all cases, a credential whose use is not allowed by security requirements is ignored; at no point is it revealed
 that the credential would have been valid with a higher level of user verification.
@@ -507,7 +525,7 @@ and thus satisfy the requirements for credProtect level three.
 4.8
 ---
 The authenticator is a FIDO device. It reveals stored usernames via the FIDO Credential Management APIs, which require
-user verification.
+user verification. GetAssertion operations making use of stored credentials also require user verification.
 
 4.9
 ---

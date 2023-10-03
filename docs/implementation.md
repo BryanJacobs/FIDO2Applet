@@ -91,16 +91,15 @@ those 32 bytes should be sent to the user.
 
 ### Credentials, IVs, and Wrapping Keys
 
-Each credential this application produces is a bit-mixed combination of the SHA256 hash of an RPID and the
-credential's own private key.
+Each credential this application produces is a combination of the SHA256 hash of an RPID and the
+credential's own private key. It also contains a bit indicating whether the credential is discoverable,
+a 16 byte IV for encryption, and a 16 byte HMAC for verification.
 
-It's not a good idea to reuse an IV. Nonetheless, we have to for non-discoverable credentials: including an
-IV would make the credentials 16 bytes longer, and I decided it was more important to keep them at the
-minimum 64 bytes long.
+The discoverability bit is necessary because deleting a discoverable credential should invalidate it,
+even if it is given back to the authenticator in an allowList.
 
 Each RK gets a separate IV for each of its data structures:
 
-- Credential itself (contains RP ID and private key)
 - Encrypted user ID
 - Encrypted RP name
 - Public key (yes, this is stored encrypted)
@@ -109,10 +108,6 @@ Each RK gets a separate IV for each of its data structures:
 
 When a particular item has a dynamic length, the length is stored unencrypted. All objects are multiples of 32
 bytes long to allow easy AES256 decryption.
-
-Credentials encode their credProtect level and whether they are "discoverable" or not inside themselves.
-The discoverability bit is necessary because deleting a discoverable credential should invalidate it,
-even if it is given back to the authenticator in an allowList.
 
 ### Enumeration
 

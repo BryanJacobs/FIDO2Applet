@@ -18,10 +18,6 @@ public abstract class FIDOConstants {
     public static final byte CMD_CREDENTIAL_MANAGEMENT_PREVIEW = 0x41;
 
     /**
-     * "Vendor" command, non-FIDO-standard: dump memory buffer sizing info
-     */
-    public static final byte CMD_DUMP_ABUF = 0x45;
-    /**
      * "Vendor" command, non-FIDO-standard: install attestation certificates
      */
     public static final byte CMD_INSTALL_CERTS = 0x46;

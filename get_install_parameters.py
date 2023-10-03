@@ -29,7 +29,7 @@ if __name__ == '__main__':
     parser.add_argument('--max-rk-rp-length', type=int, default=32,
                         help="Number of bytes of the relying party identifier stored with each RK. Must be >=32")
     parser.add_argument('--max-ram-scratch', type=int, default=254,
-                        help="Number of bytes of RAM to use for working memory. Reduces flash wear. Must be <=254")
+                        help="Number of bytes of RAM to use for working memory. Reduces flash wear.")
     parser.add_argument('--buffer-mem', type=int, default=1024,
                         help="Number of bytes of RAM to use for request processing. Reduces flash wear. Must be >=1024")
     parser.add_argument('--flash-scratch', type=int, default=1024,

@@ -87,7 +87,7 @@ class CTAPBasicsTestCase(CTAPTestCase):
 
         pubkey = res.auth_data.credential_data.public_key
         pubkey.verify(res.auth_data + self.client_data, res.att_stmt['sig'])
-        self.assertEqual(96, len(res.auth_data.credential_data.credential_id))
+        self.assertEqual(112, len(res.auth_data.credential_data.credential_id))
 
     def test_make_credential_rejects_up_false(self):
         self.basic_makecred_params['options'] = {
@@ -265,6 +265,40 @@ class CTAPBasicsTestCase(CTAPTestCase):
         cred_res.auth_data.credential_data.public_key.verify(
             assert_res.auth_data + assert_client_data, assert_res.signature
         )
+
+    def test_creds_are_tamper_resistant(self):
+        cred_res = self.ctap2.make_credential(**self.basic_makecred_params)
+
+        cred_id = cred_res.auth_data.credential_data.credential_id
+
+        for i in range(len(cred_id)):
+            assert_client_data = self.get_random_client_data()
+            cred_as_bl = list(cred_id)
+
+            error_raised = False
+
+            for x in range(5):
+                munged_cred_id = bytearray(cred_as_bl[:i] + [((cred_as_bl[i] + 1 + x) % 128)] + cred_as_bl[i+1:])
+
+                try:
+                    self.ctap2.get_assertion(
+                        client_data_hash=assert_client_data,
+                        allow_list=[self.get_descriptor_from_cred_id(munged_cred_id)],
+                        rp_id=self.rp_id
+                    )
+                except CtapError as e:
+                    self.assertEqual(CtapError.ERR.NO_CREDENTIALS, e.code)
+                    error_raised = True
+                    break
+
+            self.assertTrue(error_raised)
+
+        self.ctap2.get_assertion(
+            client_data_hash=self.get_random_client_data(),
+            allow_list=[self.get_descriptor_from_cred_id(cred_id)],
+            rp_id=self.rp_id
+        )
+
 
     def test_no_keys_found(self):
         self.ctap2.make_credential(**self.basic_makecred_params)
