@@ -26,8 +26,8 @@ Transaction confirmation display is NOT implemented.
 
 1.2
 ---
-All encryption performed by the authenticator (including key protection) uses AES-256, in the Cipher Block Chaining
-(CBC) mode of operation.
+The authenticator uses AES-256, in the Cipher Block Chaining (CBC) mode of operation, for confidentiality of data.
+Credential IDs are transmitted externally; these use an interally-stored SHA-256 for integrity.
 
 All hashing uses SHA-256.
 
@@ -199,7 +199,7 @@ the authenticator code executes.
 2.1.7
 -----
 The only ASPs that are stored externally and not also stored internally are non-discoverable
-KeyHandles (inside a credential ID). They are wrapped using AES-256-CBC, an approved algorithm.
+KeyHandles (inside a credential ID). They are made confidential using AES-256, an approved algorithm.
 They are protected against unauthorized replay - after a CTAP authenticator reset - through the
 regeneration of the "Credential Wrapping Key" and "Non-Discoverable Cred IV" ASPs. Regenerating
 these ASPs prevents any previously-valid credentials from being valid, with a strength of 128 or

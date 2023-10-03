@@ -62,7 +62,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * Maximum size for the in-memory portion of the "scratch" working buffer. Larger will reduce flash use.
      * If this is larger than the available memory, all available memory will be used.
      */
-    private byte MAX_RAM_SCRATCH_SIZE;
+    private short MAX_RAM_SCRATCH_SIZE;
     /**
      * Size of buffer used for receiving incoming data and sending responses.
      * To be standards-compliant, must be at least 1024 bytes, but can be larger.
@@ -123,8 +123,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     private static final short MAX_FRAGMENT_LEN = 960;
     /**
      * Total byte length of output FIDO2 Credential ID struct.
-     * Most authenticators use 64, so you probably want to use 64 as well so creds that come from this authenticator
-     * in particular can't be distinguished. The minimum possible value is 32, since credentials need to contain RP
+     * Many authenticators use 64, so ideally we would want to use 64 as well so creds that come from this authenticator
+     * are not distinguishable from those. However, the FIDO certification standard requires that keys stored inside
+     * a credential are authenticated as well as encrypted, so we need some bits for an HMAC.
+     * The minimum possible value for non-resident credentials is 32, since credentials need to contain RP
      * ID hashes (which are 32-byte SHA256es). In order to reduce this to 32 you would need to deterministically derive
      * the credential private key from the RP and User IDs instead of storing it inside the credential.
      */
@@ -4320,10 +4322,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             initTransientStorage(apdu);
 
             short availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT);
-            if (availableMem > 0xFF) {
-                availableMem = 0xFF;
-            }
-            final byte transientMem = (byte)(availableMem >= (0xFF & MAX_RAM_SCRATCH_SIZE) ? MAX_RAM_SCRATCH_SIZE : availableMem);
+            final short transientMem = availableMem >= MAX_RAM_SCRATCH_SIZE ? MAX_RAM_SCRATCH_SIZE : availableMem;
 
             JCSystem.beginTransaction();
             boolean ok = false;
@@ -6591,8 +6590,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param outOff Offset into output buffer to write key
      */
     private void PBKDF2(APDU apdu, byte[] pinBuf, short offset, byte[] output, short outOff) {
-        short tempOff = (short)(outOff + 32);
-        short keyOff = (short)(outOff + 64);
+        final short tempOff = (short)(outOff + 32);
+        final short keyOff = (short)(outOff + 64);
 
         Util.arrayCopyNonAtomic(pinKDFSalt, (short) 0,
                 output, outOff, (short) pinKDFSalt.length);
@@ -6601,7 +6600,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         output[(short)(outOff + pinKDFSalt.length + 1)] = 0x00;
         output[(short)(outOff + pinKDFSalt.length + 2)] = 0x00;
         output[(short)(outOff + pinKDFSalt.length + 3)] = 0x01;
-        for (short i = (short)(outOff + pinKDFSalt.length + 4); i < (short)(outOff + 32); i++) {
+        for (short i = (short)(outOff + pinKDFSalt.length + 4); i < tempOff; i++) {
             output[i] = 0x00;
         }
 
@@ -6820,7 +6819,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         MAX_CRED_BLOB_LEN = 32;
         short largeBlobStoreSize = 1024;
         MAX_RESIDENT_RP_ID_LENGTH = 32;
-        MAX_RAM_SCRATCH_SIZE = (byte) 254;
+        MAX_RAM_SCRATCH_SIZE = 256;
         BUFFER_MEM_SIZE = 1024;
         FLASH_SCRATCH_SIZE = 1024;
         STORE_PIN_LENGTH = true;

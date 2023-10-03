@@ -20,15 +20,15 @@ public final class BufferManager {
     /**
      * Location in in-memory buffer of byte describing how much of the in-memory buffer is used
      */
-    private static final byte OFFSET_MEMBUF_USED_SPACE = 0; // 1 byte
+    private static final byte OFFSET_MEMBUF_USED_SPACE = 0; // 2 bytes
     /**
      * Location in in-memory buffer of short describing how much flash is used
      */
-    private static final byte OFFSET_FLASH_USED_SPACE = 1; // 2 bytes
+    private static final byte OFFSET_FLASH_USED_SPACE = 2; // 2 bytes
     /**
      * Total in-memory buffer overhead of state keeping variables
      */
-    private static final byte STATE_KEEPING_OVERHEAD = 3;
+    private static final byte STATE_KEEPING_OVERHEAD = 4;
 
     /**
      * In-RAM buffer which is OUTSIDE the APDU buffer. Great to have for minimizing flash wear.
@@ -69,8 +69,8 @@ public final class BufferManager {
      */
     public static final byte NOT_LOWER_APDU = (byte)(UPPER_APDU | MEMORY_BUFFER | FLASH);
 
-    public BufferManager(byte transientLen, short persistentLen) {
-        inMemoryBuffer = JCSystem.makeTransientByteArray( (short)(0xFF & transientLen), JCSystem.CLEAR_ON_DESELECT);
+    public BufferManager(short transientLen, short persistentLen) {
+        inMemoryBuffer = JCSystem.makeTransientByteArray(transientLen, JCSystem.CLEAR_ON_DESELECT);
         flashBuffer = new byte[persistentLen];
         clear();
     }
@@ -192,10 +192,11 @@ public final class BufferManager {
         }
 
         if ((allowedLocations & MEMORY_BUFFER) != 0) {
-            short mbUsed = (short) (0xFF & inMemoryBuffer[OFFSET_MEMBUF_USED_SPACE]);
+            short mbUsed = Util.getShort(inMemoryBuffer, OFFSET_MEMBUF_USED_SPACE);
             if (amt <= (short) (inMemoryBuffer.length - mbUsed)) {
                 // Memory buffer has room
-                inMemoryBuffer[OFFSET_MEMBUF_USED_SPACE] = (byte) (mbUsed + amt);
+                Util.setShort(inMemoryBuffer, OFFSET_MEMBUF_USED_SPACE,
+                        (short) (mbUsed + amt));
                 return encodeMemoryBufferOffset(mbUsed);
             }
         }
@@ -225,7 +226,8 @@ public final class BufferManager {
     public void release(APDU apdu, short handle, short amt) {
         if (handle < 0) {
             if (handle <= -12288) {
-                inMemoryBuffer[OFFSET_MEMBUF_USED_SPACE] -= amt;
+                Util.setShort(inMemoryBuffer, OFFSET_MEMBUF_USED_SPACE,
+                        (short)(Util.getShort(inMemoryBuffer, OFFSET_MEMBUF_USED_SPACE) - amt));
                 return;
             }
             final byte[] apduBuf = apdu.getBuffer();
@@ -288,8 +290,8 @@ public final class BufferManager {
      * between when this call is made and the next memory allocation is requested.
      */
     public void clear() {
-        Util.setShort(inMemoryBuffer, OFFSET_FLASH_USED_SPACE, (short) 0);
         // We still keep our state variables in memory, so don't reset the used amount to zero...
-        inMemoryBuffer[OFFSET_MEMBUF_USED_SPACE] = STATE_KEEPING_OVERHEAD;
+        Util.setShort(inMemoryBuffer, OFFSET_MEMBUF_USED_SPACE, STATE_KEEPING_OVERHEAD);
+        Util.setShort(inMemoryBuffer, OFFSET_FLASH_USED_SPACE, (short) 0);
     }
 }
