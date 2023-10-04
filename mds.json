@@ -44,12 +44,13 @@
         "largeBlobs": true,
         "makeCredUvNotRqd": true,
         "pinUvAuthToken": true,
-	  "setMinPINLength": true
+        "setMinPINLength": true,
+        "uvAcfg": true
     },
     "maxCredBlobLength": 32,
     "pinUvAuthProtocols": [2, 1],
     "maxCredentialCountInList": 10,
-    "maxCredentialIdLength": 64,
+    "maxCredentialIdLength": 112,
     "firmwareVersion": 1,
     "remainingDiscoverableCredentials": 100,
     "minPINLength": 4,
