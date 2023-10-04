@@ -12,7 +12,8 @@
     { "major": 1, "minor": 1 },
     { "major": 1, "minor": 0 }
   ],
-  "authenticationAlgorithms": ["secp256r1_ecdsa_sha256_raw"],
+  "authenticationAlgorithms": ["secp256r1_ecdsa_sha256_der"],
+  "assertionScheme": "FIDOV2",
   "publicKeyAlgAndEncodings": ["cose"],
   "attestationTypes": ["basic_full"],
   "userVerificationDetails": [
@@ -25,8 +26,14 @@
   ],
   "keyProtection": ["hardware", "secure_element"],
   "matcherProtection": ["on_chip"],
+  "isFreshUserVerificationRequired": true,
+  "isSecondFactorOnly": false,
+  "operatingEnv": "Secure Element (SE)",
   "cryptoStrength": 128,
-  "attachmentHint": ["nfc"],
+  "attachmentHint": ["nfc", "wireless"],
+  "supportedExtensions": [
+
+  ],
   "tcDisplay": [],
   "attestationRootCertificates": ["MIIBPjCB5qADAgECAhRGVRN2Qi4Y97Q3vK0l5YB8CqNbVTAKBggqhkjOPQQDAjAgMQ0wCwYDVQQKDARBQ01FMQ8wDQYDVQQDDAZBdXRoQ0EwHhcNMjMwOTE1MTYwNDE0WhcNMzMwOTEzMTYwNDE0WjAgMQ0wCwYDVQQKDARBQ01FMQ8wDQYDVQQDDAZBdXRoQ0EwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATyn3WzUaMddA5MqLqf27YTS2izCw+HTX+vTUeImQkg9bPB67t4SswTEgT/VAQq7WgjGFRw0mk2Pu3nAf98wAjfMAoGCCqGSM49BAMCA0cAMEQCIESrgGpvqhNKAsHqZVWUYZxQRcss3nGwnFg827aZamMCAiA1vQUO0f5VAzLRccQK7/otfRBha/5wNUyK8QyF8pQcgA=="],
   "authenticatorGetInfo": {

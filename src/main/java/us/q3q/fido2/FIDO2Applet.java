@@ -1200,7 +1200,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
             // Sometimes, when the stars (mis)align, we get points less than 32 bytes long.
             // Let's roll the dice up to three times to make that happen less.
-            // We lose one bit of randomness in our keys - they have 2^31 * 254 possible values
             short sLen = ((ECPrivateKey) keyPair.getPrivate()).getS(publicKeyBuffer, publicKeyOffset);
             short wLen = ((ECPublicKey) keyPair.getPublic()).getW(publicKeyBuffer, publicKeyOffset);
             if (sLen == KEY_POINT_LENGTH && wLen == PUB_KEY_LENGTH
@@ -1285,7 +1284,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     }
 
     /**
-     * Handspun implementation of HMAC-SHA256, to work around lack of hardware support
+     * Hand-spun implementation of HMAC-SHA256, to work around lack of hardware support
      *
      * @param apdu Request/response object
      * @param keyBuff Buffer containing 32-byte-long private key
@@ -1696,9 +1695,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @return true if the credential was successfully encrypted
      */
     private boolean encodeCredentialID(APDU apdu, ECPrivateKey privKey,
-                                    byte[] rpIdHashBuffer, short rpIdHashOffset,
-                                    byte[] outBuffer, short outOffset,
-                                    short rkNum, boolean lowSecurity, byte credProtectLevel) {
+                                       byte[] rpIdHashBuffer, short rpIdHashOffset,
+                                       byte[] outBuffer, short outOffset,
+                                       short rkNum, boolean lowSecurity, byte credProtectLevel) {
         if (rkNum >= 0 && !LOW_SECURITY_MAXIMUM_COMPLIANCE && !USE_LOW_SECURITY_FOR_SOME_RKS) {
             lowSecurity = false;
         }
