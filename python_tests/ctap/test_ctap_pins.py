@@ -3,7 +3,7 @@ from typing import Optional
 
 from fido2.client import ClientError, PinRequiredError
 from fido2.ctap import CtapError
-from fido2.ctap2 import ClientPin
+from fido2.ctap2 import ClientPin, PinProtocolV1, PinProtocolV2
 from fido2.webauthn import UserVerificationRequirement
 from parameterized import parameterized
 
@@ -109,14 +109,16 @@ class CTAPPINTestCase(CTAPTestCase):
         self.assertEqual(CtapError.ERR.NOT_ALLOWED, e.exception.code)
 
     @parameterized.expand([
-        ("short", 1, False),
-        ("minimal", 2, True),
-        ("reasonable", 8, True),
-        ("maximal", 31, True),
-        ("overlong", 32, False),
-        ("huge", 40, False),
+        ("short", 2, 1, False),
+        ("minimal", 2, 2, True),
+        ("reasonable", 2, 8, True),
+        ("reasonable", 1, 8, True),
+        ("maximal", 2, 31, True),
+        ("overlong", 2, 32, False),
+        ("huge", 2, 40, False),
+        ("huge", 1, 40, False),
     ])
-    def test_pin_lengths(self, _, length, valid):
+    def test_pin_lengths(self, _, protocol, length, valid):
         pin = secrets.token_hex(length)
 
         def do_client_pin():
@@ -124,11 +126,15 @@ class CTAPPINTestCase(CTAPTestCase):
             while len(pin_as_bytes) < 64:
                 pin_as_bytes += b'\0'
 
-            ka, ss = self.cp._get_shared_secret()
-            enc = self.cp.protocol.encrypt(ss, pin_as_bytes)
-            puv = self.cp.protocol.authenticate(ss, enc)
+            if protocol == 2:
+                cp = ClientPin(self.ctap2, PinProtocolV2())
+            else:
+                cp = ClientPin(self.ctap2, PinProtocolV1())
+            ka, ss = cp._get_shared_secret()
+            enc = cp.protocol.encrypt(ss, pin_as_bytes)
+            puv = cp.protocol.authenticate(ss, enc)
             self.ctap2.client_pin(
-                2,
+                protocol,
                 ClientPin.CMD.SET_PIN,
                 key_agreement=ka,
                 new_pin_enc=enc,

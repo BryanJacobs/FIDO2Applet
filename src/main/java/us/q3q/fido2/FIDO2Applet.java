@@ -6460,7 +6460,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         // Count the UTF-8 code points to determine if length sufficient, and store it if necessary
         short newPinCodePointLength = 0;
-        for (short i = offset; i < pinLength; i++) {
+        for (short i = offset; i < (short)(pinLength + offset); i++) {
             newPinCodePointLength++;
             if ((pinBuf[i] & 0x80) == 0x00) {
                 continue;
