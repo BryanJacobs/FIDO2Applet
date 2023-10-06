@@ -1089,7 +1089,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         // ... so let's calculate that
         final short adLen = getAuthDataLen(true, hmacSecretEnabled,
                 credProtectLevel > 0,
-                credBlobIdx != -1, uvmRequested, minPinRequested);
+                credBlobIdx != -1, uvmRequested, minPinRequested, flags);
 
         if (hmacSecretEnabled || credProtectLevel > 0 || credBlobIdx != -1 || uvmRequested || minPinRequested) {
             // set bit 7 for extensions
@@ -1584,7 +1584,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                           byte[] encodedCredBuffer, short encodedCredOffset) {
         short adAddlBytes = writeADBasic(outBuf, adLen, writeIdx, flags, rpIdHashBuffer, rpIdHashOffset);
         writeIdx += getAuthDataLen(false, hmacSecretEnabled, credProtectLevel > 0,
-                credBlobState != 0, uvmRequested, minPinRequested) + adAddlBytes;
+                credBlobState != 0, uvmRequested, minPinRequested, flags) + adAddlBytes;
 
         // aaguid
         writeIdx = Util.arrayCopyNonAtomic(aaguid, (short) 0, outBuf, writeIdx, (short) aaguid.length);
@@ -1674,9 +1674,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         boolean userVerified = (flags & 0x04) != 0;
         outBuf[writeIdx++] = (byte) 0x81; // one "factor": one-element array
         outBuf[writeIdx++] = (byte) 0x83; // three-element array
+        if (userVerified) {
+            outBuf[writeIdx++] = 0x19; // two-byte integer
+            writeIdx = Util.setShort(outBuf, writeIdx, (short) 0x0800); // user verification method passcode_external
+        } else {
+            outBuf[writeIdx++] = 0x01; // user verification method presence
+        }
         outBuf[writeIdx++] = 0x0A; // key protection type secure element + hardware
         outBuf[writeIdx++] = 0x04; // matcher protection type on-chip
-        outBuf[writeIdx++] = (byte)(userVerified ? 0x04 : 0x01); // user verification method passcode or presence
         return writeIdx;
     }
 
@@ -1778,11 +1783,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param useCredBlob If true, includes the bytes for the credBlob extension
      * @param useUVM If true, includes the bytes for the UVM extension
      * @param useMinPin If true, includes the bytes for the minPinLength extension
+     * @param flags The flags byte applied to the response
      *
      * @return The number of bytes in the authentication data segment
      */
     private short getAuthDataLen(boolean includeAttestedKey, boolean useHmacSecret, boolean useCredProtect,
-                                 boolean useCredBlob, boolean useUVM, boolean useMinPin) {
+                                 boolean useCredBlob, boolean useUVM, boolean useMinPin, byte flags) {
         short basicLen = (short) (RP_HASH_LEN + // RP ID hash
                 1 + // flags byte
                 4 // counter
@@ -1793,6 +1799,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         final byte minPinExtBytes = (byte)(minPinLength > 23 ? 4 : 3);
+        final byte uvmExtBytes = (byte)((flags & 0x04) != 0 ? 9 : 7);
 
         return (short) (basicLen +
                 (short) aaguid.length + // aaguid
@@ -1806,7 +1813,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 (useHmacSecret ? 2 + CannedCBOR.HMAC_SECRET_EXTENSION_ID.length : 0) + // extension data
                 (useCredProtect ? 2 + CannedCBOR.CRED_PROTECT_EXTENSION_ID.length : 0) + // more extension data
                 (useCredBlob ? 2 + CannedCBOR.CRED_BLOB_EXTENSION_ID.length : 0) + // yet more extension data
-                (useUVM ? 7 + CannedCBOR.UVM_EXTENSION_ID.length : 0) + // why is there still more extension data
+                (useUVM ? uvmExtBytes + CannedCBOR.UVM_EXTENSION_ID.length : 0) + // why is there still more extension data
                 (useMinPin ? minPinExtBytes + CannedCBOR.MIN_PIN_LENGTH.length : 0) // I hope we're done with extensions now
         );
     }
@@ -2340,7 +2347,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         short adLen = getAuthDataLen(false, false,
-                false, false, false, false);
+                false, false, false, false, flags);
         short extensionDataLen = 0;
         byte numExtensions = 0;
         short credBlobBytes = 0;
@@ -2372,6 +2379,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
             if (providingUVM) {
                 short uvmBytes = 6;
+                if ((flags & 0x04) != 0) {
+                    uvmBytes += 2;
+                }
                 extensionDataLen += (short) (
                         uvmBytes + CannedCBOR.UVM_EXTENSION_ID.length
                 );

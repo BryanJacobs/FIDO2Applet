@@ -48,7 +48,7 @@ class UVMTestCase(CTAPTestCase):
         res = self.ctap2.make_credential(**self.basic_makecred_params, extensions={
             "uvm": True
         })
-        self.assertEqual([[10, 4, 1]], res.auth_data.extensions['uvm'])
+        self.assertEqual([[1, 10, 4]], res.auth_data.extensions['uvm'])
 
     def test_uvm_with_pin_on_makecred(self):
         pin = "12345"
@@ -62,7 +62,7 @@ class UVMTestCase(CTAPTestCase):
             )
         )
 
-        self.assertEqual([[10, 4, 4]], cred.extension_results['uvm'])
+        self.assertEqual([[2048, 10, 4]], cred.extension_results['uvm'])
 
     def test_uvm_with_pin_on_get_assertion(self):
         cred = self.get_high_level_client().make_credential(self.get_high_level_make_cred_options())
@@ -78,7 +78,7 @@ class UVMTestCase(CTAPTestCase):
             user_verification=UserVerificationRequirement.REQUIRED
         ))
 
-        self.assertEqual([[10, 4, 4]],
+        self.assertEqual([[2048, 10, 4]],
                          assertion.get_assertions()[0].auth_data.extensions['uvm'])
 
     def test_uvm_without_pin_on_get_assertion(self):
@@ -90,5 +90,5 @@ class UVMTestCase(CTAPTestCase):
             cred
         ))
 
-        self.assertEqual([[10, 4, 1]],
+        self.assertEqual([[1, 10, 4]],
                          assertion.get_assertions()[0].auth_data.extensions['uvm'])
