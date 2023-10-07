@@ -1002,7 +1002,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 AESKey key = getAESKeyForCreatingWithCredProtectLevel(effectiveCPLevel);
                 residentKeys[targetRKSlot] = new ResidentKeyData(
                         random, key, symmetricWrapper,
-                        counter,
                         scratchPublicKeyBuffer, (short)(scratchPublicKeyOffset + 1), (short)(KEY_POINT_LENGTH * 2),
                         buffer, credBlobIdx, effectiveCredBlobLen,
                         uniqueRP, effectiveCPLevel
@@ -2176,59 +2175,27 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             short credTempOffset = bufferManager.getOffsetForHandle(credTempHandle);
             byte[] credTempBuffer = bufferManager.getBufferForHandle(apdu, credTempHandle);
 
-            short credCounterHandle = bufferManager.allocate(apdu, (short) 4, BufferManager.ANYWHERE);
-            short credCounterOffset = bufferManager.getOffsetForHandle(credCounterHandle);
-            byte[] credCounterBuffer = bufferManager.getBufferForHandle(apdu, credCounterHandle);
-
-            Util.arrayFillNonAtomic(credCounterBuffer, credCounterOffset, (short) 4, (byte) 0x00);
-
             final boolean pinAuthPerformed = (stateKeepingBuffer[(short)(stateKeepingIdx + 1)] & 0x01) != 0;
 
-            for (short i = 0; i < (short) residentKeys.length; i++) {
-                if (residentKeys[i] == null) {
-                    break;
-                }
+            final short firstCred = firstCredIdx == 0 ? (short)(numResidentCredentials - 1) : (short)(firstCredIdx - 2);
+            for (short i = firstCred; i >= 0; i--) {
+                if (checkCredential(apdu, i, scratchRPIDHashBuffer, scratchRPIDHashIdx,
+                        credTempBuffer, credTempOffset, (byte)(pinAuthPerformed ? 3 : 1))) {
+                    // Got a resident key hit!
 
-                if (i != (short)(firstCredIdx - 1)) {
-                    if (checkCredential(apdu, i, scratchRPIDHashBuffer, scratchRPIDHashIdx,
-                            credTempBuffer, credTempOffset, (byte)(pinAuthPerformed ? 3 : 1))) {
-                        // Got a resident key hit!
+                    numMatchesThisRP++;
 
-                        numMatchesThisRP++;
-
-                        byte[] counter = residentKeys[i].getCounter();
-
-                        boolean counterSmallerThanOrig;
-                        if (firstCredIdx == 0) {
-                            counterSmallerThanOrig = true;
-                        } else {
-                            counterSmallerThanOrig = Util.arrayCompare(residentKeys[(short)(firstCredIdx - 1)].getCounter(), (short) 0,
-                                    counter, (short) 0, (short) 4) > 0;
-                        }
-
-                        if (counterSmallerThanOrig) {
-                            // This cred has a lower counter than where we started iteration, so check further
-
-                            if (Util.arrayCompare(credCounterBuffer, credCounterOffset,
-                                    counter, (short) 0, (short) 4) <= 0) {
-                                // The counter for this cred is smaller than the original, and higher than any relevant
-                                // other we've found so far - it's next in iteration order
-                                Util.arrayCopyNonAtomic(counter, (short) 0,
-                                        credCounterBuffer, credCounterOffset, (short) 4);
-
-                                potentialAssertionIterationPointer = (byte) (i + 1);
-                                matchingCredentialBuffer = residentKeys[i].getEncryptedCredentialID();
-                                matchingCredentialOffset = (short) 0;
-                                matchingCredentialLen = residentKeys[i].getCredLen();
-                                rkMatch = i;
-                                loadScratchIntoAttester(credTempBuffer, (short)(credTempOffset + RP_HASH_LEN));
-                            }
-                        }
+                    if (rkMatch == -1) {
+                        matchingCredentialBuffer = residentKeys[i].getEncryptedCredentialID();
+                        matchingCredentialOffset = (short) 0;
+                        matchingCredentialLen = residentKeys[i].getCredLen();
+                        rkMatch = i;
+                        potentialAssertionIterationPointer = (byte) (i + 1);
+                        loadScratchIntoAttester(credTempBuffer, (short)(credTempOffset + RP_HASH_LEN));
                     }
                 }
             }
 
-            bufferManager.release(apdu, credCounterHandle, (short) 4);
             bufferManager.release(apdu, credTempHandle, CREDENTIAL_ID_LEN);
         }
 
@@ -4953,8 +4920,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         } else {
                             residentKeys[rpHavingSameRP].setUniqueRP(true);
                         }
-                        residentKeys[i] = residentKeys[--numResidentCredentials];
-                        residentKeys[numResidentCredentials] = null;
+                        for (short j = i; j < (short)(numResidentCredentials - 1); j++) {
+                            residentKeys[j] = residentKeys[(short)(j + 1)];
+                        }
+                        residentKeys[--numResidentCredentials] = null;
                         ok = true;
                     } finally {
                         if (ok) {
@@ -4967,8 +4936,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     JCSystem.beginTransaction();
                     boolean ok = false;
                     try {
-                        residentKeys[i] = residentKeys[--numResidentCredentials];
-                        residentKeys[numResidentCredentials] = null;
+                        for (short j = i; j < (short)(numResidentCredentials - 1); j++) {
+                            residentKeys[j] = residentKeys[(short)(j + 1)];
+                        }
+                        residentKeys[--numResidentCredentials] = null;
                         ok = true;
                     } finally {
                         if (ok) {

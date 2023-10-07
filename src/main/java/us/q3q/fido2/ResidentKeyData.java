@@ -12,7 +12,7 @@ import javacardx.crypto.Cipher;
  * This class stores all the data associated with a Discoverable Credential
  * (also called a Resident Key). It doesn't handle encrypting the credential
  * ID itself, but does make sure all the other data around the credential are
- * appropiately protected.
+ * appropriately protected.
  */
 public class ResidentKeyData {
     /**
@@ -54,11 +54,6 @@ public class ResidentKeyData {
      */
     private final byte credProtectLevel;
     /**
-     * Contains the four-byte signature counter at the time of RK creation.
-     * This allows tracking which credential was most recently created.
-     */
-    private final byte[] counter;
-    /**
      * Encrypted (with the device wrapping key) user ID field
      */
     private byte[] userId;
@@ -87,7 +82,7 @@ public class ResidentKeyData {
      */
     private final byte credBlobLen;
 
-    public ResidentKeyData(RandomData random, AESKey key, Cipher wrapper, SigOpCounter creationCounter,
+    public ResidentKeyData(RandomData random, AESKey key, Cipher wrapper,
                            byte[] publicKeyBuffer, short publicKeyOffset, short publicKeyLength,
                            byte[] credBlobBuffer, short credBlobOffset, byte credBlobLen,
                            boolean uniqueRP, byte credProtectLevel) {
@@ -101,9 +96,6 @@ public class ResidentKeyData {
         random.generateData(credBlobIV, (short) 0, IV_LEN);
         largeBlobIV = new byte[IV_LEN];
         random.generateData(largeBlobIV, (short) 0, IV_LEN);
-
-        counter = new byte[4];
-        creationCounter.pack(counter, (short) 0);
 
         if (credBlobLen > 0) {
             credBlob = new byte[encryptableLength(credBlobLen)];
@@ -200,10 +192,6 @@ public class ResidentKeyData {
         wrapper.init(key, Cipher.MODE_ENCRYPT, largeBlobIV, (short) 0, (short) largeBlobIV.length);
         wrapper.doFinal(publicKey, (short) 0, (short) 32,
                 targetBuffer, targetOffset);
-    }
-
-    public byte[] getCounter() {
-        return counter;
     }
 
     public byte[] getEncryptedCredentialID() {
