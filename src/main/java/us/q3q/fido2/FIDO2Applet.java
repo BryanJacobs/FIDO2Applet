@@ -1342,7 +1342,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                                byte[] checkAgainst, short checkIdx, byte pinProtocol) {
         if (pinProtocol != transientStorage.getPinProtocolInUse()) {
             // Can't use PIN protocol 1 with tokens created with v2 or vice versa
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_TOKEN_EXPIRED);
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
         }
 
         short checkLength = 16;

@@ -91,7 +91,7 @@ public abstract class FIDOConstants {
     public static final byte CTAP2_ERR_PIN_NOT_SET = 0x35; //	 	No PIN has been set.
     public static final byte CTAP2_ERR_PIN_REQUIRED = 0x36; //	 	PIN is required for the selected operation.
     public static final byte CTAP2_ERR_PIN_POLICY_VIOLATION = 0x37; //	 	PIN policy violation. Currently only enforces minimum length.
-    public static final byte CTAP2_ERR_PIN_TOKEN_EXPIRED = 0x38; //	 	pinToken expired on authenticator.
+    // 0x38 now RFU
     public static final byte CTAP2_ERR_REQUEST_TOO_LARGE = 0x39; //	 	Authenticator cannot handle this request due to memory constraints.
     public static final byte CTAP2_ERR_ACTION_TIMEOUT = 0x3A; //	 	The current operation has timed out.
     public static final byte CTAP2_ERR_UP_REQUIRED = 0x3B; //	 	User presence is required for the requested operation.
