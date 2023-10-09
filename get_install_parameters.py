@@ -60,7 +60,7 @@ if __name__ == '__main__':
         'buffer_mem',
         'flash_scratch',
         'do_not_store_pin_length',
-        'cache_pin_tokens',
+        'cache_pin_token',
         'certification_level'
     ]):
         val = getattr(args, option_string)
