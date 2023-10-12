@@ -122,7 +122,7 @@ public class ResidentKeyData {
             ISOException.throwIt(ISO7816.SW_COMMAND_NOT_ALLOWED);
         }
         this.credential = new byte[credLen];
-        Util.arrayCopyNonAtomic(credBuffer, credOffset,
+        Util.arrayCopy(credBuffer, credOffset,
                 this.credential, (short) 0, credLen);
     }
 

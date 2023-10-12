@@ -68,7 +68,6 @@ public final class TransientStorage {
      * - 01: write of large blob store in progress
      * - 10: x5c streaming in progress, no lbk follows
      * - 11: x5c streaming in progress, lbk follows
-     * Set to true when certificate data should follow response
      */
     private static final byte BOOL_IDX_STREAM_STATEKEEPING = 0;
     /**

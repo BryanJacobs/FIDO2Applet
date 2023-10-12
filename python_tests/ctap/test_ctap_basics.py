@@ -194,6 +194,37 @@ class CTAPBasicsTestCase(CTAPTestCase):
             [x.credential['id'] for x in asserts]
         )
 
+    def test_multiple_matching_rks_after_replacement(self):
+        creds_to_make = 5
+        self.basic_makecred_params['options'] = {
+            'rk': True
+        }
+        creds = []
+        user_ids = []
+        for x in range(creds_to_make):
+            user_ids.append(secrets.token_bytes(30))
+            self.basic_makecred_params['user']['id'] = user_ids[-1]
+            creds.append(self.ctap2.make_credential(**self.basic_makecred_params))
+
+        self.basic_makecred_params['user']['id'] = user_ids[1]
+        replacement_cred = self.ctap2.make_credential(**self.basic_makecred_params)
+
+        del creds[1]
+        creds.append(replacement_cred)
+
+        asserts = [self.get_assertion(rp_id=self.rp_id)]
+        self.assertEqual(creds_to_make, asserts[0].number_of_credentials)
+        for x in range(creds_to_make - 1):
+            asserts.append(self.ctap2.get_next_assertion())
+
+        with self.assertRaises(CtapError) as e:
+            self.ctap2.get_next_assertion()
+        self.assertEqual(CtapError.ERR.NO_CREDENTIALS, e.exception.code)
+        self.assertEqual(
+            [x.auth_data.credential_data.credential_id for x in creds][::-1],
+            [x.credential['id'] for x in asserts]
+        )
+
     def test_accepts_long_utf8_display_name(self):
         self.basic_makecred_params['user']['display_name'] = "猫" * 144
         self.ctap2.make_credential(**self.basic_makecred_params)
