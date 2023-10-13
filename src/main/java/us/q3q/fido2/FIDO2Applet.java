@@ -2116,10 +2116,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
             if (allowListIdx != -1) {
                 short blockReadIdx = allowListIdx;
-                if (((byte) (buffer[blockReadIdx] & 0xF0)) != (byte) 0x80) {
+                allowListLength = ub(buffer[blockReadIdx++]);
+                if (allowListLength < 0x0080 || allowListLength > 0x0097) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                 }
-                allowListLength = (short) (buffer[blockReadIdx++] & 0x0F);
+                allowListLength -= 0x0080;
                 if (blockReadIdx >= lc) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
                 }
@@ -5624,7 +5625,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         buffer[offset++] = 0x01; // pin protocol version 1
 
         buffer[offset++] = 0x07; // map key: maxCredentialCountInList
-        buffer[offset++] = 0x0A; // ten
+        buffer[offset++] = 0x17; // twenty-three
 
         final short amountInApduBuf = offset;
 
