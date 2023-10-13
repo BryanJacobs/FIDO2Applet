@@ -107,25 +107,30 @@ Good luck implementing those on a 16-bit microprocessor. I welcome you to try.
 
 It will store:
 - the credential ID (an AES256 encrypted blob of the RP ID SHA-256
-  hash and the credential private key)
+  hash, the credential private key, and the credProtect level)
 - up to 32 characters of the RP ID, again AES256 encrypted
 - a max 64-byte-long user ID, again AES256 encrypted
+- a user name, yet again AES256 encrypted
 - the 64-byte public key associated with the credential, again AES256 encrypted
-- Several 16-byte random IVs used for encrypting the RP ID, user ID, public key,
-  large blob key, and the credential itself
+- Several 16-byte random IVs used for encrypting each field
 - the length of the RP ID, unencrypted
 - the length of the user ID, unencrypted
+- the length of the user name, unencrypted
 - a boolean set to true on the first credential from a given RP ID, used
   to save state when enumerating and counting on-device RPs
 - a two-bit credProtect level value
 - the length of any credBlob stored with the credential
-- a four-byte counter value tracking which credential was most recently created
 - how many distinct RPs have valid keys on the device, unencrypted
 - how many total RPs are on the device, unencrypted
 
-This is the minimum to make the credentials management API work. It would
-be possible to encrypt the length fields too, they just aren't and I didn't
-see it as important.
+This is almost the minimum to make the credentials management API work; the
+user name (not ID!) is technically optional, but useful to have for credentials
+management.
+
+It would be possible to encrypt the length fields too, they just aren't and
+I didn't see it as important. It would be possible with much more work to
+remove the separately-stored credProtect level and use the one inside the
+Credential ID.
 
 ## Why is the code quality so low?
 

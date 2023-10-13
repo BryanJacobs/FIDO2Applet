@@ -171,7 +171,7 @@ If you set the force-always-uv flag, the attacker needs to decrypt the
 on-device wrapping key. Without doing that, they can read incidentals like:
 - how many different resident keys are currently stored on the device
 - how long each key's RP ID is, if less than 32 characters
-- how long each key's user ID is
+- how long each key's user ID and username are
 - how many different RPs in total have resident keys on the device
 - the credProtect level of each resident key
 - the length and contents of the stored "large blob array" (note:

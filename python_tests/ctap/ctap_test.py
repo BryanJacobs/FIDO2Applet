@@ -313,9 +313,11 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
         self.rp_id = secrets.token_hex(rpid_length)
         self.basic_makecred_params['rp']['id'] = self.rp_id
         userid_length = random.randint(1, 64)
+        username_length = random.randint(2, 64)
         dn_length = random.randint(0, 20)
         icon_length = random.randint(0, 10)
         self.basic_makecred_params['user']['id'] = secrets.token_bytes(userid_length)
+        self.basic_makecred_params['user']['name'] = secrets.token_hex(int(username_length / 2))
         if dn_length > 0:
             self.basic_makecred_params['user']['display_name'] = secrets.token_hex(dn_length)
         if icon_length > 0:
@@ -401,7 +403,7 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
                 user_id = self.basic_makecred_params['user']['id']
 
             user_stuff = {
-                "name": "Bob",
+                "name": self.basic_makecred_params['user']['name'],
                 "id": user_id
             }
 

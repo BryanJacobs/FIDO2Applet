@@ -29,6 +29,7 @@ class ExtendedAPDUTestCase(BasicAttestationTestCase):
     def test_extreme_makecred_input(self):
         self.basic_makecred_params['user'] = {
             'id': secrets.token_bytes(32),
+            'name': secrets.token_hex(10),
             'display_name': secrets.token_hex(100),
             'icon': secrets.token_hex(120)
         }

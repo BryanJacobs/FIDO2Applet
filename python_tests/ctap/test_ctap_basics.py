@@ -5,9 +5,9 @@ import unittest
 from fido2.cose import ES256
 from fido2.ctap import CtapError
 from fido2.ctap2 import ClientPin
-from fido2.webauthn import Aaguid
+from fido2.webauthn import Aaguid, ResidentKeyRequirement, UserVerificationRequirement
 
-from .ctap_test import CTAPTestCase
+from .ctap_test import CTAPTestCase, FixedPinUserInteraction
 
 
 class CTAPBasicsTestCase(CTAPTestCase):
@@ -29,6 +29,7 @@ class CTAPBasicsTestCase(CTAPTestCase):
     def test_extreme_makecred_input(self):
         self.basic_makecred_params['user'] = {
             'id': secrets.token_bytes(32),
+            'name': secrets.token_hex(10),
             'display_name': secrets.token_hex(100),
             'icon': secrets.token_hex(120)
         }
@@ -124,6 +125,29 @@ class CTAPBasicsTestCase(CTAPTestCase):
                                          pin_uv_param=b"",
                                          pin_uv_protocol=1)
         self.assertEqual(CtapError.ERR.PIN_NOT_SET, e.exception.code)
+
+    def test_get_assertion_returns_user_details_where_appropriate(self):
+        pin = secrets.token_hex(5)
+        ClientPin(self.ctap2).set_pin(pin)
+
+        authed_client = self.get_high_level_client(user_interaction=FixedPinUserInteraction(pin))
+        unauthed_client = self.get_high_level_client()
+
+        cred = authed_client.make_credential(options=self.get_high_level_make_cred_options(
+            resident_key=ResidentKeyRequirement.REQUIRED
+        ))
+
+        unauthed_assertion = unauthed_client.get_assertion(
+            self.get_high_level_assertion_opts_from_cred(cred)
+        ).get_assertions()[0]
+        authed_assertion = authed_client.get_assertion(
+            self.get_high_level_assertion_opts_from_cred(cred, user_verification=UserVerificationRequirement.REQUIRED)
+        ).get_assertions()[0]
+
+        self.assertEqual(self.basic_makecred_params['user']['id'], unauthed_assertion.user.get('id'))
+        self.assertEqual(self.basic_makecred_params['user']['id'], authed_assertion.user.get('id'))
+        self.assertIsNone(unauthed_assertion.user.get('name'))
+        self.assertEqual(self.basic_makecred_params['user']['name'], authed_assertion.user.get('name'))
 
     def test_assertion_empty_pin_auth_rejected_when_pin_set(self):
         cred = self.ctap2.make_credential(**self.basic_makecred_params)

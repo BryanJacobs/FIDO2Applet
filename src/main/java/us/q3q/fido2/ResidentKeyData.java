@@ -23,7 +23,11 @@ public class ResidentKeyData {
     /**
      * IV for encrypting the user info
      */
-    private final byte[] userIV;
+    private final byte[] userIdIV;
+    /**
+     * IV for encrypting the user name
+     */
+    private final byte[] userNameIV;
     /**
      * IV for encrypting the RP info (text, not a hash)
      */
@@ -58,9 +62,17 @@ public class ResidentKeyData {
      */
     private byte[] userId;
     /**
-     * Length of the corresponding user IDs
+     * Length of the corresponding user ID
      */
     private short userIdLength;
+    /**
+     * Encrypted (with the device wrapping key) user Name field
+     */
+    private byte[] userName;
+    /**
+     * Length of the corresponding user name
+     */
+    private short userNameLength;
     /**
      * Encrypted (with the device wrapping key) RP ID fields for resident keys
      */
@@ -86,8 +98,10 @@ public class ResidentKeyData {
                            byte[] publicKeyBuffer, short publicKeyOffset, short publicKeyLength,
                            byte[] credBlobBuffer, short credBlobOffset, byte credBlobLen,
                            boolean uniqueRP, byte credProtectLevel) {
-        userIV = new byte[IV_LEN];
-        random.generateData(userIV, (short) 0, IV_LEN);
+        userIdIV = new byte[IV_LEN];
+        random.generateData(userIdIV, (short) 0, IV_LEN);
+        userNameIV = new byte[IV_LEN];
+        random.generateData(userNameIV, (short) 0, IV_LEN);
         RPIV = new byte[IV_LEN];
         random.generateData(RPIV, (short) 0, IV_LEN);
         pubKeyIV = new byte[IV_LEN];
@@ -151,22 +165,43 @@ public class ResidentKeyData {
         this.rpIdLength = rpIdLength;
     }
 
-    public void setUser(AESKey key, Cipher wrapper, byte[] userIdBuffer, short userIdOffset, short userIdLength) {
+    public void setUser(AESKey key, Cipher wrapper,
+                        byte[] userIdBuffer, short userIdOffset, short userIdLength,
+                        byte[] userNameBuffer, short userNameOffset, short userNameLength) {
         short newUserIdBufferLength = encryptableLength(userIdLength);
         if (userId == null || newUserIdBufferLength > userId.length) {
             userId = new byte[encryptableLength(userIdLength)];
         }
         Util.arrayCopy(userIdBuffer, userIdOffset,
-                userId, (short) 0, (short) userId.length);
-        wrapper.init(key, Cipher.MODE_ENCRYPT, userIV, (short) 0, (short) userIV.length);
+                userId, (short) 0, userIdLength);
+        wrapper.init(key, Cipher.MODE_ENCRYPT, userIdIV, (short) 0, (short) userIdIV.length);
         wrapper.doFinal(userId, (short) 0, (short) userId.length,
                 userId, (short) 0);
         this.userIdLength = userIdLength;
+
+        if (userNameBuffer != null) {
+            short newUserNameBufferLength = encryptableLength(userNameLength);
+            if (userName == null || newUserNameBufferLength > userName.length) {
+                userName = new byte[encryptableLength(userNameLength)];
+            }
+            Util.arrayCopy(userNameBuffer, userNameOffset,
+                    userName, (short) 0, userNameLength);
+            wrapper.init(key, Cipher.MODE_ENCRYPT, userNameIV, (short) 0, (short) userNameIV.length);
+            wrapper.doFinal(userName, (short) 0, (short) userName.length,
+                    userName, (short) 0);
+            this.userNameLength = userNameLength;
+        }
     }
 
     public void unpackUserID(AESKey key, Cipher unwrapper, byte[] targetBuffer, short targetOffset) {
-        unwrapper.init(key, Cipher.MODE_DECRYPT, userIV, (short) 0, (short) userIV.length);
+        unwrapper.init(key, Cipher.MODE_DECRYPT, userIdIV, (short) 0, (short) userIdIV.length);
         unwrapper.doFinal(userId, (short) 0, (short) userId.length,
+                targetBuffer, targetOffset);
+    }
+
+    public void unpackUserName(AESKey key, Cipher unwrapper, byte[] targetBuffer, short targetOffset) {
+        unwrapper.init(key, Cipher.MODE_DECRYPT, userNameIV, (short) 0, (short) userNameIV.length);
+        unwrapper.doFinal(userName, (short) 0, (short) userName.length,
                 targetBuffer, targetOffset);
     }
 
@@ -200,6 +235,10 @@ public class ResidentKeyData {
 
     public short getUserIdLength() {
         return userIdLength;
+    }
+
+    public short getUserNameLength() {
+        return userNameLength;
     }
 
     public short getCredLen() {

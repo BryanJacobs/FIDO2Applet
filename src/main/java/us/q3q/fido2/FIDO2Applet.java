@@ -565,7 +565,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
         }
 
-        readIdx = consumeMapAndGetID(apdu, buffer, readIdx, lc, false, false, true);
+        readIdx = consumeMapAndGetID(apdu, buffer, readIdx, lc, false, false, true, false);
         final short rpIdIdx = transientStorage.getStoredIdx();
         short rpIdLen = transientStorage.getStoredLen();
 
@@ -576,12 +576,16 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
         }
 
-        readIdx = consumeMapAndGetID(apdu, buffer, readIdx, lc, true, false, true);
+        final short userMapIdx = readIdx;
+        readIdx = consumeMapAndGetID(apdu, buffer, readIdx, lc, true, false, true, false);
         final short userIdIdx = transientStorage.getStoredIdx();
         final short userIdLen = transientStorage.getStoredLen();
         if (userIdLen > MAX_USER_ID_LENGTH) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
         }
+        consumeMapAndGetID(apdu, buffer, userMapIdx, lc, false, false, true, true);
+        final short userNameIdx = transientStorage.getStoredIdx();
+        final short userNameLen = transientStorage.getStoredLen();
 
         if (buffer[readIdx++] != 0x04) { // pubKeyCredParams
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
@@ -847,7 +851,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             boolean willExclude = false;
             short excludeReadIdx = excludeListStartIdx;
             for (short excludeListIdx = 0; excludeListIdx < numExcludeListEntries; excludeListIdx++) {
-                excludeReadIdx = consumeMapAndGetID(apdu, buffer, excludeReadIdx, lc, true, true, false);
+                excludeReadIdx = consumeMapAndGetID(apdu, buffer, excludeReadIdx, lc, true, true, false, false);
 
                 if (willExclude) {
                     // We already know we're going to return EXCLUDED, so don't bother decrypting more
@@ -1015,7 +1019,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 );
 
                 residentKeys[targetRKSlot].setUser(key, symmetricWrapper,
-                        scratchUserIdBuffer, scratchUserIdOffset, userIdLen);
+                        scratchUserIdBuffer, scratchUserIdOffset, userIdLen,
+                        buffer, userNameIdx, userNameLen);
                 // Carefully manage buffers since we only need one of (user, RPID) at a time!
                 bufferManager.release(apdu, scratchUserIdHandle, MAX_USER_ID_LENGTH);
 
@@ -2125,7 +2130,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
                 for (short i = 0; i < allowListLength; i++) {
                     final short beforeReadIdx = blockReadIdx;
-                    blockReadIdx = consumeMapAndGetID(apdu, buffer, blockReadIdx, lc, true, true, false);
+                    blockReadIdx = consumeMapAndGetID(apdu, buffer, blockReadIdx, lc, true, true, false, false);
                     final short pubKeyIdx = transientStorage.getStoredIdx();
                     final short pubKeyLen = transientStorage.getStoredLen();
                     if (pubKeyLen == -1) {
@@ -2288,7 +2293,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         boolean providingUVM = (stateKeepingBuffer[(short)(stateKeepingIdx + 1)] & 0x08) != 0;
         boolean providingCredBlob = (stateKeepingBuffer[(short)(stateKeepingIdx + 1)] & 0x02) != 0;
         byte numMapEntries = 3;
-        if (rkMatch > -1 && allowListLength == 0) {
+        if (rkMatch > -1) {
             numMapEntries++; // user block
         }
         if (firstCredIdx == 0 && numMatchesThisRP > 1) {
@@ -2431,17 +2436,33 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         outputIdx = encodeIntLenTo(outputBuffer, outputIdx, sigLength, true);
         outputIdx += sigLength;
 
-        if (rkMatch > -1 && allowListLength == 0) {
+        if (rkMatch > -1) {
             final short uidLen = residentKeys[rkMatch].getUserIdLength();
+            final boolean returningUserName = (flags & 0x04) != 0;
 
             outputBuffer[outputIdx++] = 0x04; // map key: user
-            outputIdx = Util.arrayCopyNonAtomic(CannedCBOR.SINGLE_ID_MAP_PREAMBLE, (short) 0,
-                    outputBuffer, outputIdx, (short) CannedCBOR.SINGLE_ID_MAP_PREAMBLE.length);
+            if (returningUserName) {
+                outputIdx = Util.arrayCopyNonAtomic(CannedCBOR.ID_AND_NAME_MAP_PREAMBLE, (short) 0,
+                        outputBuffer, outputIdx, (short) CannedCBOR.ID_AND_NAME_MAP_PREAMBLE.length);
+            } else {
+                outputIdx = Util.arrayCopyNonAtomic(CannedCBOR.SINGLE_ID_MAP_PREAMBLE, (short) 0,
+                        outputBuffer, outputIdx, (short) CannedCBOR.SINGLE_ID_MAP_PREAMBLE.length);
+            }
             outputIdx = encodeIntLenTo(outputBuffer, outputIdx, uidLen, true);
             // Pack the user ID from the resident key into the buffer, after decrypting it
             residentKeys[rkMatch].unpackUserID(getAESKeyForExistingRK(rkMatch), symmetricUnwrapper,
                     outputBuffer, outputIdx);
             outputIdx += uidLen; // only advance by the ACTUAL length of the UID, not the padded size
+
+            if (returningUserName) {
+                final short nameLength = residentKeys[rkMatch].getUserNameLength();
+                outputIdx = Util.arrayCopyNonAtomic(CannedCBOR.NAME, (short) 0,
+                        outputBuffer, outputIdx, (short) CannedCBOR.NAME.length);
+                outputIdx = encodeIntLenTo(outputBuffer, outputIdx, nameLength, false);
+                residentKeys[rkMatch].unpackUserName(getAESKeyForExistingRK(rkMatch), symmetricUnwrapper,
+                        outputBuffer, outputIdx);
+                outputIdx += nameLength;
+            }
         }
 
         if (firstCredIdx == 0 && numMatchesThisRP > 1) {
@@ -3241,15 +3262,16 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param buffer Buffer containing incoming request
      * @param readIdx Current index into the request buffer
      * @param lc Length of the request buffer, as sent by the platform
-     * @param byteString If true, ID should be a byte string: if false, a UTF-8 string
+     * @param byteString If true, returned value should be a byte string: if false, a UTF-8 string
      * @param checkTypePublicKey If true, check there is a "type" key with value UTF-8 string "public-key"
-     * @boolean checkAllFieldsText If true, check that all fields other than the "id" are of type text
+     * @param checkAllFieldsText If true, check that all fields other than the "id" are of type text
+     * @param findName If true, find the "name" key (if one exists) instead of "id"
      *
      * @return New index into the request buffer, after consuming one CBOR map element
      */
     private short consumeMapAndGetID(APDU apdu, byte[] buffer, short readIdx, short lc, boolean byteString,
-                                     boolean checkTypePublicKey, boolean checkAllFieldsText) {
-        boolean foundId = false;
+                                     boolean checkTypePublicKey, boolean checkAllFieldsText, boolean findName) {
+        boolean foundTargetField = false;
         boolean foundType = false;
         boolean correctType = false;
         transientStorage.readyStoredVars();
@@ -3290,12 +3312,17 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
 
             final boolean isId = (keyLen == 2 && buffer[readIdx] == 'i' && buffer[(short)(readIdx+1)] == 'd');
-            if (isId && foundId) {
+            if (isId && foundTargetField && !findName) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
             }
             final boolean isType = (keyLen == 4 && buffer[readIdx] == 't' && buffer[(short)(readIdx+1)] == 'y'
                 && buffer[(short)(readIdx+2)] == 'p' && buffer[(short)(readIdx+3)] == 'e');
             if (isType && foundType) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
+            }
+            final boolean isName = (keyLen == 4 && buffer[readIdx] == 'n' && buffer[(short)(readIdx+1)] == 'a'
+                    && buffer[(short)(readIdx+2)] == 'm' && buffer[(short)(readIdx+3)] == 'e');
+            if (isName && foundTargetField && findName) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
             }
 
@@ -3308,11 +3335,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             if (readIdx >= lc) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
             }
-            short idPos = readIdx;
+            short targetPos = readIdx;
 
             short valLen = 0;
             if (valDef == 0x0078 || valDef == 0x0058) {
-                if (isId) {
+                if ((isId && !findName) || (isName && findName)) {
                     if (valDef == 0x0078 && byteString) {
                         sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                     } else if (valDef == 0x0058 && !byteString) {
@@ -3327,8 +3354,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                 }
                 valLen = ub(buffer[readIdx++]);
-                if (isId) {
-                    idPos++;
+                if (isId || isName) {
+                    targetPos++;
                 }
                 if (readIdx >= lc) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
@@ -3344,12 +3371,18 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 }
                 readIdx += 2;
             } else if (valDef >= 0x0060 && valDef < 0x0078) {
-                if (isId && byteString) {
+                if (isId && byteString && !findName) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                }
+                if (isName && byteString && findName) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                 }
                 valLen = (short)(valDef - 0x0060);
             } else if (valDef >= 0x0040 && valDef < 0x0058) {
-                if (isId && !byteString) {
+                if (isId && !findName && !byteString) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                }
+                if (isName && findName && !byteString) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                 }
                 if (isType) {
@@ -3371,8 +3404,20 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 if (valLen > 255) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
                 }
-                foundId = true;
-                transientStorage.setStoredVars(idPos, (byte) valLen);
+                if (!findName) {
+                    foundTargetField = true;
+                    transientStorage.setStoredVars(targetPos, (byte) valLen);
+                }
+            }
+
+            if (isName) {
+                if (valLen > 255) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
+                }
+                if (findName) {
+                    foundTargetField = true;
+                    transientStorage.setStoredVars(targetPos, (byte) valLen);
+                }
             }
 
             if (!foundType && isType && checkTypePublicKey) {
@@ -3388,7 +3433,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
         }
 
-        if (!foundId) {
+        if (!foundTargetField) {
             sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
         }
 
@@ -4748,9 +4793,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
         }
 
-        readOffset = consumeMapAndGetID(apdu, buffer, readOffset, lc, true, true, false);
-        short credIdIdx = transientStorage.getStoredIdx();
-        short credIdLen = transientStorage.getStoredLen();
+        readOffset = consumeMapAndGetID(apdu, buffer, readOffset, lc, true, true, false, false);
+        final short credIdIdx = transientStorage.getStoredIdx();
+        final short credIdLen = transientStorage.getStoredLen();
         if (credIdLen != CREDENTIAL_ID_LEN) {
             // Not our credential - can't match anything
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NO_CREDENTIALS);
@@ -4760,16 +4805,21 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
         }
 
-        readOffset = consumeMapAndGetID(apdu, buffer, readOffset, lc, true, false, true);
+        final short userMapOffset = readOffset;
+        readOffset = consumeMapAndGetID(apdu, buffer, readOffset, lc, true, false, true, false);
         if (readOffset > lc) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
         }
-        short userIdIdx = transientStorage.getStoredIdx();
-        short userIdLen = transientStorage.getStoredLen();
+        final short userIdIdx = transientStorage.getStoredIdx();
+        final short userIdLen = transientStorage.getStoredLen();
         if (userIdLen > MAX_USER_ID_LENGTH) {
             // We can't store user IDs this long, so we won't have one stored...
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NO_CREDENTIALS);
         }
+
+        consumeMapAndGetID(apdu, buffer, userMapOffset, lc, false, false, false, true);
+        final short userNameIdx = transientStorage.getStoredIdx();
+        final short userNameLen = transientStorage.getStoredLen();
 
         boolean foundHit = false;
         for (short i = 0; i < (short) residentKeys.length; i++) {
@@ -4802,7 +4852,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 JCSystem.beginTransaction();
                 boolean ok = false;
                 try {
-                    residentKeys[i].setUser(getAESKeyForExistingRK(i), symmetricWrapper, buffer, userIdIdx, userIdLen);
+                    residentKeys[i].setUser(getAESKeyForExistingRK(i), symmetricWrapper,
+                            buffer, userIdIdx, userIdLen,
+                            buffer, userNameIdx, userNameLen);
                     ok = true;
                 } finally {
                     if (ok) {
@@ -4824,7 +4876,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NO_CREDENTIALS);
         }
 
-        byte[] outBuf = apdu.getBuffer();
+        final byte[] outBuf = apdu.getBuffer();
         outBuf[0] = FIDOConstants.CTAP2_OK;
         sendNoCopy(apdu, (short) 1);
     }
@@ -4847,7 +4899,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
         }
 
-        readOffset = consumeMapAndGetID(apdu, buffer, readOffset, lc, true, true, false);
+        readOffset = consumeMapAndGetID(apdu, buffer, readOffset, lc, true, true, false, false);
         if (readOffset > lc) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
         }
@@ -5065,9 +5117,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 outBuf[writeOffset++] = FIDOConstants.CTAP2_OK;
                 outBuf[writeOffset++] = startCredIdx == 0 ? (byte) 0xA5 : (byte) 0xA4; // map, four or five entries
                 outBuf[writeOffset++] = 0x06; // map key: pubKeyCredentialsUserEntry
-                writeOffset = Util.arrayCopyNonAtomic(CannedCBOR.SINGLE_ID_MAP_PREAMBLE, (short) 0,
-                        outBuf, writeOffset, (short) CannedCBOR.SINGLE_ID_MAP_PREAMBLE.length);
-                short userIdLength = residentKeys[rkIndex].getUserIdLength();
+                writeOffset = Util.arrayCopyNonAtomic(CannedCBOR.ID_AND_NAME_MAP_PREAMBLE, (short) 0,
+                        outBuf, writeOffset, (short) CannedCBOR.ID_AND_NAME_MAP_PREAMBLE.length);
+                final short userIdLength = residentKeys[rkIndex].getUserIdLength();
                 writeOffset = encodeIntLenTo(outBuf, writeOffset, userIdLength, true);
 
                 AESKey key = getAESKeyForExistingRK(rkIndex);
@@ -5077,6 +5129,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         outBuf, writeOffset);
                 // ... but we only advance the write offset by however many bytes of it are really valid
                 writeOffset += userIdLength;
+
+                writeOffset = Util.arrayCopyNonAtomic(CannedCBOR.NAME, (short) 0,
+                        outBuf, writeOffset, (short) CannedCBOR.NAME.length);
+                final short userNameLength = residentKeys[rkIndex].getUserNameLength();
+                writeOffset = encodeIntLenTo(outBuf, writeOffset, userNameLength, true);
+                residentKeys[rkIndex].unpackUserName(key, symmetricUnwrapper,
+                        outBuf, writeOffset);
+                writeOffset += userNameLength;
 
                 outBuf[writeOffset++] = 0x07; // map key: credentialId
                 writeOffset = packCredentialId(residentKeys[rkIndex].getEncryptedCredentialID(), (short) 0,
@@ -5653,8 +5713,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @return Estimated number of creds
      */
     private static byte getApproximateRemainingKeyCount() {
-        final short availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_PERSISTENT);
-        final short approx = (short)(availableMem / 128);
+        short availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_PERSISTENT);
+        if (availableMem < 0) {
+            availableMem = Short.MAX_VALUE;
+        }
+        final short approx = (short)(availableMem / 180);
         return (byte)(approx > 100 ? 100 : approx);
     }
 

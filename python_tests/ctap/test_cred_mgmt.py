@@ -108,16 +108,18 @@ class CredManagementTestCase(CredManagementBaseTestCase):
         ))
         cm = self.get_credential_management()
         new_id = secrets.token_bytes(64)
+        new_name = "Frooby Bobble"
 
         cm.update_user_info(cred_id=PublicKeyCredentialDescriptor(
             type='public-key',
             id=cred.attestation_object.auth_data.credential_data.credential_id
         ), user_info=PublicKeyCredentialUserEntity(
             id=new_id,
-            name="Frooby Bobble",
+            name=new_name,
             display_name='Some very long stuff that makes this inconvenient to work with'
         ))
 
         cm = self.get_credential_management()
         after_cred = cm.enumerate_creds(rp_id_hash=self.rp_id_hash(self.rp_id))[0]
-        self.assertEqual(new_id, after_cred[6]['id'])
+        self.assertEqual(new_id, after_cred[6].get('id'))
+        self.assertEqual(new_name, after_cred[6].get('name').decode('utf-8'))
