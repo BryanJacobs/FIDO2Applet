@@ -556,13 +556,14 @@ model and not one individual device.
 The authenticator returns CTAP_OK in response to delete operations containing invalid or previously deleted credentials.
 
 In the case of discoverable credentials, this is largely irrelevant for privacy, as deleting a credential requires
-PIN verification, and possessing the user's PIN allows the use of the CTAP Credential Managmeent APIs that disclose the
+PIN verification, and possessing the user's PIN allows the use of the CTAP Credential Management APIs that disclose the
 stored credentials. But it prevents the disclosure of the validity of a non-discoverable credential.
 
 4.5
 ---
-The authenticator has three methods that reveal whether a Credential ID is registered. The first is the CTAP GetAssertion
-operation, the second is the CTAP Credential Management operations, and the third is the U2F Authenticate operation.
+The authenticator has four methods that reveal whether a Credential ID is registered. The first is the CTAP GetAssertion
+operation, the second is the CTAP Credential Management operations, the third is the U2F Authenticate operation, and
+the fourth is the excludeList parameter of the CTAP MakeCredential operation.
 
 The GetAssertion operation requires user verification - via a client PIN - to permit an empty AllowList. If the
 AllowList is NOT empty, stored credentials are NOT used. This means that GetAssertion requires either a Credential ID
@@ -571,6 +572,8 @@ or user verification to generate a signature.
 The Credential Management API always requires user verification.
 
 The U2F Authenticate operation always requires a provided Credential ID.
+
+The MakeCredential operation will only reveal a credential's registration status if it is passed in the excludeList.
 
 So, all methods that reveal a credential require either user verification or a provided Credential ID.
 
