@@ -6886,11 +6886,17 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         }
                         break;
                     case 0x09:
-                        if (array[offset++] != 0x19) {
+                        if (array[offset] == 0x18) {
+                            offset++;
+                            MAX_RAM_SCRATCH_SIZE = ub(array[offset]);
+                            offset++;
+                        } else if (array[offset] == 0x19) {
+                            offset++;
+                            MAX_RAM_SCRATCH_SIZE = Util.getShort(array, offset);
+                            offset += 2;
+                        } else {
                             ISOException.throwIt(ISO7816.SW_DATA_INVALID);
                         }
-                        MAX_RAM_SCRATCH_SIZE = Util.getShort(array, offset);
-                        offset += 2;
                         break;
                     case 0x0A:
                         if (array[offset++] != 0x19) {
@@ -6900,14 +6906,19 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         offset += 2;
                         break;
                     case 0x0B:
-                        if (array[offset++] != 0x19) {
+                        if (array[offset] == 0x18) {
+                            offset++;
+                            FLASH_SCRATCH_SIZE = ub(array[offset]);
+                            offset++;
+                        } else if (array[offset] == 0x19) {
+                            offset++;
+                            FLASH_SCRATCH_SIZE = Util.getShort(array, offset);
+                            offset += 2;
+                        } else if (ub(array[offset]) <= 0x17) {
+                            FLASH_SCRATCH_SIZE = ub(array[offset++]);
+                        } else {
                             ISOException.throwIt(ISO7816.SW_DATA_INVALID);
                         }
-                        FLASH_SCRATCH_SIZE = Util.getShort(array, offset);
-                        if (FLASH_SCRATCH_SIZE < 0) {
-                            FLASH_SCRATCH_SIZE = 0;
-                        }
-                        offset += 2;
                         break;
                     case 0x0C:
                         STORE_PIN_LENGTH = array[offset++] == (byte) 0xF5;

@@ -13,7 +13,7 @@ if __name__ == '__main__':
     parser.add_argument('--force-always-uv', action='store_true', default=None,
                         help="Requires the PIN for all operations, always")
     parser.add_argument('--high-security-rks', action='store_true', default=None,
-                        help="Protects discoverable credentials against bugs and faulty authenticator hardware,"
+                        help="Protects discoverable credentials against bugs and faulty authenticator hardware, "
                              "at the cost of standards compliance")
     parser.add_argument('--protect-against-reset', action='store_true', default=None,
                         help="Require sending a reset command twice, across two power cycles, to truly reset "
@@ -33,16 +33,28 @@ if __name__ == '__main__':
     parser.add_argument('--buffer-mem', type=int, default=1024,
                         help="Number of bytes of RAM to use for request processing. Reduces flash wear. Must be >=1024")
     parser.add_argument('--flash-scratch', type=int, default=1024,
-                        help="Number of bytes of flash to use when RAM is exhausted. For low-memory situations")
+                        help="Number of bytes of flash to use when RAM is exhausted. For low-memory situations.")
     parser.add_argument('--do-not-store-pin-length', action='store_false', default=None,
                         help="Avoid storing the length of the user PIN internally. Causes setMinPin to force a PIN "
                              "change")
     parser.add_argument('--cache-pin-token', action='store_false', default=None,
-                        help="Allow a PIN token to be used multiple times, within its permisions")
+                        help="Allow a PIN token to be used multiple times, within its permissions")
     parser.add_argument('--certification-level', type=int, default=None,
                         help="Obtained FIDO Alliance certification level")
 
     args = parser.parse_args()
+
+    if args.buffer_mem < 1024:
+        parser.error("CTAP standards require at least 1024 bytes of request/response buffer memory")
+
+    if args.large_blob_store_size < 1024 or args.large_blob_store_size > 2048:
+        parser.error("Large blob store size must be between 1024 and 2048 bytes")
+
+    if args.max_cred_blob_len < 32 or args.max_cred_blob_len > 255:
+        parser.error("Cred blob len must be between 32 and 255 bytes")
+
+    if args.max_rk_rp_length < 32 or args.max_rk_rp_length > 255:
+        parser.error("The RP length stored for each RK must be between 32 and 255 bytes")
 
     num_options_set = 0
     install_param_bytes = []

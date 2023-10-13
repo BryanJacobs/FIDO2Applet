@@ -93,7 +93,11 @@ those 32 bytes should be sent to the user.
 
 Each credential this application produces is a combination of the SHA256 hash of an RPID and the
 credential's own private key. It also contains a bit indicating whether the credential is discoverable,
-a 16 byte IV for encryption, and a 16 byte HMAC for verification.
+a byte indicating the credential's protection level, a 16 byte IV for encryption, and a 16 byte HMAC
+for verification.
+
+There are also 14 random/unused bytes inside the credential to make it an even multiple of AES256's
+encryption block size (16 bytes).
 
 The discoverability bit is necessary because deleting a discoverable credential should invalidate it,
 even if it is given back to the authenticator in an allowList.
@@ -101,6 +105,7 @@ even if it is given back to the authenticator in an allowList.
 Each RK gets a separate IV for each of its data structures:
 
 - Encrypted user ID
+- Encrypted user name
 - Encrypted RP name
 - Public key (yes, this is stored encrypted)
 - credBlob (don't confuse this with largeBlobKey)
@@ -111,16 +116,18 @@ bytes long to allow easy AES256 decryption.
 
 ### Enumeration
 
-Finding whether a particular credential is an RK is done by walking the list, and for each RK that is flagged
-as valid (ie not deleted), doing a byte-exact comparison with the credential ID being checked.
+Finding whether a particular credential is an RK is done by walking the list, and doing a byte-exact
+comparison with the credential ID being checked. This means deleting an RK invalidates it even when it
+is presented to the authenticator in an `allowList`.
 
 Each RK has a bit that says whether it is a "representative" of a unique RP. This is set at the time the
 credential is being stored. When a credential with this bit set is deleted, all the credentials are scanned
 to find another credential sharing that same RP. If there is one, it is flagged as the new representative.
 
+RKs are stored in a list in order of their creation. When an RK is replaced, it is moved to the end of the list,
+so the stored RKs are always sorted.
+
 Enumerating assertions is done by storing, in memory, the relevant portions of the getAssertion request and
-the index of the last resident key returned. The monotonic counter value at the time of creation is stored
-in flash with each RK. `getNextAssertion` goes through the whole resident key list again and ignores any
-that have counter values equal to or greater than the one at that index; this ensures that creds are produced
-in the standard-specified "descending" order, but does mean that each `getNextAssertion` call takes time on
-the order of the number of stored RKs.
+the index of the last resident key returned. `getNextAssertion` goes through the resident key list
+in reverse, starting with the key "before" the one last returned; this ensures that creds are produced
+in the standard-specified "descending" order.
