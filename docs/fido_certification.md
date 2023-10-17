@@ -3,13 +3,13 @@ Authenticator Definition and Derived Authenticator Requirements
 
 1.1
 ---
-This authenticator meets the definition of Category 4: the entire Authenticator is implemented inside an AROE,
+This authenticator meets the definition of Category 4: the Authenticator Application is implemented inside an AROE,
 the Javacard Platform, executing inside a Secure Element (SE). The SE executes ROE firmware on a tamper-resistant
 microcontroller and thus is a FIDO Allowed ROE.
 
-Name of the Authenticator: FIDO2Applet
-Hardware Type & Version: NXP SmartMX3 P71
-Underlying Software Platform/OS: NXP JCOP4 (Supported: Javacard 3.0.4+)
+- Name of the Authenticator: FIDO2Applet
+- Hardware Type & Version: NXP SmartMX3 P71
+- Underlying Software Platform/OS: NXP JCOP4 (Supported: Javacard 3.0.4+)
 
 The authenticator logical boundary includes the implementation software (FIDO2Applet), the AROE (JCOP implementation
 of the Javacard Platform), and the SE executing both.
@@ -29,7 +29,7 @@ Transaction confirmation display is NOT implemented.
 1.2
 ---
 The authenticator uses AES-256, in the Cipher Block Chaining (CBC) mode of operation, for confidentiality of data.
-Credential IDs are transmitted externally; these use an HMAC-SHA256 truncated to 128 bits for confidentiality.
+Credential IDs are transmitted externally; these use an HMAC-SHA256 truncated to 128 bits for authentication.
 
 All hashing uses SHA-256.
 
@@ -56,11 +56,13 @@ The relevant implementation source code for HMAC is in the `hmacSha256` function
 ---
 The user private key is stored inside the key handle. The key handle consists of:
 
+```
 Nonce := 15 random bytes
 IV := 16 random bytes
 Payload := SHA256(AppID) || Uauth.priv || CredProtectIndicationByte || Nonce
 EncryptedPayload := IV || AES256-CBC(Payload)
 KeyHandle := EncryptedPayload || Left16(SHA256(EncryptedPayload))
+```
 
 Where:
 
@@ -589,7 +591,7 @@ to ensure the CTAP credProtect extension requirements are met.
 
 For non-discoverable credentials, the credProtect level encoded inside the Credential ID itself is checked.
 
-Additionally, the authenticator implements an additional layer of protection for credProtect level three credentials:
+Additionally, the authenticator implements a second layer of protection for credProtect level three credentials:
 if the user PIN was provided to the authenticator at the time of their creation (via the regular CTAP clientPin
 user verification method), the credential itself is encrypted using a key stored wrapped by the user's PIN. This
 ensures that credentials so created require the user's PIN (as user verification) when used again.
