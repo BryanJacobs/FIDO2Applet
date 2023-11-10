@@ -129,7 +129,7 @@ If you're a really detail-oriented person, you might enjoy reading
 | Platform                  | Status           |
 |---------------------------|------------------|
 | Android (hwsecurity)      | Working          |
-| Android (Google Play)     | Broken [1]       |
+| Android (Google Play)     | CTAP1 only [1]   |
 | iOS                       | Reported working |
 | Linux (libfido2 or FIDOk) | Working          |
 | Windows 10                | Working          |
@@ -161,15 +161,13 @@ If you're a really detail-oriented person, you might enjoy reading
 
 There are two compatibility issues in the table above:
 1. Google Play Services on Android contains a complete webauthn implementation, but it appears to be
-   hardwired to use only "passkeys". If a site explicitly requests a non-discoverable credential,
+   hardwired to use only "passkeys". If a site explicitly requests a *non-discoverable* credential,
    you will be prompted to use an NFC security key, but this is only CTAP1 and not CTAP2. There's
    nothing fundamentally preventing this from working on Android but the current state of Chrome
-   and Fennec are that CTAP2 doesn't, because both use the broken Play Services library. It's also
-   worth noting that if you install an untrusted attestation certificate, some implementations will
-   reject your created U2F/CTAP1 credentials.
+   and Fennec are that CTAP2 doesn't, because both use the broken Play Services library.
 1. Some browsers support FIDO2 in theory but only allow USB security keys - this implementation
    is for PC/SC, and doesn't implement USB HID, so it will only work with FIDO2
    implementations that can handle e.g. NFC tokens instead of being restricted to USB.
-   In order to use a smartcard in these situations you'll need https://github.com/StarGate01/CTAP-bridge
-   or https://github.com/BryanJacobs/fido2-hid-bridge/ or similar, bridging USB-HID traffic to
-   PC/SC.
+   In order to use a smartcard in these situations you'll need https://github.com/StarGate01/CTAP-bridge ,
+   https://github.com/BryanJacobs/fido2-hid-bridge/ , https://github.com/BryanJacobs/FIDOk/ or similar,
+   bridging USB-HID traffic to PC/SC.

@@ -4077,7 +4077,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             throwException(ISO7816.SW_WRONG_DATA);
         }
 
-        final short scratchCredHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.ANYWHERE);
+        final short scratchCredHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.NOT_APDU_BUFFER);
         final short scratchCredOffset = bufferManager.getOffsetForHandle(scratchCredHandle);
         final byte[] scratchCredBuffer = bufferManager.getBufferForHandle(apdu, scratchCredHandle);
 
@@ -4103,26 +4103,30 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         final byte flag_byte = 0x01; // User always present
 
         // From here, we got a match: sign and send
-        // Let's use the upper half of the request buffer for this; why not?
-        final short sigRPIDOffset = 512;
-        random.generateData(bufferMem, sigRPIDOffset, (short) 1);
-        counter.increment((short)((bufferMem[sigRPIDOffset] & 0x0E) + 1));
+
+        final short scratchSigHandle = bufferManager.allocate(apdu,
+                (short)(RP_HASH_LEN + CLIENT_DATA_HASH_LEN + 5), BufferManager.NOT_APDU_BUFFER);
+        final short scratchSigOffset = bufferManager.getOffsetForHandle(scratchSigHandle);
+        final byte[] scratchSigBuffer = bufferManager.getBufferForHandle(apdu, scratchSigHandle);
+
+        random.generateData(scratchSigBuffer, scratchSigOffset, (short) 1);
+        counter.increment((short)((scratchSigBuffer[scratchSigOffset] & 0x0E) + 1));
+
+        final short sigRPIDOffset = scratchSigOffset;
         final short sigFlagsByteOffset = (short)(sigRPIDOffset + RP_HASH_LEN);
         final short sigCounterOffset = (short)(sigFlagsByteOffset + 1);
         final short sigClientDataOffset = (short)(sigCounterOffset + 4);
 
         // Shufflearoo to get things into the right order for signing
-        Util.arrayCopyNonAtomic(reqBuffer, clientDataHashOffset,
-                scratchCredBuffer, scratchCredOffset, CLIENT_DATA_HASH_LEN);
         Util.arrayCopyNonAtomic(reqBuffer, rpIdHashOffset,
-                reqBuffer, sigRPIDOffset, RP_HASH_LEN);
-        Util.arrayCopyNonAtomic(scratchCredBuffer, scratchCredOffset,
-                reqBuffer, sigClientDataOffset, CLIENT_DATA_HASH_LEN);
-        counter.pack(reqBuffer, sigCounterOffset);
-        reqBuffer[sigFlagsByteOffset] = flag_byte;
+                scratchSigBuffer, sigRPIDOffset, RP_HASH_LEN);
+        scratchSigBuffer[sigFlagsByteOffset] = flag_byte;
+        counter.pack(scratchSigBuffer, sigCounterOffset);
+        Util.arrayCopyNonAtomic(reqBuffer, clientDataHashOffset,
+                scratchSigBuffer, sigClientDataOffset, CLIENT_DATA_HASH_LEN);
 
         final byte[] apduBuf = apdu.getBuffer();
-        final short sigLen = attester.sign(reqBuffer, sigRPIDOffset,
+        final short sigLen = attester.sign(scratchSigBuffer, sigRPIDOffset,
                 (short)(RP_HASH_LEN + CLIENT_DATA_HASH_LEN + 5),
                 apduBuf, (short) 5);
 
