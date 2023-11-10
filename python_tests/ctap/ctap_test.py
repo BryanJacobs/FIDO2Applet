@@ -11,7 +11,7 @@ from typing import ClassVar, Optional, Any, Type, Iterator, Callable, List
 from unittest import TestCase
 
 from cryptography import x509
-from cryptography.hazmat._oid import NameOID
+from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives._serialization import Encoding
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -587,7 +587,7 @@ class BasicAttestationTestCase(CTAPTestCase):
         cert_cbor = bytes(cert_cbor_bytes)
 
         s = private_key.private_numbers().private_value
-        private_bytes = s.to_bytes(length=32)
+        private_bytes = s.to_bytes(length=32, byteorder='big')
         self.assertEqual(32, len(private_bytes))
         cbor_len_bytes = bytes(self._short_to_bytes(len(cert_cbor)))
         res = aaguid + private_bytes + cbor_len_bytes + cert_cbor
