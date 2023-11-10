@@ -164,6 +164,26 @@ class CTAPBasicsTestCase(CTAPTestCase):
                                  ],
                                  client_data_hash=secrets.token_bytes(32))
 
+    def test_get_assertion_handles_extraneous_stuff(self):
+        cred = self.ctap2.make_credential(**self.basic_makecred_params)
+
+        self.ctap2.get_assertion(rp_id=self.rp_id,
+                                 allow_list=[
+                                     {
+                                         "type": "public-key",
+                                         "id": cred.auth_data.credential_data.credential_id,
+                                         "transports": [
+                                             "usb",
+                                             "nfc",
+                                             "ble"
+                                         ]
+                                     }
+                                 ],
+                                 client_data_hash=secrets.token_bytes(32),
+                                 extensions={
+                                     "txAuthSimple": "Execute order 66."
+                                 })
+
     def test_assertion_empty_pin_auth_rejected_when_pin_set(self):
         cred = self.ctap2.make_credential(**self.basic_makecred_params)
 
