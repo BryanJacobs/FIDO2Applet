@@ -149,6 +149,21 @@ class CTAPBasicsTestCase(CTAPTestCase):
         self.assertIsNone(unauthed_assertion.user.get('name'))
         self.assertEqual(self.basic_makecred_params['user']['name'], authed_assertion.user.get('name'))
 
+    def test_get_assertion_handles_nesting(self):
+        cred = self.ctap2.make_credential(**self.basic_makecred_params)
+
+        self.ctap2.get_assertion(rp_id=self.rp_id,
+                                 allow_list=[
+                                     {
+                                         "type": "public-key",
+                                         "id": cred.auth_data.credential_data.credential_id,
+                                         "transports": {
+                                             "something": [1, 2, 3, 4]
+                                         }
+                                     }
+                                 ],
+                                 client_data_hash=secrets.token_bytes(32))
+
     def test_assertion_empty_pin_auth_rejected_when_pin_set(self):
         cred = self.ctap2.make_credential(**self.basic_makecred_params)
 

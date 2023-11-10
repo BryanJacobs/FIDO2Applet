@@ -3396,9 +3396,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 }
                 valLen = (short) (valDef - 0x0040);
             } else {
-                /*valLen = (short)(consumeAnyEntity(apdu, buffer, (short)(readIdx - 1), lc)
-                    - readIdx);*/
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                if (isId || isType) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                }
+                if (checkAllFieldsText) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
+                }
+                valLen = (short)(consumeAnyEntity(apdu, buffer, (short)(readIdx - 1), lc) - readIdx);
             }
 
             if (isId) {
