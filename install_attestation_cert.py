@@ -3,6 +3,7 @@
 import sys
 import argparse
 import base64
+import binascii
 
 from fido2.ctap2 import Ctap2
 from fido2.ctap2.base import args as ctap_args
@@ -36,6 +37,8 @@ if __name__ == '__main__':
     parser.add_argument('--country',
                         default='US',
                         help='ISO country code to use for certificates')
+    parser.add_argument('--already-loaded-public-key',
+                        help='The private key is already loaded on the card; this is the base64 DER-encoded PUBLIC key')
     args = parser.parse_args()
 
     if (args.ca_private_key is None) != (args.ca_cert_bytes is None):
@@ -66,13 +69,31 @@ if __name__ == '__main__':
 
     print(f"Using AAGUID: {aaguid.hex()}")
 
-    private_key = ec.generate_private_key(ec.SECP256R1())
-    cert_bytes = tc.get_x509_certs(private_key, name=args.name, ca_privkey_and_cert=ca_privkey_and_cert,
-                                   org=args.org, country=args.country)
+    get_certs_args = {
+        "name": args.name,
+        "ca_privkey_and_cert": ca_privkey_and_cert,
+        "org": args.org,
+        "country": args.country
+    }
+
+    if args.already_loaded_public_key is None:
+        private_key = ec.generate_private_key(ec.SECP256R1())
+        get_certs_args['private_key'] = private_key
+    else:
+        private_key = None
+        public_key = base64.b64decode(args.already_loaded_public_key)
+        get_certs_args['public_key'] = ec.EllipticCurvePublicKey.from_encoded_point(
+            ec.SECP256R1(),
+            public_key
+        )
+        print("Using existing public key " + str(binascii.hexlify(public_key)))
+    cert_bytes = tc.get_x509_certs(**get_certs_args)
 
     at_bytes = tc.assemble_cbor_from_attestation_certs(private_key=private_key,
                                                        cert_bytes=cert_bytes[:-1],
                                                        aaguid=aaguid)
+
+    print(binascii.hexlify(at_bytes))
 
     devices = list(CtapPcscDevice.list_devices())
     if len(devices) > 1:

@@ -541,10 +541,17 @@ class BasicAttestationTestCase(CTAPTestCase):
             .public_bytes(Encoding.DER)
         )
 
-    def get_x509_certs(self, private_key: EllipticCurvePrivateKey, name: Optional[str] = None,
+    def get_x509_certs(self, private_key: Optional[EllipticCurvePrivateKey] = None,
+                       public_key: Optional[EllipticCurvePublicKey] = None, name: Optional[str] = None,
                        country: Optional[str] = "US", org: Optional[str] = "ACME",
                        ca_privkey_and_cert: Optional[tuple[bytes, bytes]] = None) -> list[bytes]:
-        self.public_key = private_key.public_key()
+        if public_key is None and private_key is None:
+            raise ValueError("Either public or private key must be passed to get_x509_certs")
+
+        if private_key is not None:
+            self.public_key = private_key.public_key()
+        else:
+            self.public_key = public_key
 
         if name is None:
             name = secrets.token_hex(4)
@@ -567,7 +574,7 @@ class BasicAttestationTestCase(CTAPTestCase):
 
         return [authenticator_cert_bytes, ca_cert_bytes]
 
-    def assemble_cbor_from_attestation_certs(self, private_key: bytes, cert_bytes: list[bytes],
+    def assemble_cbor_from_attestation_certs(self, private_key: Optional[bytes], cert_bytes: list[bytes],
                                              aaguid: bytes) -> bytes:
         num_certs = len(cert_bytes)
         self.cert = cert_bytes[0]
@@ -586,23 +593,32 @@ class BasicAttestationTestCase(CTAPTestCase):
             cert_cbor_bytes += cert_data
         cert_cbor = bytes(cert_cbor_bytes)
 
-        s = private_key.private_numbers().private_value
-        private_bytes = s.to_bytes(length=32, byteorder='big')
-        self.assertEqual(32, len(private_bytes))
+        if private_key is not None:
+            s = private_key.private_numbers().private_value
+            private_bytes = s.to_bytes(length=32, byteorder='big')
+            self.assertEqual(32, len(private_bytes))
+        else:
+            private_bytes = bytes()
         cbor_len_bytes = bytes(self._short_to_bytes(len(cert_cbor)))
         res = aaguid + private_bytes + cbor_len_bytes + cert_cbor
         return res
 
     def gen_attestation_cert(self, cert_bytes: Optional[list[bytes]] = None, name: Optional[str] = None,
-                             aaguid: Optional[bytes] = None) -> bytes:
+                             aaguid: Optional[bytes] = None,
+                             public_key: Optional[EllipticCurvePrivateKey] = None) -> bytes:
         if aaguid is None:
             aaguid = secrets.token_bytes(16)
 
         self.aaguid = aaguid
-        private_key = ec.generate_private_key(ec.SECP256R1())
+        if public_key is None:
+            private_key = ec.generate_private_key(ec.SECP256R1())
+            public_key = None
+        else:
+            private_key = None
+            public_key = public_key
 
         if cert_bytes is None:
-            cert_bytes = self.get_x509_certs(private_key, name)
+            cert_bytes = self.get_x509_certs(private_key=private_key, name=name, public_key=public_key)
 
         return self.assemble_cbor_from_attestation_certs(private_key=private_key,
                                                          cert_bytes=cert_bytes,

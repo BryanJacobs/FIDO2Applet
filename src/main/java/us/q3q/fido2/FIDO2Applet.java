@@ -6934,6 +6934,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     case 0x0E:
                         CERTIFICATION_LEVEL = array[offset++];
                         break;
+                    case 0x0F:
+                        if (array[offset++] != 0x58 || array[offset++] != 0x20) {
+                            ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+                        }
+                        loadAttestationPrivateKey(array, offset);
+                        break;
                     default:
                         ISOException.throwIt(ISO7816.SW_WRONG_DATA);
                 }
@@ -7036,14 +7042,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @return true if we're done reading the keys
      */
     private boolean initAttestationKeyStart(APDU apdu, byte[] params, short offset, short length) {
-        if (attestationKey != null) {
-            // We already did this!
-            if (apdu != null) {
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NOT_ALLOWED);
-            }
-            throwException(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
-        }
-
         if (!counter.isZero()) {
             // Too late!
             if (apdu != null) {
@@ -7052,15 +7050,20 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             throwException(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
         }
 
-        if (length <= (short)(aaguid.length + KEY_POINT_LENGTH + 4)) {
+        if (!attestationSwitchingEnabled) {
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NOT_ALLOWED);
+        }
+
+        short minLength = (short)(aaguid.length + 4);
+        if (attestationKey == null) {
+            minLength += KEY_POINT_LENGTH;
+        }
+
+        if (length <= minLength) {
             if (apdu != null) {
                 sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_LENGTH);
             }
             throwException(ISO7816.SW_DATA_INVALID);
-        }
-
-        if (!attestationSwitchingEnabled) {
-            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NOT_ALLOWED);
         }
 
         JCSystem.beginTransaction();
@@ -7070,16 +7073,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
             Util.arrayCopy(params, offset, aaguid, (short) 0, (short) aaguid.length);
             offset += (short) aaguid.length;
+            short amountToRead = (short)(length - aaguid.length - 2);
 
-            attestationKey = getECPrivKey(false);
-            P256Constants.setCurve(attestationKey);
-            attestationKey.setS(params, offset, KEY_POINT_LENGTH);
-            offset += KEY_POINT_LENGTH;
+            if (attestationKey == null) {
+                offset += loadAttestationPrivateKey(params, offset);
+                amountToRead -= KEY_POINT_LENGTH;
+            }
 
             final short expectedLength = Util.getShort(params, offset);
             offset += 2;
-
-            final short amountToRead = (short)(length - aaguid.length - KEY_POINT_LENGTH - 2);
 
             if (amountToRead > expectedLength) {
                 if (apdu != null) {
@@ -7120,6 +7122,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         return false;
+    }
+
+    private short loadAttestationPrivateKey(byte[] params, short offset) {
+        attestationKey = getECPrivKey(false);
+        P256Constants.setCurve(attestationKey);
+        attestationKey.setS(params, offset, KEY_POINT_LENGTH);
+        return KEY_POINT_LENGTH;
     }
 
     /**

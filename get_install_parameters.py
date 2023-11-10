@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import argparse
+import base64
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser("get_install_parameters",
@@ -41,6 +42,8 @@ if __name__ == '__main__':
                         help="Allow a PIN token to be used multiple times, within its permissions")
     parser.add_argument('--certification-level', type=int, default=None,
                         help="Obtained FIDO Alliance certification level")
+    parser.add_argument('--attestation-private-key',
+                        help="Base64-encoded RAW (32 byte) private key for attestation certificate. Implies --enable-attestation")
 
     args = parser.parse_args()
 
@@ -55,6 +58,10 @@ if __name__ == '__main__':
 
     if args.max_rk_rp_length < 32 or args.max_rk_rp_length > 255:
         parser.error("The RP length stored for each RK must be between 32 and 255 bytes")
+
+    if args.attestation_private_key is not None:
+        args.enable_attestation = True
+        args.attestation_private_key = base64.b64decode(args.attestation_private_key)
 
     num_options_set = 0
     install_param_bytes = []
@@ -73,7 +80,8 @@ if __name__ == '__main__':
         'flash_scratch',
         'do_not_store_pin_length',
         'cache_pin_token',
-        'certification_level'
+        'certification_level',
+        'attestation_private_key'
     ]):
         val = getattr(args, option_string)
         if val is None:
@@ -85,6 +93,14 @@ if __name__ == '__main__':
             bytes_for_option = [0xF5]
         elif val is False:
             bytes_for_option = [0xF4]
+        elif isinstance(val, bytes):
+            if len(val) <= 23:
+                bytes_for_option = [0x40 + len(val)]
+            elif len(val) <= 255:
+                bytes_for_option = [0x58, len(val)]
+            else:
+                bytes_for_option = [0x59, (len(val) & 0xFF00) >> 8, len(val) & 0x00FF]
+            bytes_for_option += [int(x) for x in val]
         else:
             if val <= 23:
                 bytes_for_option = [val]
