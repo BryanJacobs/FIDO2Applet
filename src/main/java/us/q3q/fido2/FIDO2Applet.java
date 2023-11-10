@@ -3560,7 +3560,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             return;
         }
 
-        if (cla_ins == 0x0001 && p1_p2 == 0x0000) {
+        if (cla_ins == 0x0001) {
             transientStorage.clearOutgoingContinuation();
             u2FRegister(apdu);
             return;
