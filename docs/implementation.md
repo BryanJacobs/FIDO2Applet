@@ -107,7 +107,6 @@ Each RK gets a separate IV for each of its data structures:
 - Encrypted user ID
 - Encrypted user name
 - Encrypted RP name
-- Public key (yes, this is stored encrypted)
 - credBlob (don't confuse this with largeBlobKey)
 - largeBlobKey (don't confuse this with credBlob)
 

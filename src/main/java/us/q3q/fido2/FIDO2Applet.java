@@ -579,13 +579,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         final short userMapIdx = readIdx;
         readIdx = consumeMapAndGetID(apdu, buffer, readIdx, lc, true, false, true, false);
         final short userIdIdx = transientStorage.getStoredIdx();
-        final short userIdLen = transientStorage.getStoredLen();
+        final byte userIdLen = transientStorage.getStoredLen();
         if (userIdLen > MAX_USER_ID_LENGTH) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
         }
         consumeMapAndGetID(apdu, buffer, userMapIdx, lc, false, false, true, true);
         final short userNameIdx = transientStorage.getStoredIdx();
-        final short userNameLen = transientStorage.getStoredLen();
+        final byte userNameLen = transientStorage.getStoredLen();
 
         if (buffer[readIdx++] != 0x04) { // pubKeyCredParams
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
@@ -3396,7 +3396,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 }
                 valLen = (short) (valDef - 0x0040);
             } else {
-                if (isId || isType) {
+                if (isId || isType || isName) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
                 }
                 if (checkAllFieldsText) {
@@ -4820,7 +4820,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
         }
         final short userIdIdx = transientStorage.getStoredIdx();
-        final short userIdLen = transientStorage.getStoredLen();
+        final byte userIdLen = transientStorage.getStoredLen();
         if (userIdLen > MAX_USER_ID_LENGTH) {
             // We can't store user IDs this long, so we won't have one stored...
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NO_CREDENTIALS);
@@ -4828,7 +4828,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         consumeMapAndGetID(apdu, buffer, userMapOffset, lc, false, false, false, true);
         final short userNameIdx = transientStorage.getStoredIdx();
-        final short userNameLen = transientStorage.getStoredLen();
+        final byte userNameLen = transientStorage.getStoredLen();
 
         boolean foundHit = false;
         for (short i = 0; i < (short) residentKeys.length; i++) {
@@ -5159,7 +5159,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 byte[] pkBuf = bufferManager.getBufferForHandle(apdu, pkBufHandle);
                 short pkBufIdx = bufferManager.getOffsetForHandle(pkBufHandle);
 
-                residentKeys[rkIndex].unpackPublicKey(key, symmetricUnwrapper,
+                residentKeys[rkIndex].unpackPublicKey(
                         pkBuf, pkBufIdx);
                 writeOffset = writePubKey(outBuf, writeOffset, pkBuf, pkBufIdx);
 
@@ -5296,7 +5296,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             updateRKStatekeeping(apdu);
         }
 
-        short scannedRKs = 0;
         short rkIndex;
         for (rkIndex = startOffset; rkIndex < (short) residentKeys.length; rkIndex++) {
             // if a credential is not for a *unique* RP, ignore it - we're enumerating RPs here!

@@ -111,7 +111,7 @@ It will store:
 - up to 32 characters of the RP ID, again AES256 encrypted
 - a max 64-byte-long user ID, again AES256 encrypted
 - a user name, yet again AES256 encrypted
-- the 64-byte public key associated with the credential, again AES256 encrypted
+- the 64-byte public key associated with the credential, unencrypted
 - Several 16-byte random IVs used for encrypting each field
 - the length of the RP ID, unencrypted
 - the length of the user ID, unencrypted

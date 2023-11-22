@@ -21,29 +21,30 @@ public class ResidentKeyData {
     private static final short IV_LEN = 16;
 
     /**
-     * IV for encrypting the user info
+     * Initialization vectors used for encryption in this class
      */
-    private final byte[] userIdIV;
+    private final byte[] IVs;
     /**
-     * IV for encrypting the user name
+     * Offset in IVs of IV for encrypting the user info
      */
-    private final byte[] userNameIV;
+    private static final short USER_ID_IV_OFFSET = 0;
     /**
-     * IV for encrypting the RP info (text, not a hash)
+     * Offset in IVs of IV for encrypting the user name
      */
-    private final byte[] RPIV;
+    private static final short USER_NAME_IV_OFFSET = USER_ID_IV_OFFSET + IV_LEN;
     /**
-     * IV for encrypting the credential's public key
+     * Offset in IVv of IV for encrypting the RP info (text, not a hash)
      */
-    private final byte[] pubKeyIV;
+    private static final short RP_IV_OFFSET = USER_NAME_IV_OFFSET + IV_LEN;
     /**
-     * IV for encrypting the credential's credBlob (opaque platform-driven storage)
+     * Offset in IVs of IV for encrypting the credential's large blob data
      */
-    private final byte[] credBlobIV;
+    private static final short LARGE_BLOB_IV_OFFSET = USER_NAME_IV_OFFSET + IV_LEN;
     /**
-     * IV for encrypting the credential's large blob data
+     * Offset in IVs of IV for encrypting the credential's credBlob (opaque platform-driven storage)
      */
-    private final byte[] largeBlobIV;
+    private static final short CRED_BLOB_IV_OFFSET = LARGE_BLOB_IV_OFFSET + IV_LEN;
+
     /**
      * Encrypted-as-usual credential ID field, just like we'd receive in incoming blocks
      * from the platform if they were non-resident
@@ -64,15 +65,15 @@ public class ResidentKeyData {
     /**
      * Length of the corresponding user ID
      */
-    private short userIdLength;
+    private byte userIdLength;
     /**
-     * Encrypted (with the device wrapping key) user Name field
+     * Encrypted (with the device wrapping key) user name field
      */
     private byte[] userName;
     /**
      * Length of the corresponding user name
      */
-    private short userNameLength;
+    private byte userNameLength;
     /**
      * Encrypted (with the device wrapping key) RP ID fields for resident keys
      */
@@ -113,35 +114,27 @@ public class ResidentKeyData {
                            byte[] publicKeyBuffer, short publicKeyOffset, short publicKeyLength,
                            byte[] credBlobBuffer, short credBlobOffset, byte credBlobLen,
                            boolean uniqueRP, byte credProtectLevel) {
-        userIdIV = new byte[IV_LEN];
-        random.generateData(userIdIV, (short) 0, IV_LEN);
-        userNameIV = new byte[IV_LEN];
-        random.generateData(userNameIV, (short) 0, IV_LEN);
-        RPIV = new byte[IV_LEN];
-        random.generateData(RPIV, (short) 0, IV_LEN);
-        pubKeyIV = new byte[IV_LEN];
-        random.generateData(pubKeyIV, (short) 0, IV_LEN);
-        largeBlobIV = new byte[IV_LEN];
-        random.generateData(largeBlobIV, (short) 0, IV_LEN);
+        short ivBufferLen = CRED_BLOB_IV_OFFSET;
+        if (credBlobLen > 0) {
+            ivBufferLen += IV_LEN;
+        }
+        IVs = new byte[ivBufferLen];
+        random.generateData(IVs, (short) 0, ivBufferLen);
 
         if (credBlobLen > 0) {
-            credBlobIV = new byte[IV_LEN];
-            random.generateData(credBlobIV, (short) 0, IV_LEN);
             credBlob = new byte[encryptableLength(credBlobLen)];
-            wrapper.init(key, Cipher.MODE_ENCRYPT, credBlobIV, (short) 0, (short) credBlobIV.length);
+            wrapper.init(key, Cipher.MODE_ENCRYPT, IVs, CRED_BLOB_IV_OFFSET, IV_LEN);
             wrapper.doFinal(credBlobBuffer, credBlobOffset, (short) credBlob.length,
                     credBlob, (short) 0);
             this.credBlobLen = credBlobLen;
         } else {
             credBlob = null;
-            credBlobIV = null;
             this.credBlobLen = 0;
         }
 
         publicKey = new byte[publicKeyLength];
-        wrapper.init(key, Cipher.MODE_ENCRYPT, pubKeyIV, (short) 0, (short) pubKeyIV.length);
-        wrapper.doFinal(publicKeyBuffer, publicKeyOffset, publicKeyLength,
-                publicKey, (short) 0);
+        Util.arrayCopyNonAtomic(publicKeyBuffer, publicKeyOffset,
+                publicKey, (short) 0, publicKeyLength);
 
         this.uniqueRP = uniqueRP;
         this.credProtectLevel = credProtectLevel;
@@ -193,7 +186,7 @@ public class ResidentKeyData {
             ISOException.throwIt(ISO7816.SW_COMMAND_NOT_ALLOWED);
         }
         rpId = new byte[encryptableLength(rpIdLength)];
-        wrapper.init(key, Cipher.MODE_ENCRYPT, RPIV, (short) 0, (short) RPIV.length);
+        wrapper.init(key, Cipher.MODE_ENCRYPT, IVs, RP_IV_OFFSET, IV_LEN);
         wrapper.doFinal(rpIdBuffer, rpIdOffset, (short) rpId.length,
                 rpId, (short) 0);
         this.rpIdLength = rpIdLength;
@@ -212,15 +205,15 @@ public class ResidentKeyData {
      * @param userNameLength Length of user name to store
      */
     public void setUser(AESKey key, Cipher wrapper,
-                        byte[] userIdBuffer, short userIdOffset, short userIdLength,
-                        byte[] userNameBuffer, short userNameOffset, short userNameLength) {
+                        byte[] userIdBuffer, short userIdOffset, byte userIdLength,
+                        byte[] userNameBuffer, short userNameOffset, byte userNameLength) {
         final short newUserIdBufferLength = encryptableLength(userIdLength);
         if (userId == null || newUserIdBufferLength > userId.length) {
             userId = new byte[encryptableLength(userIdLength)];
         }
         Util.arrayCopy(userIdBuffer, userIdOffset,
                 userId, (short) 0, userIdLength);
-        wrapper.init(key, Cipher.MODE_ENCRYPT, userIdIV, (short) 0, (short) userIdIV.length);
+        wrapper.init(key, Cipher.MODE_ENCRYPT, IVs, USER_ID_IV_OFFSET, IV_LEN);
         wrapper.doFinal(userId, (short) 0, (short) userId.length,
                 userId, (short) 0);
         this.userIdLength = userIdLength;
@@ -232,11 +225,11 @@ public class ResidentKeyData {
 
         short newUserNameBufferLength = encryptableLength(userNameLength);
         if (userName == null || newUserNameBufferLength > userName.length) {
-            userName = new byte[encryptableLength(userNameLength)];
+            userName = new byte[newUserNameBufferLength];
         }
         Util.arrayCopy(userNameBuffer, userNameOffset,
                 userName, (short) 0, userNameLength);
-        wrapper.init(key, Cipher.MODE_ENCRYPT, userNameIV, (short) 0, (short) userNameIV.length);
+        wrapper.init(key, Cipher.MODE_ENCRYPT, IVs, USER_NAME_IV_OFFSET, IV_LEN);
         wrapper.doFinal(userName, (short) 0, (short) userName.length,
                 userName, (short) 0);
         this.userNameLength = userNameLength;
@@ -251,7 +244,7 @@ public class ResidentKeyData {
      * @param targetOffset Offset at which to store the user ID
      */
     public void unpackUserID(AESKey key, Cipher unwrapper, byte[] targetBuffer, short targetOffset) {
-        unwrapper.init(key, Cipher.MODE_DECRYPT, userIdIV, (short) 0, (short) userIdIV.length);
+        unwrapper.init(key, Cipher.MODE_DECRYPT, IVs, USER_ID_IV_OFFSET, IV_LEN);
         unwrapper.doFinal(userId, (short) 0, (short) userId.length,
                 targetBuffer, targetOffset);
     }
@@ -265,23 +258,20 @@ public class ResidentKeyData {
      * @param targetOffset Offset at which to store the username
      */
     public void unpackUserName(AESKey key, Cipher unwrapper, byte[] targetBuffer, short targetOffset) {
-        unwrapper.init(key, Cipher.MODE_DECRYPT, userNameIV, (short) 0, (short) userNameIV.length);
+        unwrapper.init(key, Cipher.MODE_DECRYPT, IVs, USER_NAME_IV_OFFSET, IV_LEN);
         unwrapper.doFinal(userName, (short) 0, (short) userName.length,
                 targetBuffer, targetOffset);
     }
 
     /**
-     * Decrypt and extract the public key for this RK.
+     * Extract the public key for this RK.
      *
-     * @param key Key for decryption
-     * @param unwrapper Decryption object to use
      * @param targetBuffer Buffer into which to store the pubKey
      * @param targetOffset Offset at which to store the pubKey
      */
-    public void unpackPublicKey(AESKey key, Cipher unwrapper, byte[] targetBuffer, short targetOffset) {
-        unwrapper.init(key, Cipher.MODE_DECRYPT, pubKeyIV, (short) 0, (short) pubKeyIV.length);
-        unwrapper.doFinal(publicKey, (short) 0, (short) publicKey.length,
-                targetBuffer, targetOffset);
+    public void unpackPublicKey(byte[] targetBuffer, short targetOffset) {
+        Util.arrayCopyNonAtomic(publicKey, (short) 0,
+                targetBuffer, targetOffset, (short) publicKey.length);
     }
 
     /**
@@ -293,7 +283,7 @@ public class ResidentKeyData {
      * @param targetOffset Offset at which to store the RPID
      */
     public void unpackRpId(AESKey key, Cipher unwrapper, byte[] targetBuffer, short targetOffset) {
-        unwrapper.init(key, Cipher.MODE_DECRYPT, RPIV, (short) 0, (short) RPIV.length);
+        unwrapper.init(key, Cipher.MODE_DECRYPT, IVs, RP_IV_OFFSET, IV_LEN);
         unwrapper.doFinal(rpId, (short) 0, (short) rpId.length,
                 targetBuffer, targetOffset);
     }
@@ -310,7 +300,7 @@ public class ResidentKeyData {
      */
     public void unpackCredBlob(AESKey key, Cipher unwrapper, byte[] targetBuffer, short targetOffset) {
         if (credBlob != null) {
-            unwrapper.init(key, Cipher.MODE_DECRYPT, credBlobIV, (short) 0, (short) credBlobIV.length);
+            unwrapper.init(key, Cipher.MODE_DECRYPT, IVs, CRED_BLOB_IV_OFFSET, IV_LEN);
             unwrapper.doFinal(credBlob, (short) 0, (short) credBlob.length,
                     targetBuffer, targetOffset);
         }
@@ -325,7 +315,7 @@ public class ResidentKeyData {
      * @param targetOffset Offset at which to store the LBK
      */
     public void emitLargeBlobKey(AESKey key, Cipher wrapper, byte[] targetBuffer, short targetOffset) {
-        wrapper.init(key, Cipher.MODE_ENCRYPT, largeBlobIV, (short) 0, (short) largeBlobIV.length);
+        wrapper.init(key, Cipher.MODE_ENCRYPT, IVs, LARGE_BLOB_IV_OFFSET, IV_LEN);
         wrapper.doFinal(publicKey, (short) 0, (short) 32,
                 targetBuffer, targetOffset);
     }
