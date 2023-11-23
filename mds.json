@@ -13,7 +13,6 @@
     { "major": 1, "minor": 0 }
   ],
   "authenticationAlgorithms": ["secp256r1_ecdsa_sha256_der"],
-  "assertionScheme": "FIDOV2",
   "publicKeyAlgAndEncodings": ["cose"],
   "attestationTypes": ["basic_full"],
   "userVerificationDetails": [
@@ -27,8 +26,6 @@
   "keyProtection": ["hardware", "secure_element"],
   "matcherProtection": ["on_chip"],
   "isFreshUserVerificationRequired": true,
-  "isSecondFactorOnly": false,
-  "operatingEnv": "Secure Element (SE)",
   "cryptoStrength": 128,
   "attachmentHint": ["nfc", "wireless"],
   "supportedExtensions": [
