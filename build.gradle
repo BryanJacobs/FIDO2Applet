@@ -63,11 +63,11 @@ if (jcHomeSet) {
             cap {
                 packageName 'us.q3q.fido2'
                 version '0.1'
-                aid 'A0:00:00:06:47'
+                aid PackageID
                 output 'FIDO2.cap'
                 applet {
                     className 'us.q3q.fido2.FIDO2Applet'
-                    aid 'A0:00:00:06:47:2F:00:01'
+                    aid ApplicationID
                 }
             }
         }
