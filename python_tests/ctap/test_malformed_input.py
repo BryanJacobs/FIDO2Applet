@@ -105,6 +105,13 @@ class CTAPMalformedInputTestCase(CTAPTestCase):
 
         self.assertEqual(CtapError.ERR.CBOR_UNEXPECTED_TYPE, e.exception.code)
 
+    def test_user_id_only(self):
+        self.basic_makecred_params['user'] = {"id": self.basic_makecred_params['user']["id"]}
+
+        cred = self.ctap2.make_credential(**self.basic_makecred_params)
+
+        self.assertIsNotNone(cred)
+
     def test_rp_icon_not_text(self):
         self.basic_makecred_params['rp']['icon'] = secrets.token_bytes(16)
 

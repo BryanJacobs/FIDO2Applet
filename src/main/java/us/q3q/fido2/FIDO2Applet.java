@@ -584,8 +584,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
         }
         consumeMapAndGetID(apdu, buffer, userMapIdx, lc, false, false, true, true);
-        final short userNameIdx = transientStorage.getStoredIdx();
-        final byte userNameLen = transientStorage.getStoredLen();
+        short userNameIdx = transientStorage.getStoredIdx();
+        byte userNameLen = transientStorage.getStoredLen();
 
         if (buffer[readIdx++] != 0x04) { // pubKeyCredParams
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
@@ -3439,7 +3439,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         if (!foundTargetField) {
-            sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
+            if (!findName) {
+                sendErrorByte(apdu, FIDOConstants.CTAP1_ERR_INVALID_PARAMETER);
+            }
+            // Empty result for a missing name - 0 pos, 0 length
+            transientStorage.setStoredVars((short) 0, (byte) 0);
         }
 
         if (checkTypePublicKey) {
@@ -4827,8 +4831,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         consumeMapAndGetID(apdu, buffer, userMapOffset, lc, false, false, false, true);
-        final short userNameIdx = transientStorage.getStoredIdx();
-        final byte userNameLen = transientStorage.getStoredLen();
+        short userNameIdx = transientStorage.getStoredIdx();
+        byte userNameLen = transientStorage.getStoredLen();
 
         boolean foundHit = false;
         for (short i = 0; i < (short) residentKeys.length; i++) {
