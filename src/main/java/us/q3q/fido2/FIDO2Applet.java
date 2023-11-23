@@ -584,8 +584,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
         }
         consumeMapAndGetID(apdu, buffer, userMapIdx, lc, false, false, true, true);
-        short userNameIdx = transientStorage.getStoredIdx();
-        byte userNameLen = transientStorage.getStoredLen();
+        final short userNameIdx = transientStorage.getStoredIdx();
+        final byte userNameLen = transientStorage.getStoredLen();
 
         if (buffer[readIdx++] != 0x04) { // pubKeyCredParams
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_MISSING_PARAMETER);
@@ -4831,8 +4831,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         consumeMapAndGetID(apdu, buffer, userMapOffset, lc, false, false, false, true);
-        short userNameIdx = transientStorage.getStoredIdx();
-        byte userNameLen = transientStorage.getStoredLen();
+        final short userNameIdx = transientStorage.getStoredIdx();
+        final byte userNameLen = transientStorage.getStoredLen();
 
         boolean foundHit = false;
         for (short i = 0; i < (short) residentKeys.length; i++) {
@@ -6583,7 +6583,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             pinWrapKey.clearKey();
             forcePinChange = false;
 
-            forceInitKeyAgreementKey();
+            resetPinUseState();
 
             ok = true;
         } finally {
@@ -6703,10 +6703,17 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
         keyAgreement.init(authenticatorKeyAgreementKey.getPrivate());
 
-        transientStorage.setPinProtocolInUse((byte) 0, (byte) 0);
-        random.generateData(pinToken, (short) 0, (short) pinToken.length);
+        resetPinUseState();
 
         transientStorage.setPlatformKeySet();
+    }
+
+    /**
+     * Reset the current PIN protocol/token in use.
+     */
+    private void resetPinUseState() {
+        transientStorage.setPinProtocolInUse((byte) 0, (byte) 0);
+        random.generateData(pinToken, (short) 0, (short) pinToken.length);
     }
 
     /**
