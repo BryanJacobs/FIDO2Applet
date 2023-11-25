@@ -6761,14 +6761,18 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * Gets an elliptic curve private key object.
      *
+     * @param forceAllowTransient If true, allow this PRIVATE key to be in transient memory
+     * @param allowDeselectMemory If true, allow this key to be cleared on applet deselect - unusual for private keys...
      * @return An uninitialized EC private key, ideally in RAM, but in flash if the authenticator doesn't support in-memory
      */
-    private ECPrivateKey getECPrivKey(boolean forceAllowTransient) {
+    private ECPrivateKey getECPrivKey(boolean forceAllowTransient, boolean allowDeselectMemory) {
         if (forceAllowTransient) {
-            try {
-                return (ECPrivateKey) KeyBuilder.buildKey(KeyBuilder.TYPE_EC_FP_PRIVATE_TRANSIENT_DESELECT, KeyBuilder.LENGTH_EC_FP_256, false);
-            } catch (CryptoException e) {
-                // Oh well, unsupported, use normal RAM or flash instead
+            if (allowDeselectMemory) {
+                try {
+                    return (ECPrivateKey) KeyBuilder.buildKey(KeyBuilder.TYPE_EC_FP_PRIVATE_TRANSIENT_DESELECT, KeyBuilder.LENGTH_EC_FP_256, false);
+                } catch (CryptoException e) {
+                    // Oh well, unsupported, use normal RAM or flash instead
+                }
             }
 
             try {
@@ -7019,7 +7023,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     private void initAuthenticatorKey(boolean authenticatorKeyInRam) {
         authenticatorKeyAgreementKey = new KeyPair(
                 (ECPublicKey) KeyBuilder.buildKey(KeyBuilder.TYPE_EC_FP_PUBLIC, KeyBuilder.LENGTH_EC_FP_256, false),
-                getECPrivKey(authenticatorKeyInRam)
+                getECPrivKey(authenticatorKeyInRam, false)
         );
         P256Constants.setCurve((ECKey) authenticatorKeyAgreementKey.getPrivate());
         P256Constants.setCurve((ECKey) authenticatorKeyAgreementKey.getPublic());
@@ -7034,7 +7038,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         // RAM usage - (ideally) ephemeral keys
         ecKeyPair = new KeyPair(
                 (ECPublicKey) KeyBuilder.buildKey(KeyBuilder.TYPE_EC_FP_PUBLIC, KeyBuilder.LENGTH_EC_FP_256, false),
-                getECPrivKey(ecPairInRam)
+                getECPrivKey(ecPairInRam, true)
         );
         P256Constants.setCurve((ECKey) ecKeyPair.getPrivate());
         P256Constants.setCurve((ECKey) ecKeyPair.getPublic());
@@ -7139,7 +7143,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     }
 
     private short loadAttestationPrivateKey(byte[] params, short offset) {
-        attestationKey = getECPrivKey(false);
+        attestationKey = getECPrivKey(false, false);
         P256Constants.setCurve(attestationKey);
         attestationKey.setS(params, offset, KEY_POINT_LENGTH);
         return KEY_POINT_LENGTH;

@@ -101,7 +101,7 @@ public final class TransientStorage {
     }
 
     public void fullyReset() {
-        // FULL reset includes pin-retry-since-reset counter
+        // FULL reset includes pin-retry-since-reset counter and platform-authenticator state
         Util.arrayFillNonAtomic(tempBytes, (short) 0, NUM_RESET_BYTES, (byte) 0x00);
     }
 
@@ -213,8 +213,13 @@ public final class TransientStorage {
     }
 
     public void clearOnDeselect() {
+        // Restore platform-key-set state afterwards: we want to preserve that across deselects
+        boolean platformKeySetState = isPlatformKeySet();
         // Note: fill starts from index 1, skipping the pin-retries-since-reset counter
         Util.arrayFillNonAtomic(tempBytes, (short) 1, (short)(NUM_RESET_BYTES - 1), (byte) 0x00);
+        if (platformKeySetState) {
+            setPlatformKeySet();
+        }
     }
 
     public void readyStoredVars() {
