@@ -3024,7 +3024,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         short expectedLen = apdu.setOutgoing();
         if (isExtendedAPDU) {
             // long APDUs are wonderful things, aren't they?
-            apduBlockSize = (short) apdu.getBuffer().length;
+            apduBlockSize = (short) (apdu.getBuffer().length - 3);
             if (apduBlockSize < 0) {
                 apduBlockSize = Short.MAX_VALUE;
             }
