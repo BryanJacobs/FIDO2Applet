@@ -3020,16 +3020,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         final boolean x5c = transientStorage.shouldStreamX5CLater();
         final boolean lbk = transientStorage.shouldStreamLBKLater();
         final boolean isExtendedAPDU = apdu.getOffsetCdata() == ISO7816.OFFSET_EXT_CDATA;
-        short apduBlockSize = (short)(APDU.getOutBlockSize() - 2);
-        short expectedLen = apdu.setOutgoing();
-        if (isExtendedAPDU) {
-            // long APDUs are wonderful things, aren't they?
-            apduBlockSize = (short) (apdu.getBuffer().length - 3);
-            if (apduBlockSize < 0) {
-                apduBlockSize = Short.MAX_VALUE;
-            }
-            expectedLen = apduBlockSize;
-        }
+        final short apduBlockSize = (short)(APDU.getOutBlockSize() - 2);
+        final short expectedLen = apdu.setOutgoing();
 
         short totalOutputLen = outputLen;
         if (x5c) {
