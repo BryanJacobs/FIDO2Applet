@@ -59,7 +59,8 @@ class ExtendedAPDUTestCase(BasicAttestationTestCase):
     @parameterized.expand([
         ("short", 100),
         ("medium", 220),
-        ("long", 5000)
+        ("long", 900),
+        ("xlong", 5000)
     ])
     def test_basic_auth(self, _, length):
         cert_bytes = secrets.token_bytes(length)

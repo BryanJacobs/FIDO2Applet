@@ -443,9 +443,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         transientStorage.clearAssertIterationPointer();
         final short chainOff = transientStorage.getChainIncomingReadOffset();
-        boolean extendedAPDU = apdu.getOffsetCdata() == ISO7816.OFFSET_EXT_CDATA;
+        final boolean extendedAPDU = apdu.getOffsetCdata() == ISO7816.OFFSET_EXT_CDATA;
 
-        if (!forceBuffering && (extendedAPDU || (chainOff == 0 && lc <= 256))) {
+        final boolean packInAPDU = !forceBuffering && (!extendedAPDU || (
+                chainOff == 0 && ((short)(buffer.length) < 0 || lc <= (short)(buffer.length - 3))
+        ));
+
+        if (packInAPDU) {
             // Single-buffer packed case
             // Shift down so meaningful data start at offset 0
             Util.arrayCopyNonAtomic(buffer, apdu.getOffsetCdata(),
@@ -3508,8 +3512,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         initKeyAgreementKeyIfNecessary();
 
         if (attestationData != null && filledAttestationData < attestationData.length &&
-                transientStorage.getChainIncomingReadOffset() > 0
-                && bufferMem[0] == FIDOConstants.CMD_INSTALL_CERTS
+                transientStorage.getChainIncomingReadOffset() > 0 &&
+                bufferMem[0] == FIDOConstants.CMD_INSTALL_CERTS
             ) {
             // Still waiting to receive more cert data
             final short amtRead = apdu.setIncomingAndReceive();
@@ -3518,7 +3522,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             if (lc == 0) {
                 ISOException.throwIt(ISO7816.SW_DATA_INVALID);
             }
-            byte[] buf = fullyReadReq(apdu, lc, amtRead, false);
+            byte[] buf = fullyReadReq(apdu, lc, amtRead, true);
             final boolean done = initAttestationKeyContinue(apdu, buf,
                     (short) 1, lc);
             transientStorage.resetChainIncomingReadOffset();
@@ -3543,10 +3547,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 boolean done = false;
                 if (attestationData == null) {
                     // Initial attestation data
-                    boolean extended = apdu.getOffsetCdata() == ISO7816.OFFSET_EXT_CDATA;
-                    final short apOffset = (short)(extended ?
-                            0: (apdu.getOffsetCdata() + 1));
-                    final short lcEffective = extended ? lc : (short)(lc - apOffset);
+                    final short apOffset = (short)(apdu.getOffsetCdata() + 1);
+                    final short lcEffective = (short)(lc - apOffset);
                     done = initAttestationKeyStart(apdu, bufferMem,
                             apOffset,
                             lcEffective
@@ -3649,7 +3651,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 sendAuthInfo(apdu);
                 break;
             case FIDOConstants.CMD_GET_ASSERTION:
-                reqBuffer = fullyReadReq(apdu, lc, amtRead, false);
+                reqBuffer = fullyReadReq(apdu, lc, amtRead, true);
 
                 getAssertion(apdu, lcEffective, reqBuffer, (short) 0);
                 break;
@@ -3673,7 +3675,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 break;
             case FIDOConstants.CMD_CREDENTIAL_MANAGEMENT: // intentional fallthrough, for backwards compat
             case FIDOConstants.CMD_CREDENTIAL_MANAGEMENT_PREVIEW:
-                reqBuffer = fullyReadReq(apdu, lc, amtRead, false);
+                reqBuffer = fullyReadReq(apdu, lc, amtRead, true);
 
                 credManagementSubcommand(apdu, reqBuffer, lcEffective);
                 break;
@@ -3694,7 +3696,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 boolean extended = apdu.getOffsetCdata() == ISO7816.OFFSET_EXT_CDATA;
                 short apOffset;
                 lcEffective = (short)(lc - 5);
-                reqBuffer = fullyReadReq(apdu, lc, amtRead, false);
+                reqBuffer = fullyReadReq(apdu, lc, amtRead, !extended);
                 if (extended) {
                     apOffset = (short)(apdu.getOffsetCdata() - 2);
                     if (lc > 255) {
