@@ -2223,9 +2223,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         boolean lastSend = numMatchesThisRP == 1 && firstCredIdx == 0;
 
         // If the APDU buffer is big enough, use it, confident our response won't overlap the written space
-        final boolean extendedAPDU = apdu.getOffsetCdata() == ISO7816.OFFSET_EXT_CDATA;
-        final boolean apduBufferIsLarge = apdu.getBuffer().length >= 2048
-                || extendedAPDU;
         final byte memPositioning = BufferManager.NOT_APDU_BUFFER;
 
         if (!lastSend && (startingAllowedMemory & BufferManager.UPPER_APDU) != 0) {
@@ -2286,10 +2283,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         // RESPONSE BELOW HERE
-        // If the APDU buffer is very big, start writing the response into it - even if we need to move
-        // bytes to bufferMem later due to the response being over-length
-        // This will save us some flash writes when bufferMem is in flash!
-        byte[] outputBuffer = apduBufferIsLarge ? apdu.getBuffer() : bufferMem;
+        byte[] outputBuffer = bufferMem;
         short outputIdx = (short) 0;
 
         outputBuffer[outputIdx++] = FIDOConstants.CTAP2_OK;
@@ -2490,41 +2484,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         transientStorage.setAssertIterationPointer(potentialAssertionIterationPointer);
 
-        if (extendedAPDU) {
-            // Just send it.
-            sendNoCopy(apdu, outputIdx);
-            return;
-        }
-
-        if (!apduBufferIsLarge) {
-            // We didn't write our output to the APDU buffer, so it must be copied there - in whole or in part
-            doSendResponse(apdu, outputIdx);
-            return;
-        }
-
-        bufferManager.clear();
-
-        short bufferChunkSize = (short)(APDU.getOutBlockSize() - 2);
-        final short requestedBytes = apdu.setOutgoing();
-        if (requestedBytes < bufferChunkSize) {
-            bufferChunkSize = requestedBytes;
-        }
-
-        if (outputIdx < bufferChunkSize) {
-            bufferChunkSize = outputIdx;
-        }
-
-        if (outputIdx > bufferChunkSize) {
-            // What we had in the buffer is longer than what we can send at once.
-            // Copy the rest to bufferMem
-            final short leftoverBytes = (short)(outputIdx - bufferChunkSize);
-            Util.arrayCopyNonAtomic(outputBuffer, bufferChunkSize,
-                    bufferMem, (short) 0, leftoverBytes);
-            setupChainedResponse((short) 0, leftoverBytes);
-        }
-
-        apdu.setOutgoingLength(bufferChunkSize);
-        apdu.sendBytes((short) 0, bufferChunkSize);
+        // We didn't write our output to the APDU buffer, so it must be copied there - in whole or in part
+        doSendResponse(apdu, outputIdx);
     }
 
     /**
