@@ -39,7 +39,10 @@ if __name__ == '__main__':
                         help="Avoid storing the length of the user PIN internally. Causes setMinPin to force a PIN "
                              "change")
     parser.add_argument('--cache-pin-token', action='store_false', default=None,
-                        help="Allow a PIN token to be used multiple times, within its permissions")
+                        help="Allow a PIN token to be potentially used multiple times, within its permissions")
+    parser.add_argument('--one-write-per-pin-token', action='store_true', default=None,
+                        help="In combination with --cache-pin-token, will allow many reads but only one write/use per "
+                             "time obtaining the PIN token")
     parser.add_argument('--certification-level', type=int, default=None,
                         help="Obtained FIDO Alliance certification level")
     parser.add_argument('--attestation-private-key',
@@ -81,7 +84,8 @@ if __name__ == '__main__':
         'do_not_store_pin_length',
         'cache_pin_token',
         'certification_level',
-        'attestation_private_key'
+        'attestation_private_key',
+        'one_write_per_pin_token'
     ]):
         val = getattr(args, option_string)
         if val is None:

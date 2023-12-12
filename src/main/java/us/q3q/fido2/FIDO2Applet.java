@@ -55,9 +55,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private boolean USE_LOW_SECURITY_FOR_SOME_RKS;
     /**
-     * If true, using a PIN/UV token invalidates it, requiring new authentication for each operation.
+     * If true, performing ANY operation with a PIN/UV token invalidates it, requiring new
+     * authentication for each operation.
      */
     private boolean ONE_USE_PER_PIN_TOKEN;
+    /**
+     * If true, performing a write with a PIN/UV token invalidates it, requiring new
+     * authentication (but not for reading).
+     */
+    private boolean WRITES_INVALIDATE_PINS;
     /**
      * Maximum size for the in-memory portion of the "scratch" working buffer. Larger will reduce flash use.
      * If this is larger than the available memory, all available memory will be used.
@@ -799,6 +805,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             if ((pinPermissions & FIDOConstants.PERM_MAKE_CREDENTIAL) == 0) {
                 // PIN token doesn't have permission for the MC operation
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+            }
+
+            if (WRITES_INVALIDATE_PINS) {
+                transientStorage.setPinProtocolInUse((byte) 3, (byte) 0);
             }
 
             pinAuthSuccess = true;
@@ -2084,6 +2094,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 if ((pinPermissions & FIDOConstants.PERM_GET_ASSERTION) == 0) {
                     // PIN token doesn't have permission for the GA operation
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
+                }
+
+                if (WRITES_INVALIDATE_PINS) {
+                    transientStorage.setPinProtocolInUse((byte) 3, (byte) 0);
                 }
 
                 stateKeepingBuffer[(short)(stateKeepingIdx + 1)] |= 0x01;
@@ -3938,6 +3952,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INTEGRITY_FAILURE);
             }
 
+            if (WRITES_INVALIDATE_PINS) {
+                transientStorage.setPinProtocolInUse((byte) 3, (byte) 0);
+            }
+
             bufferManager.release(apdu, scratchHandle, (short) 32);
 
             // Swapperoo the buffers
@@ -4439,6 +4457,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             checkPinToken(apdu, scratchBuffer, scratchOffset, bufferSize,
                     reqBuffer, authIndex, pinProtocol);
 
+            if (WRITES_INVALIDATE_PINS) {
+                transientStorage.setPinProtocolInUse((byte) 3, (byte) 0);
+            }
+
             // Whew, done.
             bufferManager.release(apdu, scratchHandle, bufferSize);
         }
@@ -4735,9 +4757,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 break;
             case FIDOConstants.CRED_MGMT_DELETE_CRED:
                 handleDeleteCred(apdu, buffer, subCommandParamsIdx, lc);
+                if (WRITES_INVALIDATE_PINS) {
+                    transientStorage.setPinProtocolInUse((byte) 3, (byte) 0);
+                }
                 break;
             case FIDOConstants.CRED_MGMT_UPDATE_USER_INFO:
                 handleUserUpdate(apdu, buffer, subCommandParamsIdx, lc);
+                if (WRITES_INVALIDATE_PINS) {
+                    transientStorage.setPinProtocolInUse((byte) 3, (byte) 0);
+                }
                 break;
             default:
                 sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_UNSUPPORTED_OPTION);
@@ -6801,7 +6829,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         FORCE_ALWAYS_UV = false;
         USE_LOW_SECURITY_FOR_SOME_RKS = true;
         PROTECT_AGAINST_MALICIOUS_RESETS = false;
-        ONE_USE_PER_PIN_TOKEN = true;
+        ONE_USE_PER_PIN_TOKEN = false;
+        WRITES_INVALIDATE_PINS = true;
         PIN_KDF_ITERATIONS = 5;
         MAX_CRED_BLOB_LEN = 32;
         short largeBlobStoreSize = 1024;
@@ -6916,7 +6945,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         if (array[offset++] != 0x58 || array[offset++] != 0x20) {
                             ISOException.throwIt(ISO7816.SW_DATA_INVALID);
                         }
-                        loadAttestationPrivateKey(array, offset);
+                        offset += loadAttestationPrivateKey(array, offset);
+                        break;
+                    case 0x10:
+                        WRITES_INVALIDATE_PINS = array[offset++] == (byte) 0xF5;
                         break;
                     default:
                         ISOException.throwIt(ISO7816.SW_WRONG_DATA);
