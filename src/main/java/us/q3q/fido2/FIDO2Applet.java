@@ -860,7 +860,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             minPinRequested = ok;
         }
 
-        final short scratchCredHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.ANYWHERE);
+        final short scratchCredHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.NOT_APDU_BUFFER);
         final short scratchCredOffset = bufferManager.getOffsetForHandle(scratchCredHandle);
         final byte[] scratchCredBuffer = bufferManager.getBufferForHandle(apdu, scratchCredHandle);
 
