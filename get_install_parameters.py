@@ -40,7 +40,7 @@ if __name__ == '__main__':
                              "change")
     parser.add_argument('--cache-pin-token', action='store_false', default=None,
                         help="Allow a PIN token to be potentially used multiple times, within its permissions")
-    parser.add_argument('--one-write-per-pin-token', action='store_true', default=None,
+    parser.add_argument('--multiple-writes-per-pin-token', action='store_false', default=None,
                         help="In combination with --cache-pin-token, will allow many reads but only one write/use per "
                              "time obtaining the PIN token")
     parser.add_argument('--certification-level', type=int, default=None,
@@ -85,7 +85,7 @@ if __name__ == '__main__':
         'cache_pin_token',
         'certification_level',
         'attestation_private_key',
-        'one_write_per_pin_token'
+        'multiple_writes_per_pin_token'
     ]):
         val = getattr(args, option_string)
         if val is None:
