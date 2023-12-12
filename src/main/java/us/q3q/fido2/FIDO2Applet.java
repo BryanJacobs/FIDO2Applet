@@ -5085,8 +5085,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 outBuf[writeOffset++] = FIDOConstants.CTAP2_OK;
                 outBuf[writeOffset++] = startCredIdx == 0 ? (byte) 0xA5 : (byte) 0xA4; // map, four or five entries
                 outBuf[writeOffset++] = 0x06; // map key: pubKeyCredentialsUserEntry
-                writeOffset = Util.arrayCopyNonAtomic(CannedCBOR.ID_AND_NAME_MAP_PREAMBLE, (short) 0,
-                        outBuf, writeOffset, (short) CannedCBOR.ID_AND_NAME_MAP_PREAMBLE.length);
+                final short userNameLength = residentKeys[rkIndex].getUserNameLength();
+
+                final byte[] preamble = userNameLength > 0 ? CannedCBOR.ID_AND_NAME_MAP_PREAMBLE : CannedCBOR.SINGLE_ID_MAP_PREAMBLE;
+                writeOffset = Util.arrayCopyNonAtomic(preamble, (short) 0,
+                        outBuf, writeOffset, (short) preamble.length);
+
                 final short userIdLength = residentKeys[rkIndex].getUserIdLength();
                 writeOffset = encodeIntLenTo(outBuf, writeOffset, userIdLength, true);
 
@@ -5098,13 +5102,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 // ... but we only advance the write offset by however many bytes of it are really valid
                 writeOffset += userIdLength;
 
-                writeOffset = Util.arrayCopyNonAtomic(CannedCBOR.NAME, (short) 0,
-                        outBuf, writeOffset, (short) CannedCBOR.NAME.length);
-                final short userNameLength = residentKeys[rkIndex].getUserNameLength();
-                writeOffset = encodeIntLenTo(outBuf, writeOffset, userNameLength, true);
-                residentKeys[rkIndex].unpackUserName(key, symmetricUnwrapper,
-                        outBuf, writeOffset);
-                writeOffset += userNameLength;
+                if (userNameLength > 0) {
+                    writeOffset = Util.arrayCopyNonAtomic(CannedCBOR.NAME, (short) 0,
+                            outBuf, writeOffset, (short) CannedCBOR.NAME.length);
+                    writeOffset = encodeIntLenTo(outBuf, writeOffset, userNameLength, false);
+                    residentKeys[rkIndex].unpackUserName(key, symmetricUnwrapper,
+                            outBuf, writeOffset);
+                    writeOffset += userNameLength;
+                }
 
                 outBuf[writeOffset++] = 0x07; // map key: credentialId
                 writeOffset = packCredentialId(residentKeys[rkIndex].getEncryptedCredentialID(), (short) 0,
