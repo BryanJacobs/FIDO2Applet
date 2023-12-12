@@ -1882,7 +1882,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         // These allocations might need to persist until next time, when we get a GetNextAssertion call
         // If we ARE a getNextAssertion call, we're just re-getting their indices into existing storage...
-        final byte startingAllowedMemory = firstCredIdx > 0 ? BufferManager.NOT_APDU_BUFFER : BufferManager.NOT_LOWER_APDU;
+        final byte startingAllowedMemory = BufferManager.NOT_APDU_BUFFER;
         short scratchRPIDHashHandle = bufferManager.allocate(apdu, RP_HASH_LEN, startingAllowedMemory);
         byte[] scratchRPIDHashBuffer = bufferManager.getBufferForHandle(apdu, scratchRPIDHashHandle);
         short scratchRPIDHashIdx = bufferManager.getOffsetForHandle(scratchRPIDHashHandle);
@@ -2245,6 +2245,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         rkMatch = i;
                         potentialAssertionIterationPointer = (byte) (i + 1);
                         loadScratchIntoAttester(credTempBuffer, (short)(credTempOffset + RP_HASH_LEN));
+
+                        // Continue iterating so we're constant-time
                     }
                 }
             }
@@ -2256,53 +2258,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NO_CREDENTIALS);
         }
 
-        boolean lastSend = numMatchesThisRP == 1 && firstCredIdx == 0;
-
-        // If the APDU buffer is big enough, use it, confident our response won't overlap the written space
         final byte memPositioning = BufferManager.NOT_APDU_BUFFER;
-
-        if (!lastSend && (startingAllowedMemory & BufferManager.UPPER_APDU) != 0) {
-            // Tricky situation: MOVE the allocations we already made into non-APDU storage,
-            // since we'll need them again for a getNextAssertion call
-            // We'll do this by freeing the allocations, immediately re-making them in the same order,
-            // then copying data from their old to new location. This is okay because the buffer allocator
-            // is deterministic and doesn't mangle contents...
-            // This complexity is all just to minimize flash writes in the common one-assertion case with
-            // limited non-APDU-buffer memory
-            bufferManager.release(apdu, hmacSaltHandle, (short) 65);
-            bufferManager.release(apdu, stateKeepingHandle, (short) 2);
-            bufferManager.release(apdu, clientDataHashHandle, CLIENT_DATA_HASH_LEN);
-            bufferManager.release(apdu, scratchRPIDHashHandle, RP_HASH_LEN);
-
-            final short newscratchRPIDHashHandle = bufferManager.allocate(apdu, RP_HASH_LEN, memPositioning);
-            final byte[] newscratchRPIDHashBuffer = bufferManager.getBufferForHandle(apdu, newscratchRPIDHashHandle);
-            final short newscratchRPIDHashIdx = bufferManager.getOffsetForHandle(newscratchRPIDHashHandle);
-            Util.arrayCopyNonAtomic(scratchRPIDHashBuffer, scratchRPIDHashIdx,
-                    newscratchRPIDHashBuffer, newscratchRPIDHashIdx, RP_HASH_LEN);
-            scratchRPIDHashBuffer = newscratchRPIDHashBuffer;
-            scratchRPIDHashIdx = newscratchRPIDHashIdx;
-            final short newclientDataHashHandle = bufferManager.allocate(apdu, CLIENT_DATA_HASH_LEN, memPositioning);
-            final byte[] newclientDataHashBuffer = bufferManager.getBufferForHandle(apdu, newclientDataHashHandle);
-            final short newclientDataHashIdx = bufferManager.getOffsetForHandle(newclientDataHashHandle);
-            Util.arrayCopyNonAtomic(clientDataHashBuffer, clientDataHashIdx,
-                    newclientDataHashBuffer, newclientDataHashIdx, CLIENT_DATA_HASH_LEN);
-            clientDataHashBuffer = newclientDataHashBuffer;
-            clientDataHashIdx = newclientDataHashIdx;
-            final short newpinInfoHandle = bufferManager.allocate(apdu, (short) 2, memPositioning);
-            final byte[] newpinInfoBuffer = bufferManager.getBufferForHandle(apdu, newpinInfoHandle);
-            final short newpinInfoIdx = bufferManager.getOffsetForHandle(newpinInfoHandle);
-            Util.arrayCopyNonAtomic(stateKeepingBuffer, stateKeepingIdx,
-                    newpinInfoBuffer, newpinInfoIdx, (short) 2);
-            stateKeepingBuffer = newpinInfoBuffer;
-            stateKeepingIdx = newpinInfoIdx;
-            final short newhmacSaltHandle = bufferManager.allocate(apdu, (short) 65, memPositioning);
-            final byte[] newhmacSaltBuffer = bufferManager.getBufferForHandle(apdu, newhmacSaltHandle);
-            final short newhmacSaltIdx = bufferManager.getOffsetForHandle(newhmacSaltHandle);
-            Util.arrayCopyNonAtomic(hmacSaltBuffer, hmacSaltIdx,
-                    newhmacSaltBuffer, newhmacSaltIdx, (short) 65);
-            hmacSaltBuffer = newhmacSaltBuffer;
-            hmacSaltIdx = newhmacSaltIdx;
-        }
 
         final short hmacOutputHandle = bufferManager.allocate(apdu, (short) 80, memPositioning);
         final short hmacOutputOffset = bufferManager.getOffsetForHandle(hmacOutputHandle);
