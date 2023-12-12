@@ -4963,7 +4963,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     short rpHavingSameRP = -1;
 
                     // Unpack the other cred into the upper half of the output buffer, which we're not using
-                    short secondCredHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.ANYWHERE);
+                    short secondCredHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.NOT_LOWER_APDU);
                     short secondCredIdx = bufferManager.getOffsetForHandle(secondCredHandle);
                     byte[] secondCredBuffer = bufferManager.getBufferForHandle(apdu, secondCredHandle);
 
