@@ -161,6 +161,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * Required byte length of wrapped incoming PINs. FIDO standards say 64
      */
     private static final short PIN_PAD_LENGTH = 64;
+    /**
+     * Approximately how much storage, in bytes, each Resident Key will use (upper bound, overestimate)
+     */
+    private static final short APPROXIMATE_STORAGE_PER_RESIDENT_KEY = 400;
 
     /**
      * Request/response buffer
@@ -964,11 +968,20 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 }
             }
 
+            short availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_PERSISTENT);
+
             if (targetRKSlot == -1) {
                 // We're entirely full up...
                 // let's allocate some more space, if we can!
+
                 short oldSize = (short) residentKeys.length;
                 short newSize = (short)(oldSize + NUM_RESIDENT_KEY_SLOTS_PER_BATCH);
+
+                if (availableMem >= 0 && availableMem < (short)(newSize * 16)) {
+                    // Too close to the limit for safety
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_KEY_STORE_FULL);
+                }
+
                 try {
                     ResidentKeyData[] newStore = new ResidentKeyData[newSize];
                     for (short i = 0; i < (short) residentKeys.length; i++) {
@@ -984,6 +997,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 } catch (Exception e) {
                     // Do nothing - waste a tiny amount of memory
                 }
+
+                // Re-get available mem here, because we used/freed some
+                availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_PERSISTENT);
+
+            }
+
+            if (availableMem >= 0 && availableMem < APPROXIMATE_STORAGE_PER_RESIDENT_KEY) {
+                // No room to create a new resident key without first deleting one
+                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_KEY_STORE_FULL);
             }
 
             // Stow the new credential in the slot we chose earlier
@@ -5717,7 +5739,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         if (availableMem < 0) {
             availableMem = Short.MAX_VALUE;
         }
-        final short approx = (short)(availableMem / 180);
+        final short approx = (short)(availableMem / APPROXIMATE_STORAGE_PER_RESIDENT_KEY);
         return (byte)(approx > 100 ? 100 : approx);
     }
 
