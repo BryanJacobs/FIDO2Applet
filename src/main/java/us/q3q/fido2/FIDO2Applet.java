@@ -2220,7 +2220,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         if (allowListLength == 0 && numResidentCredentials > 0) {
             // Scan resident keys for match
 
-            short credTempHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.ANYWHERE);
+            short credTempHandle = bufferManager.allocate(apdu, CREDENTIAL_PAYLOAD_LEN, BufferManager.ANYWHERE);
             short credTempOffset = bufferManager.getOffsetForHandle(credTempHandle);
             byte[] credTempBuffer = bufferManager.getBufferForHandle(apdu, credTempHandle);
 
@@ -2248,7 +2248,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 }
             }
 
-            bufferManager.release(apdu, credTempHandle, CREDENTIAL_ID_LEN);
+            bufferManager.release(apdu, credTempHandle, CREDENTIAL_PAYLOAD_LEN);
         }
 
         if (!acceptedMatch) {
@@ -2837,7 +2837,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param rpIdBuf Buffer containing the RP ID hash
      * @param rpIdHashIdx Index of the RP ID hash within the given buffer
      * @param outputBuffer Buffer into which to store the decoded credential ID's private key -
-     *                     needs CREDENTIAL_ID_LEN bytes available
+     *                     needs CREDENTIAL_PAYLOAD_LEN bytes available
      * @param outputOffset Offset into the output buffer for write
      * @param rkNum if the credential was created as a resident/discoverable key, its index; -1 otherwise
      * @param maximumCredProtectLevel only return credentials with this security level or lower
