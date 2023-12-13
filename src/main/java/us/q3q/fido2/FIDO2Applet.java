@@ -4022,7 +4022,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             throwException(ISO7816.SW_WRONG_DATA);
         }
 
-        final short scratchCredHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.NOT_APDU_BUFFER);
+        final short scratchCredHandle = bufferManager.allocate(apdu, CREDENTIAL_PAYLOAD_LEN, BufferManager.NOT_APDU_BUFFER);
         final short scratchCredOffset = bufferManager.getOffsetForHandle(scratchCredHandle);
         final byte[] scratchCredBuffer = bufferManager.getBufferForHandle(apdu, scratchCredHandle);
 
@@ -4797,7 +4797,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 // Matching cred.
                 // We need to extract the credential to check that our PIN token WOULD have permission
                 if (permissionsRpId[0] != 0x00) {
-                    short scratchExtractedCredHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.ANYWHERE);
+                    short scratchExtractedCredHandle = bufferManager.allocate(apdu, CREDENTIAL_PAYLOAD_LEN, BufferManager.ANYWHERE);
                     short scratchExtractedCredOffset = bufferManager.getOffsetForHandle(scratchExtractedCredHandle);
                     byte[] scratchExtractedCredBuffer = bufferManager.getBufferForHandle(apdu, scratchExtractedCredHandle);
                     if (!checkCredential(
@@ -4808,7 +4808,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         // permissions RP ID in use, but doesn't match RP of this credential
                         sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_AUTH_INVALID);
                     }
-                    bufferManager.release(apdu, scratchExtractedCredHandle, CREDENTIAL_ID_LEN);
+                    bufferManager.release(apdu, scratchExtractedCredHandle, CREDENTIAL_PAYLOAD_LEN);
                 }
 
                 // If we're here, it's time to update the user info for the stored cred
@@ -4908,8 +4908,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     // of the RP for iteration purposes
                     short rpHavingSameRP = -1;
 
-                    // Unpack the other cred into the upper half of the output buffer, which we're not using
-                    short secondCredHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.NOT_LOWER_APDU);
+                    short secondCredHandle = bufferManager.allocate(apdu, CREDENTIAL_PAYLOAD_LEN, BufferManager.NOT_LOWER_APDU);
                     short secondCredIdx = bufferManager.getOffsetForHandle(secondCredHandle);
                     byte[] secondCredBuffer = bufferManager.getBufferForHandle(apdu, secondCredHandle);
 
@@ -4931,7 +4930,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         }
                     }
 
-                    bufferManager.release(apdu, secondCredHandle, CREDENTIAL_ID_LEN);
+                    bufferManager.release(apdu, secondCredHandle, CREDENTIAL_PAYLOAD_LEN);
 
                     JCSystem.beginTransaction();
                     boolean ok = false;
