@@ -2170,17 +2170,19 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
                 for (short i = 0; i < allowListLength; i++) {
                     blockReadIdx = consumeMapAndGetID(apdu, buffer, blockReadIdx, lc, true, true, false, false);
-                    final short credIdx = transientStorage.getStoredIdx();
-                    final short credLen = transientStorage.getStoredLen();
-                    if (credLen != CREDENTIAL_ID_LEN) {
-                        // Invalid allow list entry - ignore
-                        continue;
-                    }
 
                     if (acceptedMatch) {
                         // In CTAP2.1, we are done, as we're supposed to treat the match we already made as the only match
                         // we're just continuing iteration to throw exceptions when we encounter invalid allowList entries
                         // AFTER the valid one
+                        continue;
+                    }
+
+                    final short credIdx = transientStorage.getStoredIdx();
+                    final short credLen = transientStorage.getStoredLen();
+
+                    if (credLen != CREDENTIAL_ID_LEN) {
+                        // Invalid allow list entry - ignore
                         continue;
                     }
 
