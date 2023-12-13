@@ -1899,13 +1899,16 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         byte[] hmacSaltBuffer = bufferManager.getBufferForHandle(apdu, hmacSaltHandle);
         short hmacSaltIdx = bufferManager.getOffsetForHandle(hmacSaltHandle);
 
+        final short credStorageHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, startingAllowedMemory);
+        final short credStorageOffset = bufferManager.getOffsetForHandle(credStorageHandle);
+        final byte[] credStorageBuffer = bufferManager.getBufferForHandle(apdu, credStorageHandle);
+
+        boolean acceptedMatch = false;
+
         short hmacSecretBytes = 0;
         byte numMatchesThisRP = 0;
         short rkMatch = -1;
         short allowListLength = 0;
-        byte[] matchingCredentialBuffer = buffer;
-        short matchingCredentialLen = 0;
-        short matchingCredentialOffset = (short) -1;
 
         if (resetRequested) {
             resetRequested = false;
@@ -2170,39 +2173,34 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 byte[] credTempBuffer = bufferManager.getBufferForHandle(apdu, credTempHandle);
 
                 for (short i = 0; i < allowListLength; i++) {
-                    final short beforeReadIdx = blockReadIdx;
                     blockReadIdx = consumeMapAndGetID(apdu, buffer, blockReadIdx, lc, true, true, false, false);
-                    final short pubKeyIdx = transientStorage.getStoredIdx();
-                    final short pubKeyLen = transientStorage.getStoredLen();
-                    if (pubKeyLen == -1) {
+                    final short credIdx = transientStorage.getStoredIdx();
+                    final short credLen = transientStorage.getStoredLen();
+                    if (credLen != CREDENTIAL_ID_LEN) {
                         // Invalid allow list entry - ignore
                         continue;
                     }
 
-                    if (matchingCredentialOffset != -1) {
+                    if (acceptedMatch) {
                         // In CTAP2.1, we are done, as we're supposed to treat the match we already made as the only match
                         // we're just continuing iteration to throw exceptions when we encounter invalid allowList entries
                         // AFTER the valid one
                         continue;
                     }
 
-                    boolean acceptedMatch = false;
-
                     // The FIDO compliance tests check that deleting a resident credential also makes
                     // attempts to use it via the allowList fail. So we'll run through our stored keys and validate
                     // that we have something matching this before we accept it
-                    rkMatch = scanRKsForExactCredential(buffer, pubKeyIdx);
+                    rkMatch = scanRKsForExactCredential(buffer, credIdx);
 
-                    if (checkCredential(apdu, buffer, pubKeyIdx, pubKeyLen, scratchRPIDHashBuffer, scratchRPIDHashIdx,
+                    if (checkCredential(apdu, buffer, credIdx, credLen, scratchRPIDHashBuffer, scratchRPIDHashIdx,
                             credTempBuffer, credTempOffset, rkMatch, (byte)(pinProvided ? 3 : 2))) {
                         // valid credential
                         acceptedMatch = true;
-                    }
 
-                    if (acceptedMatch) {
                         numMatchesThisRP++;
-                        matchingCredentialOffset = beforeReadIdx;
-                        matchingCredentialLen = (short) (blockReadIdx - matchingCredentialOffset);
+                        Util.arrayCopyNonAtomic(buffer, credIdx,
+                                credStorageBuffer, credStorageOffset, credLen);
                         loadScratchIntoAttester(credTempBuffer, (short)(credTempOffset + RP_HASH_LEN));
                     }
                 }
@@ -2239,12 +2237,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     numMatchesThisRP++;
 
                     if (rkMatch == -1) {
-                        matchingCredentialBuffer = residentKeys[i].getEncryptedCredentialID();
-                        matchingCredentialOffset = (short) 0;
-                        matchingCredentialLen = residentKeys[i].getCredLen();
                         rkMatch = i;
                         potentialAssertionIterationPointer = (byte) (i + 1);
                         loadScratchIntoAttester(credTempBuffer, (short)(credTempOffset + RP_HASH_LEN));
+
+                        Util.arrayCopyNonAtomic(residentKeys[i].getEncryptedCredentialID(), (short) 0,
+                                credStorageBuffer, credStorageOffset, residentKeys[i].getCredLen());
+                        acceptedMatch = true;
 
                         // Continue iterating so we're constant-time
                     }
@@ -2254,7 +2253,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             bufferManager.release(apdu, credTempHandle, CREDENTIAL_ID_LEN);
         }
 
-        if (matchingCredentialOffset == (short) -1) {
+        if (!acceptedMatch) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_NO_CREDENTIALS);
         }
 
@@ -2273,20 +2272,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     (stateKeepingBuffer[(short)(stateKeepingIdx + 1)] & 0x01) != 0
             );
         }
-
-        // Copy the credential out of the input if it's an allowList entry
-        if (rkMatch == -1) {
-            final short credStorageHandle = bufferManager.allocate(apdu, matchingCredentialLen, BufferManager.ANYWHERE);
-            final short credStorageOffset = bufferManager.getOffsetForHandle(credStorageHandle);
-            final byte[] credStorageBuffer = bufferManager.getBufferForHandle(apdu, credStorageHandle);
-
-            Util.arrayCopyNonAtomic(matchingCredentialBuffer, matchingCredentialOffset,
-                    credStorageBuffer, credStorageOffset, matchingCredentialLen);
-
-            matchingCredentialBuffer = credStorageBuffer;
-            matchingCredentialOffset = credStorageOffset;
-        }
-
 
         // RESPONSE BELOW HERE
         byte[] outputBuffer = bufferMem;
@@ -2312,15 +2297,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         outputBuffer[outputIdx++] = 0x01; // map key: credential
 
         // credential
-        if (rkMatch > -1) {
-            // Resident keys need CBOR wrapping...
-            outputIdx = packCredentialId(matchingCredentialBuffer, matchingCredentialOffset,
-                    outputBuffer, outputIdx);
-        } else {
-            // Copy straight from input to output
-            outputIdx = Util.arrayCopyNonAtomic(matchingCredentialBuffer, matchingCredentialOffset,
-                    outputBuffer, outputIdx, matchingCredentialLen);
-        }
+        outputIdx = packCredentialId(credStorageBuffer, credStorageOffset,
+                outputBuffer, outputIdx);
 
         outputBuffer[outputIdx++] = 0x02; // map key: authData
 
