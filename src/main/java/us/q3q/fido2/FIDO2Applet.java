@@ -2274,6 +2274,20 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             );
         }
 
+        // Copy the credential out of the input if it's an allowList entry
+        if (rkMatch == -1) {
+            final short credStorageHandle = bufferManager.allocate(apdu, matchingCredentialLen, memPositioning);
+            final short credStorageOffset = bufferManager.getOffsetForHandle(credStorageHandle);
+            final byte[] credStorageBuffer = bufferManager.getBufferForHandle(apdu, credStorageHandle);
+
+            Util.arrayCopyNonAtomic(matchingCredentialBuffer, matchingCredentialOffset,
+                    credStorageBuffer, credStorageOffset, matchingCredentialLen);
+
+            matchingCredentialBuffer = credStorageBuffer;
+            matchingCredentialOffset = credStorageOffset;
+        }
+
+
         // RESPONSE BELOW HERE
         byte[] outputBuffer = bufferMem;
         short outputIdx = (short) 0;
