@@ -2168,10 +2168,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
                 }
 
-                short credTempHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.ANYWHERE);
-                short credTempOffset = bufferManager.getOffsetForHandle(credTempHandle);
-                byte[] credTempBuffer = bufferManager.getBufferForHandle(apdu, credTempHandle);
-
                 for (short i = 0; i < allowListLength; i++) {
                     blockReadIdx = consumeMapAndGetID(apdu, buffer, blockReadIdx, lc, true, true, false, false);
                     final short credIdx = transientStorage.getStoredIdx();
@@ -2194,18 +2190,18 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     rkMatch = scanRKsForExactCredential(buffer, credIdx);
 
                     if (checkCredential(apdu, buffer, credIdx, credLen, scratchRPIDHashBuffer, scratchRPIDHashIdx,
-                            credTempBuffer, credTempOffset, rkMatch, (byte)(pinProvided ? 3 : 2))) {
+                            credStorageBuffer, credStorageOffset, rkMatch, (byte)(pinProvided ? 3 : 2))) {
                         // valid credential
                         acceptedMatch = true;
 
                         numMatchesThisRP++;
+
+                        // First load the decrypted private key, then overwrite with the public credential
+                        loadScratchIntoAttester(credStorageBuffer, (short)(credStorageOffset + RP_HASH_LEN));
                         Util.arrayCopyNonAtomic(buffer, credIdx,
                                 credStorageBuffer, credStorageOffset, credLen);
-                        loadScratchIntoAttester(credTempBuffer, (short)(credTempOffset + RP_HASH_LEN));
                     }
                 }
-
-                bufferManager.release(apdu, credTempHandle, CREDENTIAL_ID_LEN);
             }
 
             if (hmacSecretReadIdx != -1) {
