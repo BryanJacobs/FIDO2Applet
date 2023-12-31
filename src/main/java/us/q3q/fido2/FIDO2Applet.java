@@ -3444,8 +3444,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
         }
 
-        initKeyAgreementKeyIfNecessary();
-
         if (attestationData != null && filledAttestationData < attestationData.length &&
                 transientStorage.getChainIncomingReadOffset() > 0 &&
                 bufferMem[0] == FIDOConstants.CMD_INSTALL_CERTS
@@ -3529,6 +3527,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     (short) CannedCBOR.U2F_V2_RESPONSE.length);
             return;
         }
+
+        initKeyAgreementKeyIfNecessary();
 
         if (apduBytes[ISO7816.OFFSET_CLA] != (byte) 0x80) {
             throwException(ISO7816.SW_CLA_NOT_SUPPORTED);
