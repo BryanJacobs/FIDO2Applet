@@ -4095,11 +4095,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             throwException(ISO7816.SW_COMMAND_NOT_ALLOWED);
         }
 
-        apdu.setIncomingAndReceive();
+        final short amtRead = apdu.setIncomingAndReceive();
         short lc = apdu.getIncomingLength();
         if (lc != (short)(CLIENT_DATA_HASH_LEN + RP_HASH_LEN)) {
             throwException(ISO7816.SW_WRONG_LENGTH);
         }
+        final byte[] reqBuffer = fullyReadReq(apdu, lc, amtRead, true);
 
         // TODO: handle very long certificates
         short attCertLen = 0;
@@ -4116,27 +4117,26 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             throwException(ISO7816.SW_DATA_INVALID);
         }
 
-        final byte[] apduBuffer = apdu.getBuffer();
+        short readOffset = 0;
         bufferManager.initializeAPDU(apdu);
 
-        final short scratchClientDataHashHandle = bufferManager.allocate(apdu, CLIENT_DATA_HASH_LEN, BufferManager.ANYWHERE);
+        final short scratchClientDataHashHandle = bufferManager.allocate(apdu, CLIENT_DATA_HASH_LEN, BufferManager.NOT_APDU_BUFFER);
         final short scratchClientDataHashOffset = bufferManager.getOffsetForHandle(scratchClientDataHashHandle);
         final byte[] scratchClientDataHashBuffer = bufferManager.getBufferForHandle(apdu, scratchClientDataHashHandle);
-        final short scratchRPIDHashHandle = bufferManager.allocate(apdu, RP_HASH_LEN, BufferManager.ANYWHERE);
+        final short scratchRPIDHashHandle = bufferManager.allocate(apdu, RP_HASH_LEN, BufferManager.NOT_APDU_BUFFER);
         final short scratchRPIDHashOffset = bufferManager.getOffsetForHandle(scratchRPIDHashHandle);
         final byte[] scratchRPIDHashBuffer = bufferManager.getBufferForHandle(apdu, scratchRPIDHashHandle);
-        final short publicKeyHandle = bufferManager.allocate(apdu, PUB_KEY_LENGTH, BufferManager.NOT_LOWER_APDU);
+        final short publicKeyHandle = bufferManager.allocate(apdu, PUB_KEY_LENGTH, BufferManager.NOT_APDU_BUFFER);
         final short publicKeyOffset = bufferManager.getOffsetForHandle(publicKeyHandle);
         final byte[] publicKeyBuffer = bufferManager.getBufferForHandle(apdu, publicKeyHandle);
-        final short scratchCredHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.ANYWHERE);
+        final short scratchCredHandle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.NOT_APDU_BUFFER);
         final short scratchCredOffset = bufferManager.getOffsetForHandle(scratchCredHandle);
         final byte[] scratchCredBuffer = bufferManager.getBufferForHandle(apdu, scratchCredHandle);
 
-        short readOffset = apdu.getOffsetCdata();
-        Util.arrayCopyNonAtomic(apduBuffer, readOffset,
+        Util.arrayCopyNonAtomic(reqBuffer, readOffset,
                 scratchClientDataHashBuffer, scratchClientDataHashOffset, CLIENT_DATA_HASH_LEN);
         readOffset += CLIENT_DATA_HASH_LEN;
-        Util.arrayCopyNonAtomic(apduBuffer, readOffset,
+        Util.arrayCopyNonAtomic(reqBuffer, readOffset,
                 scratchRPIDHashBuffer, scratchRPIDHashOffset, RP_HASH_LEN);
 
         // Out of the APDU buffer; it's all free!
