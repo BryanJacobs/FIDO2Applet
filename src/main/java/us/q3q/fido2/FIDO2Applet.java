@@ -14,7 +14,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * The version of this applet in use
      */
-    private static final byte FIRMWARE_VERSION = 0x01;
+    private static final byte FIRMWARE_VERSION = 0x02;
     // Configurable parameters
     /**
      * If set, use low-security keys for everything, to fully comply with the FIDO standards without alwaysUv
