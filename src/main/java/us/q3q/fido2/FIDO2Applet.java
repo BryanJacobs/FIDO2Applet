@@ -5513,7 +5513,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         short offset = 0;
 
-        byte numOptions = (byte) 0xB0;
+        short numOptions = 0x00B0;
         boolean includeMaxMsgSize = bufferMem.length != 1024;
         boolean includeCertifications = CERTIFICATION_LEVEL > 0;
         if (includeMaxMsgSize) {
@@ -5524,7 +5524,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         buffer[offset++] = FIDOConstants.CTAP2_OK;
-        buffer[offset++] = numOptions; // Map - some number of options
+        buffer[offset++] = (byte) numOptions; // Map - some number of options
         buffer[offset++] = 0x01; // map key: versions
 
         if (alwaysUv || attestationData == null || filledAttestationData < attestationData.length) {
@@ -5581,8 +5581,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         if (includeMaxMsgSize) {
             buffer[offset++] = 0x05; // map key: maxMsgSize
             buffer[offset++] = 0x19; // two-byte integer
-            Util.setShort(buffer, offset, (short) bufferMem.length);
-            offset += 2;
+            offset = Util.setShort(buffer, offset, (short) bufferMem.length);
         }
 
         buffer[offset++] = 0x06; // map key: pinProtocols
