@@ -56,8 +56,10 @@ public class ResidentKeyData {
     private boolean uniqueRP;
     /**
      * The level of protection required for this credential - 1, 2, or 3
+     *
+     * Multiplied by negative one if the key was "high security" encrypted
      */
-    private final byte credProtectLevel;
+    private byte credProtectLevel;
     /**
      * Encrypted (with the device wrapping key) user ID field
      */
@@ -108,12 +110,11 @@ public class ResidentKeyData {
      * @param credBlobOffset Offset of credBlob within buffer - unused if credBlobLen is zero
      * @param credBlobLen Length of given credBlob to store with the RK
      * @param uniqueRP True if this RK is the (probably) the only one for its RP
-     * @param credProtectLevel Level of credential protection applied to this RK
      */
     public ResidentKeyData(RandomData random, AESKey key, Cipher wrapper,
                            byte[] publicKeyBuffer, short publicKeyOffset, short publicKeyLength,
                            byte[] credBlobBuffer, short credBlobOffset, byte credBlobLen,
-                           boolean uniqueRP, byte credProtectLevel) {
+                           boolean uniqueRP) {
         short ivBufferLen = CRED_BLOB_IV_OFFSET;
         if (credBlobLen > 0) {
             ivBufferLen += IV_LEN;
@@ -137,7 +138,6 @@ public class ResidentKeyData {
                 publicKey, (short) 0, publicKeyLength);
 
         this.uniqueRP = uniqueRP;
-        this.credProtectLevel = credProtectLevel;
     }
 
     /**
@@ -146,14 +146,22 @@ public class ResidentKeyData {
      * @param credBuffer Buffer containing ready-to-use Credential ID
      * @param credOffset Offset of credential within given buffer
      * @param credLen Length of credential
+     * @param credProtectLevel Level of credential protection applied to this RK
+     * @param highSecEncrypted If true, encrypted with the "high security" key
      */
-    public void setEncryptedCredential(byte[] credBuffer, short credOffset, short credLen) {
+    public void setEncryptedCredential(byte[] credBuffer, short credOffset, short credLen, byte credProtectLevel, boolean highSecEncrypted) {
         if (credential != null) {
             ISOException.throwIt(ISO7816.SW_COMMAND_NOT_ALLOWED);
         }
         this.credential = new byte[credLen];
         Util.arrayCopy(credBuffer, credOffset,
                 this.credential, (short) 0, credLen);
+
+        if (highSecEncrypted) {
+            this.credProtectLevel = (byte) (-1 * credProtectLevel);
+        } else {
+            this.credProtectLevel = credProtectLevel;
+        }
     }
 
     /**
@@ -362,7 +370,19 @@ public class ResidentKeyData {
      * @return Level: 1, 2, or 3.
      */
     public byte getCredProtectLevel() {
+        if (credProtectLevel < 0) {
+            return (byte)(credProtectLevel * -1);
+        }
         return credProtectLevel;
+    }
+
+    /**
+     * Get whether the key is encrypted with the "high security" key
+     *
+     * @return true if high sec; false if low sec
+     */
+    public boolean getHighSecEncrypted() {
+        return credProtectLevel < 0;
     }
 
     /**

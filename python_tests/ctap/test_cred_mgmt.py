@@ -35,6 +35,59 @@ class CredManagementTestCase(CredManagementBaseTestCase):
         self.assertLessEqual(dcs_before - 1, dcs_after_creation)
         self.assertEqual(dcs_before, dcs_after_deletion)
 
+    def test_deleting_one_rk_for_rp(self):
+        rp_id = 'a'
+        client = self.get_high_level_client(extensions=[CredProtectExtension],
+                                            user_interaction=FixedPinUserInteraction(self.pin),
+                                            origin = 'https://' + rp_id)
+        resident_key = ResidentKeyRequirement.REQUIRED
+
+        cm = self.get_credential_management()
+
+        rps = cm.enumerate_rps()
+        self.assertEqual(0, len(rps))
+        user_id_1 = b'abc'
+        user_id_2 = b'def'
+
+        cred1 = client.make_credential(options=self.get_high_level_make_cred_options(
+            resident_key,
+            {
+                "credentialProtectionPolicy": CredProtectExtension.POLICY.REQUIRED
+            },
+            rp_id=rp_id,
+            user_id=user_id_1
+        ))
+        cred2 = client.make_credential(options=self.get_high_level_make_cred_options(
+            resident_key,
+            {
+                "credentialProtectionPolicy": CredProtectExtension.POLICY.REQUIRED
+            },
+            rp_id=rp_id,
+            user_id=user_id_2
+        ))
+        self.assertNotEqual(
+            cred1.attestation_object.auth_data.credential_data.credential_id,
+            cred2.attestation_object.auth_data.credential_data.credential_id,
+        )
+        cm = self.get_credential_management()
+        rps = cm.enumerate_rps()
+        self.assertEqual(1, len(rps))
+
+        for rp in rps:
+            self.assertEqual(rp_id, rp[3]['id'])
+            self.assertEqual(self.rp_id_hash(rp_id).hex(), rp[4].hex())
+
+        creds = cm.enumerate_creds(rp_id_hash=self.rp_id_hash(rp_id))
+        self.assertEqual(2, len(creds))
+
+        cm.delete_cred(self.get_descriptor_from_cred_id(
+            cred1.attestation_object.auth_data.credential_data.credential_id
+        ))
+
+        cm = self.get_credential_management()
+        rps = cm.enumerate_rps()
+        self.assertEqual(1, len(rps))
+
     def test_creating_many_rks(self):
         client = self.get_high_level_client(extensions=[CredProtectExtension],
                                             user_interaction=FixedPinUserInteraction(self.pin))

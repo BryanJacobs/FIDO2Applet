@@ -14,7 +14,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * The version of this applet in use
      */
-    private static final byte FIRMWARE_VERSION = 0x02;
+    private static final byte FIRMWARE_VERSION = 0x03;
     // Configurable parameters
     /**
      * If set, use low-security keys for everything, to fully comply with the FIDO standards without alwaysUv
@@ -1046,13 +1046,22 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     effectiveCredBlobLen = 0;
                 }
 
-                AESKey key = getAESKeyForCreatingWithCredProtectLevel(effectiveCPLevel);
+                final boolean lowSecForRK = USE_LOW_SECURITY_FOR_SOME_RKS && credProtectLevel < 3;
+                final boolean lowSecWasUsed = encodeCredentialID(apdu, (ECPrivateKey) ecKeyPair.getPrivate(),
+                        scratchRPIDHashBuffer, scratchRPIDHashOffset,
+                        scratchCredBuffer, scratchCredOffset,
+                        targetRKSlot, lowSecForRK, credProtectLevel);
+
+                final AESKey key = lowSecWasUsed ? lowSecurityWrappingKey : highSecurityWrappingKey;
+
                 residentKeys[targetRKSlot] = new ResidentKeyData(
                         random, key, symmetricWrapper,
                         scratchPublicKeyBuffer, (short)(scratchPublicKeyOffset + 1), (short)(KEY_POINT_LENGTH * 2),
                         buffer, credBlobIdx, effectiveCredBlobLen,
-                        uniqueRP, effectiveCPLevel
+                        uniqueRP
                 );
+                residentKeys[targetRKSlot].setEncryptedCredential(scratchCredBuffer, scratchCredOffset,
+                        CREDENTIAL_ID_LEN, effectiveCPLevel, !lowSecWasUsed);
 
                 residentKeys[targetRKSlot].setUser(key, symmetricWrapper,
                         scratchUserIdBuffer, scratchUserIdOffset, userIdLen,
@@ -1072,16 +1081,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
                 bufferManager.release(apdu, scratchResidentRPIDHandle, MAX_RESIDENT_RP_ID_LENGTH);
 
-                boolean lowSecForRK = USE_LOW_SECURITY_FOR_SOME_RKS && credProtectLevel < 3;
-                if (!encodeCredentialID(apdu, (ECPrivateKey) ecKeyPair.getPrivate(),
-                        scratchRPIDHashBuffer, scratchRPIDHashOffset,
-                        scratchCredBuffer, scratchCredOffset,
-                        targetRKSlot, lowSecForRK, credProtectLevel)) {
-                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
-                }
-                residentKeys[targetRKSlot].setEncryptedCredential(scratchCredBuffer, scratchCredOffset,
-                        CREDENTIAL_ID_LEN);
-
                 if (!foundRPMatchInRKs) {
                     numResidentRPs++;
                 }
@@ -1099,12 +1098,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         } else {
             // Non-resident credProtect Level 3 creds still need to use the high security key (to require PIN auth)
             final boolean credMayUseLowSecurityForDiscoverable = credProtectLevel < 3;
-            if (!encodeCredentialID(apdu, (ECPrivateKey) ecKeyPair.getPrivate(),
+            encodeCredentialID(apdu, (ECPrivateKey) ecKeyPair.getPrivate(),
                     scratchRPIDHashBuffer, scratchRPIDHashOffset,
                     scratchCredBuffer, scratchCredOffset,
-                    (short) -1, credMayUseLowSecurityForDiscoverable, credProtectLevel)) {
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
-            }
+                    (short) -1, credMayUseLowSecurityForDiscoverable, credProtectLevel);
         }
 
         // OKAY! time to start actually making the credential and sending a response!
@@ -1744,17 +1741,27 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param rkNum New index in RK store if the credential is going to be a discoverable one; -1 otherwise
      * @param lowSecurity true if the credential is allowed to be encoded with the low-security wrapping key
      * @param credProtectLevel The credProtect extension protection level to store inside the credential
-     * @return true if the credential was successfully encrypted
+     * @return true if the credential was encrypted "low security", false if "high security"
      */
     private boolean encodeCredentialID(APDU apdu, ECPrivateKey privKey,
                                        byte[] rpIdHashBuffer, short rpIdHashOffset,
                                        byte[] outBuffer, short outOffset,
                                        short rkNum, boolean lowSecurity, byte credProtectLevel) {
-        if (rkNum >= 0 && !LOW_SECURITY_MAXIMUM_COMPLIANCE && !USE_LOW_SECURITY_FOR_SOME_RKS) {
+        if (rkNum >= 0 && !USE_LOW_SECURITY_FOR_SOME_RKS) {
             lowSecurity = false;
         }
+        // use low security even for RKs if LOW_SECURITY_MAXIMUM_COMPLIANCE
+        if (LOW_SECURITY_MAXIMUM_COMPLIANCE) {
+            lowSecurity = true;
+        }
+        // regardless of anything else, opportunistically use the high-sec key for credProtect-level-3 creds
+        final byte pinProtocolInUse = transientStorage.getPinProtocolInUse();
+        if (credProtectLevel == 3 && (pinProtocolInUse == 1 || pinProtocolInUse == 2)) {
+            lowSecurity = false;
+        }
+        AESKey key = lowSecurity ? lowSecurityWrappingKey : highSecurityWrappingKey;
 
-        if (!LOW_SECURITY_MAXIMUM_COMPLIANCE && !lowSecurity && pinSet && transientStorage.getPinProtocolInUse() == 0) {
+        if (!lowSecurity && pinSet && transientStorage.getPinProtocolInUse() == 0) {
             // We're trying to make a new high-security credential, but the PIN isn't available!
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
         }
@@ -1778,12 +1785,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         random.generateData(outBuffer, payloadOffset, (short) 15);
         payloadOffset += 15;
 
-        AESKey key = (LOW_SECURITY_MAXIMUM_COMPLIANCE || lowSecurity) ? lowSecurityWrappingKey : highSecurityWrappingKey;
-        // regardless of anything else, opportunistically use the high-sec key for credProtect-level-3 creds
-        if (credProtectLevel == 3 && transientStorage.getPinProtocolInUse() != 0) {
-            key = highSecurityWrappingKey;
-        }
-
         symmetricWrapper.init(key, Cipher.MODE_ENCRYPT,
                 outBuffer, outOffset, IV_LEN);
         final short encryptedBytes = symmetricWrapper.doFinal(outBuffer, (short)(outOffset + IV_LEN), CREDENTIAL_PAYLOAD_LEN,
@@ -1797,7 +1798,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         bufferManager.release(apdu, scratchHandle, KEY_POINT_LENGTH);
 
-        return encryptedBytes == CREDENTIAL_PAYLOAD_LEN;
+        if (encryptedBytes != CREDENTIAL_PAYLOAD_LEN) {
+            sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_REQUEST_TOO_LARGE);
+        }
+
+        return lowSecurity;
     }
 
     /**
@@ -2890,7 +2895,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         if (potentiallyTryHighSecKey) {
             final byte gottenCredProtLevelMixed = extractCredentialMixed(credentialBuffer, credentialOffset,
                     outputBuffer, outputOffset,
-                    false);
+                    highSecurityWrappingKey);
             final boolean wasRKPreviously = (gottenCredProtLevelMixed & 0x80) != 0;
             final byte gottenCredProtLevel = (byte)(gottenCredProtLevelMixed & 0x7F);
 
@@ -2907,7 +2912,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             // Try (again?) with the low-security key
             final byte gottenCredProtLevelMixed = extractCredentialMixed(credentialBuffer, credentialOffset,
                     outputBuffer, outputOffset,
-                    true);
+                    lowSecurityWrappingKey);
             final boolean wasRKPreviously = (gottenCredProtLevelMixed & 0x80) != 0;
             final byte gottenCredProtLevel = (byte)(gottenCredProtLevelMixed & 0x7F);
 
@@ -2938,10 +2943,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private byte extractRKMixed(byte[] credentialBuffer, short credentialIndex,
                                 byte[] outputBuffer, short outputOffset, short residentKeyNum) {
-        byte cpLevel = residentKeys[residentKeyNum].getCredProtectLevel();
-        boolean lowSec = USE_LOW_SECURITY_FOR_SOME_RKS && cpLevel < 3;
+        final AESKey key = getAESKeyForExistingRK(residentKeyNum);
         return extractCredentialMixed(credentialBuffer, credentialIndex,
-                outputBuffer, outputOffset, lowSec);
+                outputBuffer, outputOffset, key);
     }
 
     /**
@@ -2953,16 +2957,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param credentialOffset Index of the credential ID in the input buffer
      * @param outputBuffer Buffer to contain the mixed credential bytes
      * @param outputOffset Offset into output buffer
-     * @param lowSecurity true if the low-security key should be used for nonresident
+     * @param key key to use for decrypting the credential
      * @return The credential-protection level of the returned cred, if it's valid, with the high bit set for RK
      */
     private byte extractCredentialMixed(byte[] credentialBuffer, short credentialOffset,
                                         byte[] outputBuffer, short outputOffset,
-                                        boolean lowSecurity) {
-        AESKey key = !FORCE_ALWAYS_UV && (LOW_SECURITY_MAXIMUM_COMPLIANCE || lowSecurity) ?
-                lowSecurityWrappingKey : highSecurityWrappingKey;
+                                        AESKey key) {
         symmetricUnwrapper.init(key, Cipher.MODE_DECRYPT, credentialBuffer, credentialOffset, IV_LEN);
-        short ret = symmetricUnwrapper.doFinal(credentialBuffer, (short)(credentialOffset + IV_LEN), CREDENTIAL_PAYLOAD_LEN,
+        final short ret = symmetricUnwrapper.doFinal(credentialBuffer, (short)(credentialOffset + IV_LEN), CREDENTIAL_PAYLOAD_LEN,
                 outputBuffer, outputOffset);
         if (ret != CREDENTIAL_PAYLOAD_LEN) {
             throwException(ISO7816.SW_DATA_INVALID);
@@ -4148,12 +4150,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             throwException(ISO7816.SW_DATA_INVALID);
         }
 
-        if (!encodeCredentialID(apdu, (ECPrivateKey) ecKeyPair.getPrivate(),
+        encodeCredentialID(apdu, (ECPrivateKey) ecKeyPair.getPrivate(),
                 scratchRPIDHashBuffer, scratchRPIDHashOffset,
                 scratchCredBuffer, scratchCredOffset,
-                (short) -1, true, (byte) 0)) {
-            throwException(ISO7816.SW_DATA_INVALID);
-        }
+                (short) -1, true, (byte) 0);
 
         // Generate signature first. Use bufMem as working space
         final short baseAdOffset = 512;
@@ -4867,8 +4867,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         if (readOffset > lc) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
         }
-        short credIdIdx = transientStorage.getStoredIdx();
-        short credIdLen = transientStorage.getStoredLen();
+        final short credIdIdx = transientStorage.getStoredIdx();
+        final short credIdLen = transientStorage.getStoredLen();
 
         byte[] outBuf = apdu.getBuffer();
         if (credIdLen != CREDENTIAL_ID_LEN) {
@@ -4888,11 +4888,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     buffer, credIdIdx, residentKeys[i].getCredLen()) == 0) {
                 // Found a match! Unfortunately, we need to unpack the credential to check if this PIN token
                 // has permission to delete it...
-                // Unpack right into the output buffer, potentially overwriting the encrypted data
-                // (if it's the input buffer)... but we no longer need it
 
-                extractRKMixed(buffer, credIdIdx, outBuf, (short) 0, i);
-                short rpIdHashIdx = (short) 0;
+                final short mainCredHandle = bufferManager.allocate(apdu, CREDENTIAL_PAYLOAD_LEN, BufferManager.NOT_LOWER_APDU);
+                final short mainCredIdx = bufferManager.getOffsetForHandle(mainCredHandle);
+                final byte[] mainCredBuffer = bufferManager.getBufferForHandle(apdu, mainCredHandle);
+
+                extractRKMixed(buffer, credIdIdx, mainCredBuffer, mainCredIdx, i);
+                final short rpIdHashIdx = mainCredIdx;
 
                 if (permissionsRpId[0] != 0x00) {
                     if (Util.arrayCompare(outBuf, rpIdHashIdx,
@@ -4908,9 +4910,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     // of the RP for iteration purposes
                     short rpHavingSameRP = -1;
 
-                    short secondCredHandle = bufferManager.allocate(apdu, CREDENTIAL_PAYLOAD_LEN, BufferManager.NOT_LOWER_APDU);
-                    short secondCredIdx = bufferManager.getOffsetForHandle(secondCredHandle);
-                    byte[] secondCredBuffer = bufferManager.getBufferForHandle(apdu, secondCredHandle);
+                    final short secondCredHandle = bufferManager.allocate(apdu, CREDENTIAL_PAYLOAD_LEN, BufferManager.NOT_LOWER_APDU);
+                    final short secondCredIdx = bufferManager.getOffsetForHandle(secondCredHandle);
+                    final byte[] secondCredBuffer = bufferManager.getBufferForHandle(apdu, secondCredHandle);
 
                     for (short otherRKIdx = 0; otherRKIdx < (short) residentKeys.length; otherRKIdx++) {
                         if (otherRKIdx == i) {
@@ -4922,7 +4924,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                             break;
                         }
                         if (checkCredential(apdu, otherRKIdx,
-                                outBuf, rpIdHashIdx,
+                                mainCredBuffer, rpIdHashIdx,
                                 secondCredBuffer, secondCredIdx, (byte) 3)) {
                             // match. this is our promotion candidate!
                             rpHavingSameRP = otherRKIdx;
@@ -4972,11 +4974,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     }
                 }
 
+                bufferManager.release(apdu, mainCredHandle, CREDENTIAL_PAYLOAD_LEN);
+
                 break;
             }
         }
 
-        // If we got here, we didn't find a matching credential. That's okay.
+        // If we got here, we might not have found a matching credential. That's okay.
         outBuf[0] = FIDOConstants.CTAP2_OK;
         sendNoCopy(apdu, (short) 1);
     }
@@ -5312,25 +5316,17 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     }
 
     /**
-     * Gets the AES key to use when creating a new resident key
-     *
-     * @param credProt The cred protect level of the new key
-     * @return An AES key object to pass to ResidentKeyData methods
-     */
-    private AESKey getAESKeyForCreatingWithCredProtectLevel(byte credProt) {
-        final boolean highSec = FORCE_ALWAYS_UV ||
-                (!LOW_SECURITY_MAXIMUM_COMPLIANCE && (!USE_LOW_SECURITY_FOR_SOME_RKS || credProt > 2));
-        return highSec ? highSecurityWrappingKey : lowSecurityWrappingKey;
-    }
-
-    /**
      * Gets the AES key used for the data associated with the given RK
      *
      * @param rkIndex Index of the RK in the store
      * @return An AES key object to pass to ResidentKeyData methods
      */
     private AESKey getAESKeyForExistingRK(short rkIndex) {
-        return getAESKeyForCreatingWithCredProtectLevel(residentKeys[rkIndex].getCredProtectLevel());
+        if (residentKeys[rkIndex].getHighSecEncrypted()) {
+            return highSecurityWrappingKey;
+        } else {
+            return lowSecurityWrappingKey;
+        }
     }
 
     /**
