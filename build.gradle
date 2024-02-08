@@ -62,7 +62,7 @@ if (jcHomeSet) {
         config {
             cap {
                 packageName 'us.q3q.fido2'
-                version '0.1'
+                version '0.4'
                 aid PackageID
                 output 'FIDO2.cap'
                 applet {

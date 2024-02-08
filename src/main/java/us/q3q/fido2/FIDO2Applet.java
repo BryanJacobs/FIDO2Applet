@@ -14,7 +14,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * The version of this applet in use
      */
-    private static final byte FIRMWARE_VERSION = 0x03;
+    private static final byte FIRMWARE_VERSION = 0x04;
     // Configurable parameters
     /**
      * If set, use low-security keys for everything, to fully comply with the FIDO standards without alwaysUv
@@ -800,6 +800,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             credBlobLen = (byte)(MAX_CRED_BLOB_LEN + 1);
         }
 
+        if (pinAuthIdx != -1 && buffer[pinAuthIdx] == 0x40) {
+            // Some bogus implementations send an empty (zero byte) pinUvAuth parameter when they should omit it.
+            // Treat those cases as if the auth param were omitted.
+            pinAuthIdx = -1;
+        }
+
         if (pinAuthIdx != -1) {
             // Come back and verify PIN auth
             byte pinPermissions = transientStorage.getPinPermissions();
@@ -822,7 +828,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             if (alwaysUv || (pinSet && transientStorage.hasRKOption() && !USE_LOW_SECURITY_FOR_SOME_RKS)) {
                 // PIN is set, but no PIN-auth option was provided
                 // OR: PIN not set, but we've been asked not to do this without one
-                sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
+                if (pinSet) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
+                } else {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_NOT_SET);
+                }
             }
         }
         loadWrappingKeyIfNoPIN();
@@ -2106,8 +2116,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         null, (short) 0, true);
             }
 
-            final boolean pinProvided = pinAuthIdx != -1;
+            boolean pinProvided = pinAuthIdx != -1;
             byte pinProtocol = transientStorage.getPinProtocolInUse();
+
+            if (buffer[pinAuthIdx] == 0x40) {
+                // Some bogus implementations send an empty (zero byte) pinUvAuth parameter when they should omit it.
+                // Treat those cases as if the auth param were omitted.
+                pinProvided = false;
+                pinAuthIdx = -1;
+            }
 
             if (!pinProvided) {
                 if (alwaysUv) {
