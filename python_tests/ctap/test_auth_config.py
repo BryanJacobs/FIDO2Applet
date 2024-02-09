@@ -77,7 +77,7 @@ class AuthenticatorConfigTestCase(CTAPTestCase):
         with self.assertRaises(CtapError) as e:
             self.ctap2.make_credential(**self.basic_makecred_params)
 
-        self.assertEqual(CtapError.ERR.PUAT_REQUIRED, e.exception.code)
+        self.assertEqual(CtapError.ERR.PIN_NOT_SET, e.exception.code)
 
     def test_disable_alwaysUv_without_pin_rejected(self):
         Config(self.ctap2).toggle_always_uv()

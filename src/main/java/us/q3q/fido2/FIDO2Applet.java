@@ -800,13 +800,16 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             credBlobLen = (byte)(MAX_CRED_BLOB_LEN + 1);
         }
 
-        if (pinAuthIdx != -1 && buffer[pinAuthIdx] == 0x40) {
-            // Some bogus implementations send an empty (zero byte) pinUvAuth parameter when they should omit it.
-            // Treat those cases as if the auth param were omitted.
-            pinAuthIdx = -1;
-        }
-
         if (pinAuthIdx != -1) {
+            if (buffer[pinAuthIdx] == 0x40) {
+                // For CTAP2.0 compatibility: just checking which authenticator to use
+                if (pinSet) {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_INVALID);
+                } else {
+                    sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_NOT_SET);
+                }
+            }
+
             // Come back and verify PIN auth
             byte pinPermissions = transientStorage.getPinPermissions();
 
@@ -2119,19 +2122,21 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             boolean pinProvided = pinAuthIdx != -1;
             byte pinProtocol = transientStorage.getPinProtocolInUse();
 
-            if (buffer[pinAuthIdx] == 0x40) {
-                // Some bogus implementations send an empty (zero byte) pinUvAuth parameter when they should omit it.
-                // Treat those cases as if the auth param were omitted.
-                pinProvided = false;
-                pinAuthIdx = -1;
-            }
-
             if (!pinProvided) {
                 if (alwaysUv) {
                     // When alwaysUv is set, we must have a PIN!
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_REQUIRED);
                 }
             } else {
+                if (buffer[pinAuthIdx] == 0x40) {
+                    // For CTAP2.0 compatibility: just checking which authenticator to use
+                    if (pinSet) {
+                        sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_INVALID);
+                    } else {
+                        sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_PIN_NOT_SET);
+                    }
+                }
+
                 // check the provided PIN
                 byte pinPermissions = transientStorage.getPinPermissions();
 
