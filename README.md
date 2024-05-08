@@ -128,15 +128,19 @@ If you're a really detail-oriented person, you might enjoy reading
 
 | Platform                  | Status           |
 |---------------------------|------------------|
-| Android (hwsecurity)      | Working          |
 | Android (Google Play)     | CTAP1 only [1]   |
+| Android (hwsecurity)      | Working          |
+| Android (MicroG)          | Working          |
+| Android (FIDOk)           | Working          |
 | iOS                       | Reported working |
-| Linux (libfido2 or FIDOk) | Working          |
+| Linux (libfido2)          | Working          |
+| Linux (FIDOk)             | Working          |
 | Windows 10                | Working          |
 
 | Smartcard                                                                         | Status           |
 |-----------------------------------------------------------------------------------|------------------|
 | J3H145 (NXP JCOP3)                                                                | Working          |
+| J3R180 (NXP JCOP4)                                                                | Working          |
 | OMNI Ring (Infineon SLE78)                                                        | Working          |
 | jCardSim                                                                          | Working          |
 | [Vivokey FlexSecure (NXP JCOP4)](https://dangerousthings.com/product/flexsecure/) | Working          |
@@ -164,7 +168,9 @@ There are two compatibility issues in the table above:
    hardwired to use only "passkeys". If a site explicitly requests a *non-discoverable* credential,
    you will be prompted to use an NFC security key, but this is only CTAP1 and not CTAP2. There's
    nothing fundamentally preventing this from working on Android but the current state of Chrome
-   and Fennec are that CTAP2 doesn't, because both use the broken Play Services library.
+   and Fennec are that CTAP2 doesn't, because both use the broken Play Services library. MicroG has
+   a fully-working implementation, though! See https://github.com/microg/GmsCore/pull/2194 for PIN
+   support.
 1. Some browsers support FIDO2 in theory but only allow USB security keys - this implementation
    is for PC/SC, and doesn't implement USB HID, so it will only work with FIDO2
    implementations that can handle e.g. NFC tokens instead of being restricted to USB.
