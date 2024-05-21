@@ -100,7 +100,7 @@ if __name__ == '__main__':
         sys.stderr.write("Found multiple PC/SC devices!\n")
         sys.exit(1)
     if len(devices) == 0:
-        sys.stderr.write("Could not find any FIDO PC/SC devices!\n")
+        sys.stderr.write("Could not find any usable FIDO PC/SC devices! Make sure your user account can read/write to pcscd...\n")
         sys.exit(1)
     device = devices[0]
 
