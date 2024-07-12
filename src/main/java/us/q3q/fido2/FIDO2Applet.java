@@ -4318,9 +4318,13 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * @param apdu Request/response context object
      */
     private void handleAppletSelect(APDU apdu) {
-        if (bufferManager == null) {
-            apdu.setIncomingAndReceive();
+        apdu.setIncomingAndReceive();
 
+        if (!JCSystem.getAID().equals(apdu.getBuffer(), apdu.getOffsetCdata(), (byte) apdu.getIncomingLength())) {
+            throwException(ISO7816.SW_FILE_NOT_FOUND);
+        }
+
+        if (bufferManager == null) {
             // There also might not be enough RAM, quite, if we allocate this during install while the app install
             // parameters array is held in memory...
             initTransientStorage(apdu);
@@ -4358,7 +4362,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         } else {
             sendByteArray(apdu, CannedCBOR.U2F_V2_RESPONSE, (short) CannedCBOR.U2F_V2_RESPONSE.length);
         }
-
     }
 
     /**
