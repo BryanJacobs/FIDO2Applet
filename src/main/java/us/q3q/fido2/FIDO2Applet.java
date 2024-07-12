@@ -3448,10 +3448,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             transientStorage.disableAuthenticator();
         }
 
-        if (cla_ins == (short) 0x00A4 && p1_p2 == (short) 0x0400) {
+        if (cla_ins == (short) 0x00A4 && apduBytes[ISO7816.OFFSET_P1] == 0x04) {
             // Applet-select command, probably part of test shenanigans
-            handleAppletSelect(apdu);
-            return;
+            throwException(ISO7816.SW_FILE_NOT_FOUND);
         }
 
         if (transientStorage.authenticatorDisabled()) {
@@ -4319,11 +4318,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      */
     private void handleAppletSelect(APDU apdu) {
         apdu.setIncomingAndReceive();
-
-        if (!JCSystem.getAID().equals(apdu.getBuffer(), apdu.getOffsetCdata(), (byte) apdu.getIncomingLength())) {
-            throwException(ISO7816.SW_FILE_NOT_FOUND);
-        }
-
         if (bufferManager == null) {
             // There also might not be enough RAM, quite, if we allocate this during install while the app install
             // parameters array is held in memory...
