@@ -15,6 +15,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * The version of this applet in use
      */
     private static final byte FIRMWARE_VERSION = 0x04;
+
+    /**
+     * The AID to which this applet should respond (ignoring any other AIDs sent to it)
+     */
+    private static final byte[] AID = {
+            (byte) 0xA0, 0x00, 0x00, 0x06, 0x47,
+            0x2F, 0x00, 0x01
+    };
+
     // Configurable parameters
     /**
      * If set, use low-security keys for everything, to fully comply with the FIDO standards without alwaysUv
@@ -4320,7 +4329,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     private void handleAppletSelect(APDU apdu) {
         apdu.setIncomingAndReceive();
 
-        if (!JCSystem.getAID().equals(apdu.getBuffer(), apdu.getOffsetCdata(), (byte) apdu.getIncomingLength())) {
+        if (Util.arrayCompare(AID, (short) 0,
+                apdu.getBuffer(), apdu.getOffsetCdata(), apdu.getIncomingLength()) != 0) {
             throwException(ISO7816.SW_FILE_NOT_FOUND);
         }
 

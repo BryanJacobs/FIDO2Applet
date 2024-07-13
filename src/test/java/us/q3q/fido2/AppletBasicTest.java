@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 public class AppletBasicTest {
 
     CardSimulator simulator;
-    AID appletAID = AIDUtil.create("F000000001");
+    AID appletAID = AIDUtil.create("A0000006472F0001");
     AID randoAID = AIDUtil.create("F100900001");
 
     @BeforeEach
