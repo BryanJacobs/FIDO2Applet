@@ -4329,7 +4329,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     private void handleAppletSelect(APDU apdu) {
         apdu.setIncomingAndReceive();
 
-        if (Util.arrayCompare(AID, (short) 0,
+        if (apdu.getIncomingLength() != AID.length || Util.arrayCompare(AID, (short) 0,
                 apdu.getBuffer(), apdu.getOffsetCdata(), apdu.getIncomingLength()) != 0) {
             throwException(ISO7816.SW_FILE_NOT_FOUND);
         }

@@ -24,6 +24,7 @@ public class AppletBasicTest {
     CardSimulator simulator;
     AID appletAID = AIDUtil.create("A0000006472F0001");
     AID randoAID = AIDUtil.create("F100900001");
+    AID randoLongAID = AIDUtil.create("F100900001AAAAAAAAAAAA");
 
     @BeforeEach
     public void setupApplet() {
@@ -163,6 +164,17 @@ public class AppletBasicTest {
         assertEquals(ISO7816.SW_NO_ERROR, recvdStatus);
 
         ResponseAPDU responseAPDU = send(AIDUtil.select(randoAID));
+        assertEquals(ISO7816.SW_FILE_NOT_FOUND, responseAPDU.getSW());
+    }
+
+    @Test
+    public void checkIgnoreSelectingIncorrectLongAID() {
+        byte[] resp = simulator.selectAppletWithResult(appletAID);
+        short recvdStatus = (short) (resp[resp.length - 2] * 256 + resp[resp.length - 1]);
+
+        assertEquals(ISO7816.SW_NO_ERROR, recvdStatus);
+
+        ResponseAPDU responseAPDU = send(AIDUtil.select(randoLongAID));
         assertEquals(ISO7816.SW_FILE_NOT_FOUND, responseAPDU.getSW());
     }
 
