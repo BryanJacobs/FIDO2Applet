@@ -356,6 +356,51 @@ class CTAPBasicsTestCase(CTAPTestCase):
             assert_res.auth_data + assert_client_data, assert_res.signature
         )
 
+    def test_pin_uv_reuse(self):
+        cred_res = self.ctap2.make_credential(**self.basic_makecred_params)
+
+        pin = secrets.token_hex(10)
+        cp = ClientPin(self.ctap2)
+        cp.set_pin(pin)
+        uv = cp.get_pin_token(pin)
+        assert_client_data = self.get_random_client_data()
+        pin_uv_protocol = cp.protocol.VERSION
+        pin_uv_param = cp.protocol.authenticate(uv, assert_client_data)
+
+        assert_res1 = self.get_assertion_from_cred(cred_res, client_data=assert_client_data,
+                                                   pin_uv_protocol=pin_uv_protocol,
+                                                   pin_uv_param=pin_uv_param,
+                                                   options={
+                                                       'up': False
+                                                   })
+        assert_res2 = self.get_assertion_from_cred(cred_res, client_data=assert_client_data,
+                                                   pin_uv_protocol=pin_uv_protocol,
+                                                   pin_uv_param=pin_uv_param,
+                                                   options={
+                                                       'up': False
+                                                   })
+        assert_res3 = self.get_assertion_from_cred(cred_res, client_data=assert_client_data,
+                                                   pin_uv_protocol=pin_uv_protocol,
+                                                   pin_uv_param=pin_uv_param,
+                                                   options={
+                                                       'up': True
+                                                   })
+        error_raised = False
+        try:
+            self.get_assertion_from_cred(cred_res, client_data=assert_client_data,
+                                         pin_uv_protocol=pin_uv_protocol,
+                                         pin_uv_param=pin_uv_param,
+                                         options={
+                                            'up': False
+                                         })
+        except CtapError as e:
+            self.assertEqual(CtapError.ERR.PIN_AUTH_INVALID, e.code)
+            error_raised = True
+        self.assertTrue(error_raised)
+        for assert_res in [assert_res1, assert_res2, assert_res3]:
+            self.assertEqual(cred_res.auth_data.credential_data.credential_id,
+                             assert_res.credential['id'])
+
     def test_creds_are_tamper_resistant(self):
         cred_res = self.ctap2.make_credential(**self.basic_makecred_params)
 
