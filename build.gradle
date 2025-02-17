@@ -1,20 +1,5 @@
-buildscript {
-    repositories {
-        mavenCentral()
-        maven { url "https://javacard.pro/maven" }
-    }
-}
-
-
 plugins {
     id("java")
-    id("com.klinec.gradle.javacard") version "1.8.0" apply false
-}
-
-var jcHomeSet = System.getenv("JC_HOME") != null
-if (!jcHomeSet) {
-    project.logger.warn("JC_HOME environment variable not set - doing a testing/fake build with jCardSim!")
-    project.logger.warn("YOU WILL NOT BE ABLE TO BUILD A JAVACARD APPLET THIS WAY")
 }
 
 group = "us.q3q"
@@ -24,52 +9,53 @@ repositories {
     mavenCentral()
 }
 
-dependencies {
-    if (jcHomeSet) {
-        testImplementation(group: 'com.klinec', name: 'jcardsim', version: '3.0.5.11') {
-            // Javacard will be provided by the user at runtime through the JC_HOME env var
-            exclude(group: 'oracle.javacard', module: 'api_classic')
-        }
-    } else {
-        // Perform a full-test build, since there's no javacard SDK
-        implementation(group: 'com.klinec', name: 'jcardsim', version: '3.0.5.11')
-    }
-    testImplementation group: 'org.junit.jupiter', name: 'junit-jupiter-api', version: '5.8.1'
+// Create a new configuration for JCDK compilation
+configurations {
+    jcdk
+}
 
-    testRuntimeOnly group: 'org.junit.jupiter', name: 'junit-jupiter-engine', version: '5.8.1'
+dependencies {
+    // JCDK dependencies for CAP generation
+    jcdk files('../jckit/lib/api_classic-3.0.5.jar')
+    
+    // Main and test dependencies use JCardSim
+    implementation files('../jcardsim-3.0.5.jar')
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 test {
     useJUnitPlatform()
 }
 
-tasks.register('testJar', Jar) {
-    archiveBaseName = project.name + '-tests'
-    duplicatesStrategy = 'include'
-    from sourceSets.test.output + sourceSets.test.allSource
-    from {
-        sourceSets.test.runtimeClasspath.filter {
-            it.toString().indexOf("jcardsim-") != -1
-        }.collect {
-            zipTree(it)
-        }
-    }
+// Special task for compiling with JCDK API
+task classesCap(type: JavaCompile) {
+    source = sourceSets.main.java
+    classpath = configurations.jcdk
+    destinationDirectory = file("${buildDir}/classes/jcdk")
+    sourceCompatibility = 1.7
+    targetCompatibility = 1.7
 }
 
-if (jcHomeSet) {
-    apply plugin: "com.klinec.gradle.javacard"
-    javacard {
-        config {
-            cap {
-                packageName 'us.q3q.fido2'
-                version '0.4'
-                aid PackageID
-                output 'FIDO2.cap'
-                applet {
-                    className 'us.q3q.fido2.FIDO2Applet'
-                    aid ApplicationID
-                }
-            }
-        }
-    }
+// Add package configuration
+def packageConfig = [
+    AID: "0xA0:0x00:0x00:0x06:0x47:0x2F:0x00:0xFE",
+    name: "us.q3q.fido2",
+    AppletAID: "0xA0:0x00:0x00:0x06:0x47:0x2F:0x00:0x01",
+    version: "1.0"
+]
+
+task(buildCap, type: JavaExec) {
+    mainClass = "com.sun.javacard.converter.Main"
+    classpath = files("${projectDir}/../jckit/lib/tools.jar")
+    args "-classdir", "${buildDir}/classes/jcdk",
+         "-applet", "${packageConfig.AppletAID}",
+         "${packageConfig.name}.FIDO2Applet",
+         "-target", "3.0.5",
+         "${packageConfig.name}",
+         "${packageConfig.AID}",
+         "${packageConfig.version}"
 }
+
+buildCap.dependsOn classesCap
+build.dependsOn buildCap

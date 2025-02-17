@@ -25,15 +25,28 @@ detailed requirements.
 You might be interested in [reading about the security model](docs/security_model.md).
 
 ## Environment Setup and Building the application
-1. **Download JavacardKit**: Obtain a copy of [JavacardKit version 3.0.4](https://www.oracle.com/java/technologies/javacard-sdk-downloads.html) (or jckit_303 if you prefer).
-2. **Set Environment Variable**: Configure the `JC_HOME` environment variable to point to your JavacardKit directory.
-   ```bash
-   export JC_HOME=<path_to_your_jckit_directory>
-   ```
 
-3. **Run Gradle Build**: Execute the following command to build the JavaCard application, which will produce a `.cap` file for installation.
+1. **Download Java Card Deveploment Kit**: Obtain a copy of Oracle's [Java Card Development Kit](https://www.oracle.com/java/technologies/javacard-downloads.html). As of February 2025, the latest version was 24.1. Unzip it to a folder at the same level as your copy of FIDO2Applet and rename the folder to `jckit`.
+
+2. **Download Java Card Simulator**: Obtain a copy of [JCardSim](https://github.com/licel/jcardsim/packages/1650016). You can just download the `jcardsim-3.0.5.jar` file and place it at the same level as your copy of FIDO2Applet. You end with something like this:
     ```bash
-   ./gradlew buildJavaCard
+    .
+    ├── FIDO2Applet
+    ├── jckit
+    │   ├── ...
+    ├── jcardsim-3.0.5.jar
+    ```
+
+3. **Verify you have a compatible Java Development Kit**: Gradle needs to use a JDK compatible with the Java Card Development Kit. As of February 2025, version 24.1 is compatible with JDK 8 to 17. If you are using Visual Studio Code, you can set the `java.import.gradle.java.home` setting in your workspace `settings.json` file to point to the JDK you want to use. For example:
+    ```json
+    {
+        "java.import.gradle.java.home": "/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home"
+    }
+    ```
+
+4. **Run Gradle Build**: When you run a regular build task in Gradle, it will produce a `.cap` file for installation in the `/build/classes/javacard` directory. You can use the following command to build the application:
+    ```bash
+   ./gradlew build
     ```
 
 
