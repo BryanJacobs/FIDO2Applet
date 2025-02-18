@@ -28,6 +28,19 @@ test {
     useJUnitPlatform()
 }
 
+tasks.register('testJar', Jar) {
+    archiveBaseName = project.name + '-tests'
+    duplicatesStrategy = 'include'
+    from sourceSets.test.output + sourceSets.test.allSource
+    from {
+        sourceSets.test.runtimeClasspath.filter {
+            it.toString().indexOf("jcardsim-") != -1
+        }.collect {
+            zipTree(it)
+        }
+    }
+}
+
 // Special task for compiling with JCDK API
 task classesCap(type: JavaCompile) {
     source = sourceSets.main.java
