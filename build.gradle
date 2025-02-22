@@ -16,10 +16,10 @@ configurations {
 
 dependencies {
     // JCDK dependencies for CAP generation
-    jcdk files('../jckit/lib/api_classic-3.0.5.jar')
+    jcdk files("${System.getenv('JC_HOME')}/lib/api_classic-3.0.5.jar")
     
-    // Main and test dependencies use JCardSim
-    implementation files('../jcardsim-3.0.5.jar')
+    // Test dependencies use JCardSim
+    implementation files("${System.getenv('JC_HOME')}/jcardsim-3.0.5.jar")
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
@@ -50,7 +50,6 @@ task classesCap(type: JavaCompile) {
     targetCompatibility = 1.7
 }
 
-// Add package configuration
 def packageConfig = [
     AID: "0xA0:0x00:0x00:0x06:0x47:0x2F:0x00:0xFE",
     name: "us.q3q.fido2",
@@ -60,7 +59,7 @@ def packageConfig = [
 
 task(buildCap, type: JavaExec) {
     mainClass = "com.sun.javacard.converter.Main"
-    classpath = files("${projectDir}/../jckit/lib/tools.jar")
+    classpath = files("${System.getenv('JC_HOME')}/lib/tools.jar")
     args "-classdir", "${buildDir}/classes/jcdk",
          "-applet", "${packageConfig.AppletAID}",
          "${packageConfig.name}.FIDO2Applet",
