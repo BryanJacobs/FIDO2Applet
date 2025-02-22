@@ -63,7 +63,7 @@ task(buildCap, type: JavaExec) {
     args "-classdir", "${buildDir}/classes/jcdk",
          "-applet", "${packageConfig.AppletAID}",
          "${packageConfig.name}.FIDO2Applet",
-         "-target", "3.0.5",
+         "-target", "3.0.4",
          "${packageConfig.name}",
          "${packageConfig.AID}",
          "${packageConfig.version}"
