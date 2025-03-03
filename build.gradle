@@ -9,17 +9,16 @@ repositories {
     mavenCentral()
 }
 
-// Create a new configuration for JCDK compilation
 configurations {
     jcdk
 }
 
 dependencies {
     // JCDK dependencies for CAP generation
-    jcdk files("${System.getenv('JC_HOME')}/lib/api_classic-3.0.5.jar")
+    jcdk files("${System.getenv('JC_HOME')}/lib/api_classic-${JavaCardVersion}.jar")
     
     // Test dependencies use JCardSim
-    implementation files("${System.getenv('JC_HOME')}/jcardsim-3.0.5.jar")
+    implementation 'com.klinec:jcardsim:3.0.6.0'
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
@@ -50,23 +49,16 @@ task classesCap(type: JavaCompile) {
     targetCompatibility = 1.7
 }
 
-def packageConfig = [
-    AID: "0xA0:0x00:0x00:0x06:0x47:0x2F:0x00:0xFE",
-    name: "us.q3q.fido2",
-    AppletAID: "0xA0:0x00:0x00:0x06:0x47:0x2F:0x00:0x01",
-    version: "1.0"
-]
-
 task(buildCap, type: JavaExec) {
     mainClass = "com.sun.javacard.converter.Main"
     classpath = files("${System.getenv('JC_HOME')}/lib/tools.jar")
     args "-classdir", "${buildDir}/classes/jcdk",
-         "-applet", "${packageConfig.AppletAID}",
-         "${packageConfig.name}.FIDO2Applet",
-         "-target", "3.0.4",
-         "${packageConfig.name}",
-         "${packageConfig.AID}",
-         "${packageConfig.version}"
+         "-applet", "${AppletAID}",
+         "${PackageName}.FIDO2Applet",
+         "-target", "${JavaCardVersion}",
+         "${PackageName}",
+         "${PackageAID}",
+         "${PackageVersion}"
 }
 
 buildCap.dependsOn classesCap
