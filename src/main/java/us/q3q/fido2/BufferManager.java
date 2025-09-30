@@ -26,9 +26,21 @@ public final class BufferManager {
      */
     private static final byte OFFSET_FLASH_USED_SPACE = 2; // 2 bytes
     /**
+     * Location in in-memory buffer of byte describing how much lower-APDU memory is used
+     */
+    private static final byte OFFSET_LOWER_APDU_USED_SPACE = 4; // 1 byte
+    /**
+     * Location in in-memory buffer of byte describing how much lower-APDU capacity is available in total
+     */
+    private static final byte OFFSET_LOWER_APDU_TOTAL_SPACE = 5; // 1 byte
+    /**
+     * Location in in-memory buffer of short describing how much upper-apdu memory is used
+     */
+    private static final byte OFFSET_UPPER_APDU_USED_SPACE = 6; // 2 bytes
+    /**
      * Total in-memory buffer overhead of state keeping variables
      */
-    private static final byte STATE_KEEPING_OVERHEAD = 4;
+    private static final byte STATE_KEEPING_OVERHEAD = 8;
 
     /**
      * In-RAM buffer which is OUTSIDE the APDU buffer. Great to have for minimizing flash wear.
@@ -70,6 +82,9 @@ public final class BufferManager {
     public static final byte NOT_LOWER_APDU = (byte)(UPPER_APDU | MEMORY_BUFFER | FLASH);
 
     public BufferManager(short transientLen, short persistentLen) {
+        if (transientLen < STATE_KEEPING_OVERHEAD) {
+            ISOException.throwIt(ISO7816.SW_FILE_FULL);
+        }
         inMemoryBuffer = JCSystem.makeTransientByteArray(transientLen, JCSystem.CLEAR_ON_DESELECT);
         flashBuffer = new byte[persistentLen];
         clear();
@@ -140,14 +155,9 @@ public final class BufferManager {
      * @param apdu Request/response object
      */
     public void initializeAPDU(APDU apdu) {
-        final byte[] apduBuf = apdu.getBuffer();
-        final short apduBufferLength = getAPDUBufferLength(apduBuf);
-
-        if (apdu.getIncomingLength() < (short)(apduBufferLength - 2)) {
-            Util.setShort(apduBuf, (short)(apduBufferLength - 2), (short) 4); // the four state-keeping bytes
-        }
-        apduBuf[(short)(apduBufferLength - 3)] = 0x00;
-        apduBuf[(short)(apduBufferLength - 4)] = 0x00;
+        inMemoryBuffer[OFFSET_LOWER_APDU_USED_SPACE] = (byte) 0;
+        inMemoryBuffer[OFFSET_LOWER_APDU_TOTAL_SPACE] = (byte) 0;
+        Util.setShort(inMemoryBuffer, OFFSET_UPPER_APDU_USED_SPACE, (short) 4);
     }
 
     /**
@@ -164,27 +174,27 @@ public final class BufferManager {
         final byte[] apduBuf = apdu.getBuffer();
         final short apduBufLen = getAPDUBufferLength(apduBuf);
         short upperAPDUUsed = 0;
-        if (lc < (short)(apduBufLen - 4)) {
+        if (lc < apduBufLen) {
             if ((allowedLocations & UPPER_APDU) != 0) {
                 // Upper APDU buffer available potentially
-                upperAPDUUsed = Util.getShort(apduBuf, (short) (apduBufLen - 2));
+                upperAPDUUsed = Util.getShort(inMemoryBuffer, OFFSET_UPPER_APDU_USED_SPACE);
                 short totalUpper = (short) (apduBufLen - lc);
                 if ((short) (totalUpper - upperAPDUUsed) > amt) {
                     // We fit in the upper APDU buffer!
                     short offset = (short) (apduBufLen - upperAPDUUsed - amt - 1);
-                    Util.setShort(apduBuf, (short) (apduBufLen - 2), (short) (upperAPDUUsed + amt));
+                    Util.setShort(inMemoryBuffer, OFFSET_UPPER_APDU_USED_SPACE, (short) (upperAPDUUsed + amt));
                     return encodeUpperAPDUOffset(offset);
                 }
             }
 
             if ((allowedLocations & LOWER_APDU) != 0) {
-                short apLowerUsed = (short) (0xFF & apduBuf[(short) (apduBufLen - 3)]);
-                short apLowerSpace = (short) (0xFF & apduBuf[(short) (apduBufLen - 4)]);
+                short apLowerUsed = (short)(0xFF & inMemoryBuffer[OFFSET_LOWER_APDU_USED_SPACE]);
+                short apLowerSpace = (short)(0xFF & inMemoryBuffer[OFFSET_LOWER_APDU_TOTAL_SPACE]);
                 if (amt <= (short) (apLowerSpace - apLowerUsed)) {
                     // Lower APDU buffer has room
                     if ((short) (apLowerUsed + amt) <= (short) (apduBufLen - upperAPDUUsed)) {
                         // ... and it doesn't overlap the already-allocated part of the upper APDU buffer
-                        apduBuf[(short) (apduBufLen - 3)] += amt;
+                        inMemoryBuffer[OFFSET_LOWER_APDU_USED_SPACE] = (byte)(inMemoryBuffer[OFFSET_UPPER_APDU_USED_SPACE] + amt);
                         return encodeLowerAPDUOffset(apLowerUsed);
                     }
                 }
@@ -233,11 +243,11 @@ public final class BufferManager {
             final byte[] apduBuf = apdu.getBuffer();
             final short apduBufLen = getAPDUBufferLength(apduBuf);
             if (handle <= -256) {
-                final short curUsed = Util.getShort(apduBuf, (short)(apduBufLen - 2));
-                Util.setShort(apduBuf, (short)(apduBufLen - 2), (short)(curUsed - amt));
+                final short curUsed = Util.getShort(inMemoryBuffer, OFFSET_UPPER_APDU_USED_SPACE);
+                Util.setShort(inMemoryBuffer, OFFSET_UPPER_APDU_USED_SPACE, (short)(curUsed - amt));
                 return;
             }
-            apduBuf[(short)(apduBufLen - 3)] -= amt;
+            inMemoryBuffer[OFFSET_LOWER_APDU_USED_SPACE] -= amt;
             return;
         }
         Util.setShort(inMemoryBuffer, OFFSET_FLASH_USED_SPACE,
