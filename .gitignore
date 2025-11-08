@@ -1,6 +1,8 @@
 /.gradle
 /.idea
+/.vscode
 /build
 /venv
+.env
 __pycache__
 /bin
