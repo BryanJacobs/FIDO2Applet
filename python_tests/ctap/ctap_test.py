@@ -16,7 +16,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives._serialization import Encoding
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey, EllipticCurvePrivateKey
-from fido2.client import UserInteraction, Fido2Client, _Ctap2ClientBackend
+from fido2.client import UserInteraction, Fido2Client, DefaultClientDataCollector, _Ctap2ClientBackend
 from fido2.cose import ES256
 from fido2.ctap import CtapDevice
 from fido2.ctap1 import Ctap1
@@ -31,8 +31,6 @@ from fido2.webauthn import ResidentKeyRequirement, PublicKeyCredentialCreationOp
     AuthenticatorAttestationResponse, PublicKeyCredentialRequestOptions
 
 import fido2.features
-
-fido2.features.webauthn_json_mapping.enabled = False
 
 
 class CommandType(enum.Enum):
@@ -370,8 +368,8 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
             user_interaction = UserInteraction()
         if origin is None:
             origin = 'https://' + self.rp_id
-        return Fido2Client(self.device, origin=origin,
-                           extension_types=extensions, user_interaction=user_interaction)
+        return Fido2Client(self.device, client_data_collector=DefaultClientDataCollector(origin=origin),
+                           extensions=extensions, user_interaction=user_interaction)
 
     def get_high_level_make_cred_options(self,
                                          resident_key: ResidentKeyRequirement = ResidentKeyRequirement.DISCOURAGED,
