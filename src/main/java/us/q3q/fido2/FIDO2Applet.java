@@ -1054,14 +1054,16 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     if (!foundRPMatchInRKs) {
                         uniqueRP = true;
                     }
-                } else if (targetRKSlot < (short)(numResidentCredentials - 1)) {
+                } else {
+                    uniqueRP = residentKeys[targetRKSlot].isUniqueRP();                    
+                    if (targetRKSlot < (short)(numResidentCredentials - 1)) {
                     // We need to put the credential at the end of the list so it's still the "most recent" one
                     for (short i = targetRKSlot; i < (short)(numResidentCredentials - 1); i++) {
                         residentKeys[i] = residentKeys[(short)(i + 1)];
                     }
                     targetRKSlot = (short)(numResidentCredentials - 1);
                 }
-
+               }
                 byte effectiveCredBlobLen = credBlobLen;
                 if (effectiveCredBlobLen > MAX_CRED_BLOB_LEN) {
                     // Ignore
