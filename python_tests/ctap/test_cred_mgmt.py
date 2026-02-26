@@ -176,3 +176,26 @@ class CredManagementTestCase(CredManagementBaseTestCase):
         after_cred = cm.enumerate_creds(rp_id_hash=self.rp_id_hash(self.rp_id))[0]
         self.assertEqual(new_id, after_cred[6].get('id'))
         self.assertEqual(new_name, after_cred[6].get('name'))
+
+    def test_rk_overwrite(self):
+        pin_client = self.get_high_level_client(user_interaction=FixedPinUserInteraction(self.pin))
+        self.basic_makecred_params['options'] = {
+            'rk': True
+        }
+        creds = []
+
+        user_id = secrets.token_bytes(30)
+
+        for x in range(5):
+            pin_client.make_credential(
+                self.get_high_level_make_cred_options(
+                    ResidentKeyRequirement.REQUIRED, user_id=user_id
+                )
+            )
+
+            cm = self.get_credential_management()
+            rps = cm.enumerate_rps()
+            self.assertEqual(1, len(rps))
+
+            creds = cm.enumerate_creds(rp_id_hash=self.rp_id_hash(self.rp_id))
+            self.assertEqual(1, len(creds))
