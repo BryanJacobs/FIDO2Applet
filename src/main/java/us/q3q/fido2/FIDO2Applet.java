@@ -14,7 +14,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * The version of this applet in use
      */
-    private static final byte FIRMWARE_VERSION = 0x06;
+    private static final byte FIRMWARE_VERSION = 0x07;
 
     /**
      * The AID to which this applet should respond (ignoring any other AIDs sent to it)
@@ -1056,6 +1056,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     }
                 } else {
                     // Found a matching RK - overwrite it
+                    uniqueRP = residentKeys[targetRKSlot].isUniqueRP();
+
                     if (targetRKSlot < (short) (numResidentCredentials - 1)) {
                         // We need to put the credential at the end of the list so it's still the "most recent" one
                         for (short i = targetRKSlot; i < (short) (numResidentCredentials - 1); i++) {
@@ -1063,8 +1065,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         }
                         targetRKSlot = (short) (numResidentCredentials - 1);
                     }
-
-                    uniqueRP = residentKeys[targetRKSlot].isUniqueRP();
                 }
 
                 byte effectiveCredBlobLen = credBlobLen;
