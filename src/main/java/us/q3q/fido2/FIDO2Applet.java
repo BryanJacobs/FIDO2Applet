@@ -1040,6 +1040,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
             JCSystem.beginTransaction();
             boolean ok = false;
+            boolean overwriteExistingCredential = false;
             try {
                 // Set flag byte first, so encryption stuff below can use it
                 byte effectiveCPLevel = credProtectLevel;
@@ -1057,6 +1058,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 } else {
                     // Found a matching RK - overwrite it
                     uniqueRP = residentKeys[targetRKSlot].isUniqueRP();
+                    overwriteExistingCredential = true;
 
                     if (targetRKSlot < (short) (numResidentCredentials - 1)) {
                         // We need to put the credential at the end of the list so it's still the "most recent" one
@@ -1120,6 +1122,14 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     JCSystem.commitTransaction();
                 } else {
                     JCSystem.abortTransaction();
+                }
+
+                if (overwriteExistingCredential) {
+                    try {
+                        JCSystem.requestObjectDeletion();
+                    } catch (Exception e) {
+                        // No real problem, I guess
+                    }
                 }
             }
         } else {
@@ -5507,17 +5517,21 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         } finally {
             if (ok) {
                 JCSystem.commitTransaction();
-                sendErrorByte(apdu, FIDOConstants.CTAP2_OK);
             } else {
                 JCSystem.abortTransaction();
+            }
+
+            try {
+                JCSystem.requestObjectDeletion();
+            } catch (Exception e) {
+                // No problem, really
+            }
+
+            if (ok) {
+                sendErrorByte(apdu, FIDOConstants.CTAP2_OK);
+            } else {
                 throwException(ISO7816.SW_DATA_INVALID);
             }
-        }
-
-        try {
-            JCSystem.requestObjectDeletion();
-        } catch (Exception e) {
-            // No problem, really
         }
     }
 

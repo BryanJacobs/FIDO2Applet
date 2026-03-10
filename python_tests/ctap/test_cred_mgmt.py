@@ -305,3 +305,67 @@ class CredManagementTestCase(CredManagementBaseTestCase):
             cm = self.get_credential_management(client=pin_client)
             rps = cm.enumerate_rps()
             self.assertEqual(len(results), len(rps))
+
+    def test_uid_overwriting(self):
+        self.basic_makecred_params['options'] = {
+            'rk': True
+        }
+
+        user_ids_and_creds = {}
+
+        for rp_number in range(4):
+            rp_id = secrets.token_hex(20)
+            user_ids_and_creds[self.rp_id_hash(rp_id)] = {}
+            for cred_number in range(20):
+                user_id = secrets.token_bytes(30)
+                user_name = f"user{cred_number}"
+                pin_client = self.get_high_level_client(user_interaction=FixedPinUserInteraction(self.pin), origin='https://' + rp_id)
+                res = pin_client.make_credential(
+                    self.get_high_level_make_cred_options(
+                        ResidentKeyRequirement.REQUIRED,
+                        user_stuff={
+                            "name": user_name,
+                            "id": user_id
+                        },
+                        rp_id=rp_id
+                    )
+                )
+                user_ids_and_creds[self.rp_id_hash(rp_id)][cred_number] = (rp_id, user_id, user_name, res)
+
+        cm = self.get_credential_management()
+        rps = cm.enumerate_rps()
+        self.assertEqual(4, len(rps))
+
+        for rp in rps:
+            creds = cm.enumerate_creds(rp[4])
+            self.assertEqual(20, len(creds))
+            usernames = set([cred[6]["name"] for cred in creds])
+            self.assertEqual(sorted(list(usernames)), sorted([x[2] for x in user_ids_and_creds[rp[4]].values()]))
+            self.assertEqual(20, len(usernames))
+
+        for rp_number in range(2):
+            rp_id_hash = sorted(list(user_ids_and_creds.keys()))[rp_number]
+            for cred_number in range(10):
+                rp_id, user_id, user_name, prev_cred = user_ids_and_creds[rp_id_hash][cred_number]
+                pin_client = self.get_high_level_client(user_interaction=FixedPinUserInteraction(self.pin), origin='https://' + rp_id)
+                pin_client.make_credential(
+                    self.get_high_level_make_cred_options(
+                        ResidentKeyRequirement.REQUIRED,
+                        user_stuff={
+                            "name": user_name,
+                            "id": user_id
+                        },
+                        rp_id=rp_id
+                    )
+                )
+
+        cm = self.get_credential_management()
+        rps = cm.enumerate_rps()
+        self.assertEqual(4, len(rps))
+
+        for rp in rps:
+            creds = cm.enumerate_creds(rp[4])
+            self.assertEqual(20, len(creds))
+            usernames = set([cred[6]["name"] for cred in creds])
+            self.assertEqual(sorted(list(usernames)), sorted([x[2] for x in user_ids_and_creds[rp[4]].values()]))
+            self.assertEqual(20, len(usernames))
