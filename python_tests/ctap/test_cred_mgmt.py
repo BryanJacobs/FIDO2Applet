@@ -249,3 +249,59 @@ class CredManagementTestCase(CredManagementBaseTestCase):
         self.assertEqual(1, len(rps))
         creds = cm.enumerate_creds(rp_id_hash=self.rp_id_hash(self.rp_id))
         self.assertEqual(2, len(creds))
+
+    def test_many_rks_same_rp(self):
+        pin_client = self.get_high_level_client(user_interaction=FixedPinUserInteraction(self.pin))
+        self.basic_makecred_params['options'] = {
+            'rk': True
+        }
+
+        NUM_CREDS_TO_TEST = 200
+
+        results = []
+
+        for i in range(NUM_CREDS_TO_TEST):
+            user_id = secrets.token_bytes(30)
+            res = pin_client.make_credential(
+                self.get_high_level_make_cred_options(
+                    ResidentKeyRequirement.REQUIRED, user_id=user_id
+                )
+            )
+            results.append(res)
+
+            cm = self.get_credential_management()
+            rps = cm.enumerate_rps()
+            self.assertEqual(1, len(rps))
+            creds = cm.enumerate_creds(rp_id_hash=self.rp_id_hash(self.rp_id))
+            self.assertEqual(len(results), len(creds))
+
+        pin_client.get_assertion(self.get_high_level_assertion_opts_from_cred(cred=results[len(results)//2], rp_id=self.rp_id))
+
+    def test_many_rps(self):
+        self.basic_makecred_params['options'] = {
+            'rk': True
+        }
+
+        NUM_CREDS_TO_TEST = 200
+
+        results = []
+
+        for i in range(NUM_CREDS_TO_TEST):
+            user_id = secrets.token_bytes(30)
+            rp_id = secrets.token_hex(20)
+            pin_client = self.get_high_level_client(user_interaction=FixedPinUserInteraction(self.pin), origin='https://' + rp_id)
+            res = pin_client.make_credential(
+                self.get_high_level_make_cred_options(
+                    ResidentKeyRequirement.REQUIRED, user_id=user_id,
+                    rp_id=rp_id
+                )
+            )
+            results.append(res)
+
+            pin_client = self.get_high_level_client(
+                user_interaction=FixedPinUserInteraction(self.pin),
+                origin=''
+            )
+            cm = self.get_credential_management(client=pin_client)
+            rps = cm.enumerate_rps()
+            self.assertEqual(len(results), len(rps))

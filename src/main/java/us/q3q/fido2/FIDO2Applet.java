@@ -377,11 +377,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * How many resident key slots are filled
      */
-    private byte numResidentCredentials;
+    private short numResidentCredentials;
     /**
      * How many distinct RPs are present across all resident keys
      */
-    private byte numResidentRPs;
+    private short numResidentRPs;
     /**
      * Storage for the largeBlobs extension
      */
@@ -1050,7 +1050,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 boolean uniqueRP = false;
                 if (!foundMatchingRK) {
                     // We're filling an empty slot
-                    numResidentCredentials++;
+                    numResidentCredentials = (short)(numResidentCredentials + 1);
                     if (!foundRPMatchInRKs) {
                         uniqueRP = true;
                     }
@@ -1556,7 +1556,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_CBOR_UNEXPECTED_TYPE);
         }
         short valLen = (short)(typeB - 0x60);
-        readIdx += valLen + 1;
+        readIdx += (short)(valLen + 1);
         if (readIdx >= lc) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
         }
@@ -1574,7 +1574,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             // Not of type "public-key", although same length
             transientStorage.readyStoredVars();
         }
-        readIdx += typeValLen + 1;
+        readIdx += (short)(typeValLen + 1);
         if (readIdx >= lc) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_INVALID_CBOR);
         }
@@ -1941,7 +1941,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         boolean acceptedMatch = false;
 
         short hmacSecretBytes = 0;
-        byte numMatchesThisRP = 0;
+        short numMatchesThisRP = 0;
         short rkMatch = -1;
         short allowListLength = 0;
 
@@ -2964,11 +2964,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             }
         }
 
-        if (!matches) {
-            return false;
-        }
-
-        return true;
+        return matches;
     }
 
     /**
@@ -4988,10 +4984,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         } else {
                             residentKeys[rpHavingSameRP].setUniqueRP(true);
                         }
-                        for (short j = i; j < (short)(numResidentCredentials - 1); j++) {
+                        numResidentCredentials = (short)(numResidentCredentials - 1);
+                        for (short j = i; j < numResidentCredentials; j++) {
                             residentKeys[j] = residentKeys[(short)(j + 1)];
                         }
-                        residentKeys[--numResidentCredentials] = null;
+                        residentKeys[numResidentCredentials] = null;
                         ok = true;
                     } finally {
                         if (ok) {
@@ -5004,10 +5001,11 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     JCSystem.beginTransaction();
                     boolean ok = false;
                     try {
-                        for (short j = i; j < (short)(numResidentCredentials - 1); j++) {
+                        numResidentCredentials = (short)(numResidentCredentials - 1);
+                        for (short j = i; j < numResidentCredentials; j++) {
                             residentKeys[j] = residentKeys[(short)(j + 1)];
                         }
-                        residentKeys[--numResidentCredentials] = null;
+                        residentKeys[numResidentCredentials] = null;
                         ok = true;
                     } finally {
                         if (ok) {
@@ -5039,7 +5037,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      *                     If zero, we're starting a new iteration
      * @param lc Length of the incoming request, as sent by the platform
      */
-    private void handleEnumerateCreds(APDU apdu, byte[] buffer, short bufferIdx, short startCredIdx, short lc) {
+    private void handleEnumerateCreds(APDU apdu, byte[] buffer, short bufferIdx, final short startCredIdx, short lc) {
         transientStorage.clearIterationPointers();
 
         if (startCredIdx > (short) residentKeys.length) { // intentional > instead of >=
@@ -5099,7 +5097,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     rpIdHashBuf, credIdIdx, (byte) 3)) {
                 // Cred is for this RP ID, yay.
 
-                byte matchingCount = 1; // remember to count THIS cred as a match
+                short matchingCount = 1; // remember to count THIS cred as a match
                 if (startCredIdx == 0) {
                     // Unfortunately, we need to scan forward through all remaining credentials
                     // we're not storing a list of which creds share an RP, so this is the only way to get
@@ -5119,7 +5117,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         }
                     }
                 }
-                transientStorage.setCredIterationPointer((byte)(rkIndex + 1)); // resume iteration from beyond this one
+                transientStorage.setCredIterationPointer((short)(rkIndex + 1)); // resume iteration from beyond this one
 
                 byte[] outBuf = bufferMem;
 
@@ -5231,15 +5229,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      * This is, unfortunately, O(N^2) in the number of unique RPs.
      */
     private void updateRKStatekeeping(APDU apdu) {
-        short rp2Handle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.ANYWHERE);
-        byte[] rp2Buffer = bufferManager.getBufferForHandle(apdu, rp2Handle);
-        short rp2Offset = bufferManager.getOffsetForHandle(rp2Handle);
+        final short rp2Handle = bufferManager.allocate(apdu, CREDENTIAL_ID_LEN, BufferManager.ANYWHERE);
+        final byte[] rp2Buffer = bufferManager.getBufferForHandle(apdu, rp2Handle);
+        final short rp2Offset = bufferManager.getOffsetForHandle(rp2Handle);
 
-        short rp1Handle = bufferManager.allocate(apdu, RP_HASH_LEN, BufferManager.ANYWHERE);
-        byte[] rp1Buffer = bufferManager.getBufferForHandle(apdu, rp1Handle);
-        short rp1Offset = bufferManager.getOffsetForHandle(rp1Handle);
+        final short rp1Handle = bufferManager.allocate(apdu, RP_HASH_LEN, BufferManager.ANYWHERE);
+        final byte[] rp1Buffer = bufferManager.getBufferForHandle(apdu, rp1Handle);
+        final short rp1Offset = bufferManager.getOffsetForHandle(rp1Handle);
 
-        byte numUniqueRPsFound = 0;
+        short numUniqueRPsFound = 0;
 
         for (short rkIndex1 = 0; rkIndex1 < (short) residentKeys.length; rkIndex1++) {
             if (residentKeys[rkIndex1] == null) {
@@ -5328,7 +5326,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         outBuf[writeOffset++] = FIDOConstants.CTAP2_OK;
 
-        transientStorage.setRPIterationPointer((byte)(rkIndex + 1));
+        transientStorage.setRPIterationPointer((short)(rkIndex + 1));
 
         outBuf[writeOffset++] = isContinuation ? (byte) 0xA2 : (byte) 0xA3; // map with two or three keys
         outBuf[writeOffset++] = 0x03; // map key: rp
@@ -5407,12 +5405,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
      *
      * @return New write offset into given buffer
      */
-    private short encodeIntTo(byte[] outBuf, short writeOffset, byte v) {
+    private short encodeIntTo(byte[] outBuf, short writeOffset, short v) {
         if (v < 24) {
-            outBuf[writeOffset++] = v;
-        } else {
+            outBuf[writeOffset++] = (byte) v;
+        } else if (v < 256) {
             outBuf[writeOffset++] = 0x18; // Integer stored in one byte
-            outBuf[writeOffset++] = v;
+            outBuf[writeOffset++] = (byte) v;
+        } else {
+            outBuf[writeOffset++] = 0x19; // Integer stored in two bytes
+            writeOffset = Util.setShort(outBuf, writeOffset, v);
         }
         return writeOffset;
     }
@@ -6421,7 +6422,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 CannedCBOR.PUBLIC_KEY_DH_ALG_PREAMBLE, (short) 0, (short) CannedCBOR.PUBLIC_KEY_DH_ALG_PREAMBLE.length) != 0) {
             sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_UNSUPPORTED_ALGORITHM);
         }
-        readIdx += CannedCBOR.PUBLIC_KEY_DH_ALG_PREAMBLE.length;
+        readIdx += (short) CannedCBOR.PUBLIC_KEY_DH_ALG_PREAMBLE.length;
 
         short xIdx = readIdx;
         readIdx += KEY_POINT_LENGTH;

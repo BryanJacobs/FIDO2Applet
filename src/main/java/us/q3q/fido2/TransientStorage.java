@@ -35,31 +35,31 @@ public final class TransientStorage {
      * Cred or RP iteration index, used when iterating through creds or RPs with credManagement commands
      * Disambiguated by the most significant bit: 1 for RPs, 0 for creds
      */
-    private static final byte IDX_CRED_RP_ITERATION_POINTER = 5; // 1 byte
+    private static final byte IDX_CRED_RP_ITERATION_POINTER = 5; // 2 bytes
     /**
      * Index of next credential to consider when iterating through assertions with getNextAssertion commands
      */
-    private static final byte IDX_ASSERT_ITERATION_POINTER = 6; // 1 byte
+    private static final byte IDX_ASSERT_ITERATION_POINTER = 7; // 1 byte
     /**
      * When writing an overlong response using chained APDUs, stores the position we're up to in the outgoing buffer
      */
-    private static final byte IDX_CONTINUATION_OUTGOING_WRITE_OFFSET = 7; // 2 bytes
+    private static final byte IDX_CONTINUATION_OUTGOING_WRITE_OFFSET = 8; // 2 bytes
     /**
      * When writing an overlong response using chained APDUs, stores the remaining bytes in the outgoing buffer
      */
-    private static final byte IDX_CONTINUATION_OUTGOING_REMAINING = 9; // 2 bytes
+    private static final byte IDX_CONTINUATION_OUTGOING_REMAINING = 10; // 2 bytes
     /**
      * When reading an overlong incoming request using chained APDUs, stores the fill level of the incoming buffer
      */
-    private static final byte IDX_CHAINING_INCOMING_READ_OFFSET = 11; // 2 bytes
+    private static final byte IDX_CHAINING_INCOMING_READ_OFFSET = 12; // 2 bytes
     /**
      * Giant boolean bitfield that holds all the BOOL_IDX variables below
      */
-    private static final byte IDX_BOOLEAN_OMNIBUS = 13; // 1 byte
+    private static final byte IDX_BOOLEAN_OMNIBUS = 14; // 1 byte
     /**
      * How many bytes long the temp storage should be
      */
-    private static final byte NUM_RESET_BYTES = 14;
+    private static final byte NUM_RESET_BYTES = 15;
 
     // boolean bit indices held in BOOLEAN_OMNIBUS byte above
     /**
@@ -172,7 +172,7 @@ public final class TransientStorage {
     }
 
     public void clearIterationPointers() {
-        tempBytes[IDX_CRED_RP_ITERATION_POINTER] = 0;
+        Util.setShort(tempBytes, IDX_CRED_RP_ITERATION_POINTER, (short) 0);
     }
 
     public void clearAssertIterationPointer() {
@@ -304,26 +304,28 @@ public final class TransientStorage {
         setBoolByIdx(BOOL_IDX_RESET_RECEIVED_SINCE_POWERON, true);
     }
 
-    public byte getRPIterationPointer() {
-        if ((tempBytes[IDX_CRED_RP_ITERATION_POINTER] & 0x80) == 0) {
-            return 0x00;
+    public short getRPIterationPointer() {
+        final short ret = Util.getShort(tempBytes, IDX_CRED_RP_ITERATION_POINTER);
+        if (ret < 0) {
+            return (short)(ret * -1);
         }
-        return (byte)(tempBytes[IDX_CRED_RP_ITERATION_POINTER] & 0x7F);
+        return ret;
     }
 
-    public void setRPIterationPointer(byte val) {
-        tempBytes[IDX_CRED_RP_ITERATION_POINTER] = (byte)(val | 0x80);
+    public void setRPIterationPointer(short val) {
+        Util.setShort(tempBytes, IDX_CRED_RP_ITERATION_POINTER, (short)(val * -1));
     }
 
-    public byte getCredIterationPointer() {
-        if ((tempBytes[IDX_CRED_RP_ITERATION_POINTER] & 0x80) != 0) {
-            return 0x00;
+    public short getCredIterationPointer() {
+        final short ret = Util.getShort(tempBytes, IDX_CRED_RP_ITERATION_POINTER);
+        if (ret > 0) {
+            return ret;
         }
-        return tempBytes[IDX_CRED_RP_ITERATION_POINTER];
+        return 0;
     }
 
-    public void setCredIterationPointer(byte val) {
-        tempBytes[IDX_CRED_RP_ITERATION_POINTER] = val;
+    public void setCredIterationPointer(short val) {
+        Util.setShort(tempBytes, IDX_CRED_RP_ITERATION_POINTER, val);
     }
 
     public void setPinProtocolInUse(byte pinProtocol, byte pinPermissions) {

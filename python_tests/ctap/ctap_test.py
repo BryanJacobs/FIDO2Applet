@@ -647,13 +647,14 @@ class CredManagementBaseTestCase(CTAPTestCase, abc.ABC):
         self.pin = secrets.token_hex(10)
         ClientPin(self.ctap2).set_pin(self.pin)
 
-    def get_credential_management(self, permissions: Optional[int] = None) -> CredentialManagement:
+    def get_credential_management(self, permissions: Optional[int] = None, client = None) -> CredentialManagement:
         if permissions is None:
             permissions = self.PERMISSION_CRED_MGMT
 
-        client = self.get_high_level_client(
-            user_interaction=FixedPinUserInteraction(self.pin),
-        )
+        if client is None:
+            client = self.get_high_level_client(
+                user_interaction=FixedPinUserInteraction(self.pin),
+            )
         # noinspection PyTypeChecker
         be: _Ctap2ClientBackend = client._backend
         token = be._get_token(ClientPin(self.ctap2), permissions=permissions,
