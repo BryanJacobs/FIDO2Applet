@@ -14,7 +14,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * The version of this applet in use
      */
-    private static final byte FIRMWARE_VERSION = 0x07;
+    private static final byte FIRMWARE_VERSION = 0x08;
 
     /**
      * The AID to which this applet should respond (ignoring any other AIDs sent to it)
@@ -5003,6 +5003,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     } finally {
                         if (ok) {
                             JCSystem.commitTransaction();
+
+                            try {
+                                JCSystem.requestObjectDeletion();
+                            } catch (Exception e) {
+                                // freed next time we delete a cred?
+                            }
                         } else {
                             JCSystem.abortTransaction();
                         }
@@ -5020,6 +5026,12 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                     } finally {
                         if (ok) {
                             JCSystem.commitTransaction();
+
+                            try {
+                                JCSystem.requestObjectDeletion();
+                            } catch (Exception e) {
+                                // freed next time we delete a cred?
+                            }
                         } else {
                             JCSystem.abortTransaction();
                         }
