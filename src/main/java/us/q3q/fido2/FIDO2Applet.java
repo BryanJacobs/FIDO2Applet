@@ -1014,11 +1014,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 } catch (Exception e) {
                     sendErrorByte(apdu, FIDOConstants.CTAP2_ERR_KEY_STORE_FULL);
                 }
-                try {
-                    JCSystem.requestObjectDeletion();
-                } catch (Exception e) {
-                    // Do nothing - waste a tiny amount of memory
-                }
+                attemptToFreeMemory();
 
                 // Re-get available mem here, because we used/freed some
                 availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_PERSISTENT);
@@ -1125,11 +1121,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 }
 
                 if (overwriteExistingCredential) {
-                    try {
-                        JCSystem.requestObjectDeletion();
-                    } catch (Exception e) {
-                        // No real problem, I guess
-                    }
+                    attemptToFreeMemory();
                 }
             }
         } else {
@@ -1258,6 +1250,17 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         doSendResponse(apdu, outputLen);
+    }
+
+    /**
+     * Attempts to release no-longer-referenced memory back to the Javacard OS
+     */
+    private static void attemptToFreeMemory() {
+        try {
+            JCSystem.requestObjectDeletion();
+        } catch (Exception e) {
+            // No real problem, I guess
+        }
     }
 
 
@@ -4877,11 +4880,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         JCSystem.abortTransaction();
                     }
                 }
-                try {
-                    JCSystem.requestObjectDeletion();
-                } catch (Exception e) {
-                    // No real problem, I guess
-                }
+                attemptToFreeMemory();
                 break;
             }
         }
@@ -5004,11 +5003,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         if (ok) {
                             JCSystem.commitTransaction();
 
-                            try {
-                                JCSystem.requestObjectDeletion();
-                            } catch (Exception e) {
-                                // freed next time we delete a cred?
-                            }
+                            attemptToFreeMemory();
                         } else {
                             JCSystem.abortTransaction();
                         }
@@ -5027,11 +5022,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                         if (ok) {
                             JCSystem.commitTransaction();
 
-                            try {
-                                JCSystem.requestObjectDeletion();
-                            } catch (Exception e) {
-                                // freed next time we delete a cred?
-                            }
+                            attemptToFreeMemory();
                         } else {
                             JCSystem.abortTransaction();
                         }
@@ -5533,11 +5524,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 JCSystem.abortTransaction();
             }
 
-            try {
-                JCSystem.requestObjectDeletion();
-            } catch (Exception e) {
-                // No problem, really
-            }
+            attemptToFreeMemory();
 
             if (ok) {
                 sendErrorByte(apdu, FIDOConstants.CTAP2_OK);
@@ -7266,11 +7253,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
             availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT);
 
-            try {
-                JCSystem.requestObjectDeletion();
-            } catch (Exception e) {
-                // Whoops. Wasted some flash, I guess.
-            }
+            attemptToFreeMemory();
         }
 
         short targetMemAmount = 99; // 96+3=99 bytes desired RAM buffer left over, enough room for one 32-byte HMAC
