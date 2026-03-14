@@ -145,7 +145,7 @@ This threat scenario is explored in depth elsewhere, but in brief:
 - If you haven't set a PIN, that's the same as them knowing your PIN
   for this threat model
 
-### An attacker has physical acccess to my smartcard, and I didn't set a PIN
+### An attacker has physical access to my smartcard, and I didn't set a PIN
 
 The attacker has fully compromised your security and can use the
 authenticator to pretend to be you in any way it is able.

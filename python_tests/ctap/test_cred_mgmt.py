@@ -1,7 +1,8 @@
 import secrets
 
 from fido2.ctap2.extensions import CredProtectExtension
-from fido2.webauthn import ResidentKeyRequirement, PublicKeyCredentialUserEntity, PublicKeyCredentialDescriptor
+from fido2.webauthn import ResidentKeyRequirement, PublicKeyCredentialUserEntity, PublicKeyCredentialDescriptor, \
+    PublicKeyCredentialType
 from parameterized import parameterized
 
 from ctap.ctap_test import CredManagementBaseTestCase, FixedPinUserInteraction
@@ -14,7 +15,7 @@ class CredManagementTestCase(CredManagementBaseTestCase):
         ("high", CredProtectExtension.POLICY.REQUIRED),
     ])
     def test_deleting_rk(self, _, policy):
-        client = self.get_high_level_client(extensions=[CredProtectExtension],
+        client = self.get_high_level_client(extensions=[CredProtectExtension()],
                                             user_interaction=FixedPinUserInteraction(self.pin))
         resident_key = ResidentKeyRequirement.REQUIRED
 
@@ -24,7 +25,7 @@ class CredManagementTestCase(CredManagementBaseTestCase):
             {
                 "credentialProtectionPolicy": policy
             }
-        ))
+        )).response
         dcs_after_creation = self.ctap2.get_info().remaining_disc_creds
         cm = self.get_credential_management()
         cm.delete_cred(self.get_descriptor_from_cred_id(
@@ -37,7 +38,7 @@ class CredManagementTestCase(CredManagementBaseTestCase):
 
     def test_deleting_one_rk_for_rp(self):
         rp_id = 'a'
-        client = self.get_high_level_client(extensions=[CredProtectExtension],
+        client = self.get_high_level_client(extensions=[CredProtectExtension()],
                                             user_interaction=FixedPinUserInteraction(self.pin),
                                             origin = 'https://' + rp_id)
         resident_key = ResidentKeyRequirement.REQUIRED
@@ -56,7 +57,7 @@ class CredManagementTestCase(CredManagementBaseTestCase):
             },
             rp_id=rp_id,
             user_id=user_id_1
-        ))
+        )).response
         cred2 = client.make_credential(options=self.get_high_level_make_cred_options(
             resident_key,
             {
@@ -64,7 +65,7 @@ class CredManagementTestCase(CredManagementBaseTestCase):
             },
             rp_id=rp_id,
             user_id=user_id_2
-        ))
+        )).response
         self.assertNotEqual(
             cred1.attestation_object.auth_data.credential_data.credential_id,
             cred2.attestation_object.auth_data.credential_data.credential_id,
@@ -89,27 +90,29 @@ class CredManagementTestCase(CredManagementBaseTestCase):
         self.assertEqual(1, len(rps))
 
     def test_creating_many_rks(self):
-        client = self.get_high_level_client(extensions=[CredProtectExtension],
+        client = self.get_high_level_client(extensions=[CredProtectExtension()],
                                             user_interaction=FixedPinUserInteraction(self.pin))
-        client._verify_rp_id = lambda x: True
         resident_key = ResidentKeyRequirement.REQUIRED
         first_cred = client.make_credential(options=self.get_high_level_make_cred_options(
             resident_key
-        ))
+        )).response
         for x in range(100):
             rp_id = secrets.token_hex(20)
-            client.make_credential(options=self.get_high_level_make_cred_options(
+            mc_client = self.get_high_level_client(extensions=[CredProtectExtension()],
+                                                user_interaction=FixedPinUserInteraction(self.pin),
+                                                origin='https://' + rp_id)
+            mc_client.make_credential(options=self.get_high_level_make_cred_options(
                 resident_key, rp_id=rp_id
             ))
 
         res = client.get_assertion(self.get_high_level_assertion_opts_from_cred(cred=None, rp_id=self.rp_id))
         assertions = res.get_assertions()
         self.assertEqual(1, len(assertions))
-        self.assertEqual(res.get_response(0).credential_id,
+        self.assertEqual(res.get_response(0).raw_id,
                          first_cred.attestation_object.auth_data.credential_data.credential_id)
 
     def test_enumerating_mixed_security_creds(self):
-        pin_client = self.get_high_level_client(extensions=[CredProtectExtension],
+        pin_client = self.get_high_level_client(extensions=[CredProtectExtension()],
                                                 user_interaction=FixedPinUserInteraction(self.pin))
         resident_key = ResidentKeyRequirement.REQUIRED
         hs_cred = pin_client.make_credential(options=self.get_high_level_make_cred_options(
@@ -117,9 +120,9 @@ class CredManagementTestCase(CredManagementBaseTestCase):
             {
                 "credentialProtectionPolicy": CredProtectExtension.POLICY.REQUIRED
             }
-        ))
+        )).response
         other_rp = secrets.token_hex(18)
-        pin_client_other_suffix = self.get_high_level_client(extensions=[CredProtectExtension],
+        pin_client_other_suffix = self.get_high_level_client(extensions=[CredProtectExtension()],
                                                              user_interaction=FixedPinUserInteraction(self.pin),
                                                              origin='https://' + other_rp)
         other_hs_cred = pin_client_other_suffix.make_credential(options=self.get_high_level_make_cred_options(
@@ -128,7 +131,7 @@ class CredManagementTestCase(CredManagementBaseTestCase):
                 "credentialProtectionPolicy": CredProtectExtension.POLICY.REQUIRED
             },
             rp_id=other_rp
-        ))
+        )).response
         self.softResetCard()
         self.basic_makecred_params['options'] = {'rk': True}
         self.basic_makecred_params['user']['id'] = secrets.token_bytes(20)
@@ -158,13 +161,13 @@ class CredManagementTestCase(CredManagementBaseTestCase):
         pin_client = self.get_high_level_client(user_interaction=FixedPinUserInteraction(self.pin))
         cred = pin_client.make_credential(options=self.get_high_level_make_cred_options(
             ResidentKeyRequirement.REQUIRED
-        ))
+        )).response
         cm = self.get_credential_management()
         new_id = secrets.token_bytes(64)
         new_name = "Frooby Bobble"
 
         cm.update_user_info(cred_id=PublicKeyCredentialDescriptor(
-            type='public-key',
+            type=PublicKeyCredentialType.PUBLIC_KEY,
             id=cred.attestation_object.auth_data.credential_data.credential_id
         ), user_info=PublicKeyCredentialUserEntity(
             id=new_id,
@@ -215,7 +218,7 @@ class CredManagementTestCase(CredManagementBaseTestCase):
             self.get_high_level_make_cred_options(
                 ResidentKeyRequirement.REQUIRED, user_id=user_id_1
             )
-        )
+        ).response
 
         rps = cm.enumerate_rps()
         self.assertEqual(1, len(rps))
@@ -266,7 +269,7 @@ class CredManagementTestCase(CredManagementBaseTestCase):
                 self.get_high_level_make_cred_options(
                     ResidentKeyRequirement.REQUIRED, user_id=user_id
                 )
-            )
+            ).response
             results.append(res)
 
             cm = self.get_credential_management()
@@ -329,7 +332,7 @@ class CredManagementTestCase(CredManagementBaseTestCase):
                         },
                         rp_id=rp_id
                     )
-                )
+                ).response
                 user_ids_and_creds[self.rp_id_hash(rp_id)][cred_number] = (rp_id, user_id, user_name, res)
 
         cm = self.get_credential_management()

@@ -21,6 +21,7 @@ class AttestationModeSwitchTestCase(BasicAttestationTestCase):
         ("very long", 8000),
     ])
     def test_applying_cert_len(self, _, length):
+        self.ctap2._max_msg_size = length + 1024
         info_before = self.ctap2.get_info()
         self.assertEqual(Aaguid.NONE, info_before.aaguid)
 
@@ -48,6 +49,7 @@ class AttestationModeSwitchTestCase(BasicAttestationTestCase):
         ("very long", 8000),
     ])
     def test_applying_cert_len_with_large_blob(self, _, length):
+        self.ctap2._max_msg_size = length + 1024
         info_before = self.ctap2.get_info()
         self.assertEqual(Aaguid.NONE, info_before.aaguid)
 

@@ -63,6 +63,7 @@ class ExtendedAPDUTestCase(BasicAttestationTestCase):
         ("xlong", 5000)
     ])
     def test_basic_auth(self, _, length):
+        self.ctap2._max_msg_size = length + 1024
         cert_bytes = secrets.token_bytes(length)
         cert = self.gen_attestation_cert([cert_bytes])
         self.ctap2.send_cbor(

@@ -15,7 +15,7 @@ system locally with [pam-u2f](https://github.com/Yubico/pam-u2f).
 that aren't physically on an ordinary smartcard, such as biometrics or
 other on-board user verification. The implementation in the default configuration
 passes the official FIDO certification test suite version 1.7.17 in
-"CTAP2.1 full feature profile" mode.
+"CTAP2.1 full feature profile" mode. Some CTAP 2.2+ features are also supported.
 
 In order to run this outside a simulator, you will need
 [a compatible smartcard](docs/requirements.md). Some smartcards which
@@ -24,14 +24,14 @@ detailed requirements.
 
 You might be interested in [reading about the security model](docs/security_model.md).
 
-## Environment Setup and Building the application
-1. **Download JavacardKit**: Obtain a copy of [JavacardKit version 3.0.4](https://www.oracle.com/java/technologies/javacard-sdk-downloads.html) (or jckit_303 if you prefer).
-2. **Set Environment Variable**: Configure the `JC_HOME` environment variable to point to your JavacardKit directory.
+## Environment setup and building the application
+
+1. Configure the `JC_HOME` environment variable to point to a JavacardKit directory (optionally from the `sdks` submodule of this repository).
    ```bash
    export JC_HOME=<path_to_your_jckit_directory>
    ```
 
-3. **Run Gradle Build**: Execute the following command to build the JavaCard application, which will produce a `.cap` file for installation.
+2. Build the JavaCard application, producing a `.cap` file for installation in `build/javacard`.
     ```bash
    ./gradlew buildJavaCard
     ```
@@ -43,20 +43,18 @@ You might be interested in [reading about the security model](docs/security_mode
 You have multiple options for testing the JavaCard application:
 
 1. **Actual Smartcard**: You can test on a physical smartcard.
-2. **Virtual SmartCard**: Alternatively, you can use VSmartCard and JCardSim for quicker and easier testing.
+2. **Virtual SmartCard**: You can use VSmartCard and JCardSim for quicker and easier testing.
 
-### Detailed Steps
+### Detailed Steps for Virtual Testing
 
-#### Option 1: Using Actual Smartcard
-Simply install the `.cap` file onto the smartcard and proceed with testing.
-
-#### Option 2: Using Virtual SmartCard and JCardSim
-1. **VSmartCard and JCardSim**: Use these tools for a simulated environment.
-2. **Third-Party Testing Suites**: Utilize tools like SoloKey's `fido2-tests` for comprehensive analysis. The `VSim` class can help you get started.
+When running through VSmartCard and JCardSim, you can use
+tools like SoloKey's `fido2-tests` or other test suites.
+The `VSim` class in this repository might help you get started.
 
 #### Python Tests
-1. **Python Test Suite**: Navigate to the `python_tests` directory, which contains Python-language tests.
-2. **Run the Tests**: Execute the following commands to set up and run the tests.
+
+Navigate to the `python_tests` directory, which contains Python-language tests, and:
+
    ```bash
    export JC_HOME=<your_jckit>
    ./gradlew jar testJar
@@ -64,19 +62,25 @@ Simply install the `.cap` file onto the smartcard and proceed with testing.
    ./venv/bin/pip install -U -r requirements.txt
    ./venv/bin/python -m unittest discover -s python_tests
    ```
-3. **Interoperability**: These tests use the Python `python-fido2` library because there is currently no FIDO2 client library for the JVM. You can also test with `libfido2`, Python libraries, or the official FIDO Standards Tests (Javascript).
+
+These tests use the Python `python-fido2` library because there 
+was, before FIDOk at the time this app was written, no FIDO2 client library
+for the JVM. You can also test with `libfido2`, Python libraries, or the
+official FIDO Standards Tests (Javascript).
+
+By default, the Python tests use fast interprocess communication with the JVM,
+bypassing PC/SC. The tests take less than thirty seconds to run, for me, even
+though there are almost two hundred cases.
 
 #### Advanced Settings
-- **Fast IPC**: By default, the tests use fast interprocess communication with the JVM, bypassing PC/SC. The tests take less than
-fifteen seconds to run, for me, even though there are almost two hundred cases.
-- **Customization**: You can modify settings in `python_tests/ctap/ctap_test.py` to enable CTAP traffic logging, allow JVM remote debugging, or use a VSmartCard PC/SC connection.
 
-
+You can modify settings in `python_tests/ctap/ctap_test.py` to enable CTAP traffic logging,
+allow JVM remote debugging, or use a VSmartCard PC/SC connection instead of the default IPC.
 
 
 ## Contributing
 
-- If you wish to contribute to the project, feel free to raise a pull request or open an issue.
+If you wish to contribute to the project, feel free to raise a pull request or open an issue.
 
 ## Where to go Next
 
@@ -89,40 +93,48 @@ If you're a really detail-oriented person, you might enjoy reading
 
 ## Implementation Status
 
-| Feature                            | Status                                                |
-|------------------------------------|-------------------------------------------------------|
-| CTAP1/U2F                          | Implemented (see [install guide](docs/certs.md))      |
-| CTAP2.0 core                       | Implemented                                           |
-| CTAP2.1 core                       | Implemented                                           |
-| Resident keys                      | Implemented                                           |
-| User Presence                      | User always considered present: one verification only |
-| ECDSA (SecP256r1)                  | Implemented                                           |
-| Other crypto, like ed25519         | Not implemented - availability depends on hardware    |
-| Self attestation                   | Implemented                                           |
-| Basic attestation with ECDSA certs | Implemented (see [install guide](docs/certs.md))      |
-| Webauthn (NOT CTAP!) uvm extension | Implemented                                           |
-| Webauthn devicePubKey extension    | Not implemented                                       |
-| CTAP2.1 hmac-secret extension      | Implemented                                           |
-| CTAP2.1 alwaysUv option            | Implemented                                           |
-| CTAP2.1 credProtect option         | Implemented                                           |
-| CTAP2.1 PIN Protocol 1             | Implemented                                           |
-| CTAP2.1 PIN Protocol 2             | Implemented                                           |
-| CTAP2.1 credential management      | Implemented                                           |
-| CTAP2.1 enterprise attestation     | Implemented in code, disabled                         |
-| CTAP2.1 authenticator config       | Implemented                                           |
-| CTAP2.1 minPinLength extension     | Implemented, default max two RPIDs can receive        |
-| CTAP2.1 credBlob extension         | Implemented, discoverable creds only                  |
-| CTAP2.1 largeBlobKey extension     | Implemented                                           |
-| CTAP2.1 authenticatorLargeBlobs    | Implemented, default 1024 bytes storage (max 4k)      |
-| CTAP2.1 bio-stuff                  | Not implemented (doesn't make sense in this context?) |
-| Key backups                        | Not implemented                                       |
-| APDU chaining                      | Supported                                             |
-| Extended APDUs                     | Supported                                             |
-| Performance                        | Adequate (sub-3-second common operations)             |
-| Resource consumption               | Reasonably optimized for avoiding flash wear          |
-| Bugs                               | Yes                                                   |
-| Code quality                       | No                                                    |
-| Security                           | Theoretical, but see "bugs" row above                 |
+| Feature                             | Status                                                |
+|-------------------------------------|-------------------------------------------------------|
+| CTAP1/U2F                           | Implemented (see [install guide](docs/certs.md))      |
+| CTAP2.0 core                        | Implemented                                           |
+| CTAP2.1 core                        | Implemented                                           |
+| Resident keys / Discoverable creds  | Implemented                                           |
+| User Presence                       | User always considered present: one verification only |
+| ECDSA (SecP256r1)                   | Implemented                                           |
+| Other crypto, like ed25519          | Not implemented - availability depends on hardware    |
+| Self attestation                    | Implemented                                           |
+| Basic attestation with ECDSA certs  | Implemented (see [install guide](docs/certs.md))      |
+| Webauthn (NOT CTAP!) uvm extension  | Implemented                                           |
+| Webauthn devicePubKey extension     | Not implemented                                       |
+| CTAP2.1 hmac-secret extension       | Implemented                                           |
+| CTAP2.2 hmac-secret-mc extension    | Not implemented                                       |
+| CTAP2.1 alwaysUv option             | Implemented                                           |
+| CTAP2.1 credProtect option          | Implemented                                           |
+| CTAP2.1 PIN Protocol 1              | Implemented                                           |
+| CTAP2.1 PIN Protocol 2              | Implemented                                           |
+| CTAP2.1 credential management       | Implemented                                           |
+| CTAP2.1 enterprise attestation      | Implemented in code, disabled                         |
+| CTAP2.1 PIN complexity policies     | Not implemented (min length is supported though)      |
+| CTAP2.1 authenticator config        | Implemented                                           |
+| CTAP2.1 minPinLength extension      | Implemented, default max two RPIDs can receive        |
+| CTAP2.1 credBlob extension          | Implemented, discoverable creds only                  |
+| CTAP2.1 largeBlobKey extension      | Implemented                                           |
+| CTAP2.1 authenticatorLargeBlobs     | Implemented, default 1024 bytes storage (max 4k)      |
+| CTAP2.1 bio-stuff                   | Not implemented (doesn't make sense in this context?) |
+| CTAP2.2 thirdPartyPayment extension | Not implemented                                       |
+| CTAP2.2 persistent UV token         | Not implemented                                       |
+| CTAP2.2 encIdentifier               | Not implemented                                       |
+| CTAP2.2 uvCountSinceLastPinEntry    | Not implemented                                       |
+| CTAP2.3 long touch for reset        | Not implemented (doesn't make sense in this context)  |
+| CTAP2.2/2.3 hybrid authenticator    | Not implemented (doesn't make sense in this context)  |
+| Key backups                         | Not implemented                                       |
+| APDU chaining                       | Supported                                             |
+| Extended APDUs                      | Supported                                             |
+| Performance                         | Adequate (sub-3-second common operations)             |
+| Resource consumption                | Reasonably optimized for avoiding flash wear          |
+| Bugs                                | Probably? Many have been fixed. Appears to work OK.   |
+| Code quality                        | No                                                    |
+| Security                            | Theoretical, but see "bugs" row above                 |
 
 ## Software Compatibility
 

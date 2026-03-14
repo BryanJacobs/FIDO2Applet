@@ -76,13 +76,13 @@ class U2FTestCase(BasicAttestationTestCase):
     def test_cred_protect_low_usable_over_u2f(self):
         pin = secrets.token_hex(8)
         ClientPin(self.ctap2).set_pin(pin)
-        client = self.get_high_level_client(extensions=[CredProtectExtension],
+        client = self.get_high_level_client(extensions=[CredProtectExtension()],
                                             user_interaction=FixedPinUserInteraction(pin))
         cred = client.make_credential(options=self.get_high_level_make_cred_options(
             extensions={
                 "credentialProtectionPolicy": CredProtectExtension.POLICY.OPTIONAL_WITH_LIST
             }
-        ))
+        )).response
         self.ctap1.authenticate(client_param=secrets.token_bytes(32),
                                 app_param=self.rp_hash,
                                 key_handle=cred.attestation_object.auth_data.credential_data.credential_id)
@@ -90,13 +90,13 @@ class U2FTestCase(BasicAttestationTestCase):
     def test_cred_protect_high_not_usable_over_u2f(self):
         pin = secrets.token_hex(8)
         ClientPin(self.ctap2).set_pin(pin)
-        client = self.get_high_level_client(extensions=[CredProtectExtension],
+        client = self.get_high_level_client(extensions=[CredProtectExtension()],
                                             user_interaction=FixedPinUserInteraction(pin))
         cred = client.make_credential(options=self.get_high_level_make_cred_options(
             extensions={
                 "credentialProtectionPolicy": CredProtectExtension.POLICY.REQUIRED
             }
-        ))
+        )).response
         with self.assertRaises(ApduError) as e:
             self.ctap1.authenticate(client_param=secrets.token_bytes(32),
                                     app_param=self.rp_hash,
@@ -107,7 +107,7 @@ class U2FTestCase(BasicAttestationTestCase):
         client = self.get_high_level_client()
         cred = client.make_credential(options=self.get_high_level_make_cred_options(
             resident_key=ResidentKeyRequirement.REQUIRED
-        ))
+        )).response
         self.ctap1.authenticate(client_param=secrets.token_bytes(32),
                                 app_param=self.rp_hash,
                                 key_handle=cred.attestation_object.auth_data.credential_data.credential_id)
@@ -119,19 +119,19 @@ class U2FTestCase(BasicAttestationTestCase):
             extensions={
                 "credentialProtectionPolicy": CredProtectExtension.POLICY.OPTIONAL_WITH_LIST
             }
-        ))
+        )).response
         self.ctap1.authenticate(client_param=secrets.token_bytes(32),
                                 app_param=self.rp_hash,
                                 key_handle=cred.attestation_object.auth_data.credential_data.credential_id)
 
     def test_discoverable_high_security_not_usable_over_u2f(self):
-        client = self.get_high_level_client(extensions=[CredProtectExtension])
+        client = self.get_high_level_client(extensions=[CredProtectExtension()])
         cred = client.make_credential(options=self.get_high_level_make_cred_options(
             resident_key=ResidentKeyRequirement.REQUIRED,
             extensions={
                 "credentialProtectionPolicy": CredProtectExtension.POLICY.REQUIRED
             }
-        ))
+        )).response
         with self.assertRaises(ApduError) as e:
             self.ctap1.authenticate(client_param=secrets.token_bytes(32),
                                     app_param=self.rp_hash,
@@ -142,13 +142,13 @@ class U2FTestCase(BasicAttestationTestCase):
         pin = secrets.token_hex(8)
         ClientPin(self.ctap2).set_pin(pin)
         client = self.get_high_level_client(user_interaction=FixedPinUserInteraction(pin),
-                                            extensions=[CredProtectExtension])
+                                            extensions=[CredProtectExtension()])
         cred = client.make_credential(options=self.get_high_level_make_cred_options(
             resident_key=ResidentKeyRequirement.REQUIRED,
             extensions={
                 "credentialProtectionPolicy": CredProtectExtension.POLICY.REQUIRED
             }
-        ))
+        )).response
         with self.assertRaises(ApduError) as e:
             self.ctap1.authenticate(client_param=secrets.token_bytes(32),
                                     app_param=self.rp_hash,

@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime, timedelta
 from multiprocessing import Queue, Process
 from threading import Event
-from typing import ClassVar, Optional, Any, Type, Iterator, Callable, List
+from typing import ClassVar, Optional, Any, Type, Iterator, Callable, List, Mapping
 from unittest import TestCase
 
 from cryptography import x509
@@ -16,7 +16,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives._serialization import Encoding
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey, EllipticCurvePrivateKey
-from fido2.client import UserInteraction, Fido2Client, _Ctap2ClientBackend
+from fido2.client import UserInteraction, Fido2Client, _Ctap2ClientBackend, DefaultClientDataCollector
 from fido2.cose import ES256
 from fido2.ctap import CtapDevice
 from fido2.ctap1 import Ctap1
@@ -32,7 +32,7 @@ from fido2.webauthn import ResidentKeyRequirement, PublicKeyCredentialCreationOp
 
 import fido2.features
 
-fido2.features.webauthn_json_mapping.enabled = False
+#fido2.features.webauthn_json_mapping.enabled = False
 
 
 class CommandType(enum.Enum):
@@ -121,9 +121,7 @@ class JCardSimTestCase(TestCase, abc.ABC):
         elif len(test_jars) > 1:
             raise ValueError("More than one test jar in build/libs - remove all but one")
 
-        jc_home = os.environ.get("JC_HOME")
-        if not jc_home:
-            raise ValueError("$JC_HOME must be set to the path of your JavacardKit")
+        jc_home = os.path.join(my_path, 'sdks', 'jc305u4_kit')
         jc_jars = os.path.join(jc_home, 'lib')
 
         classpath = [
@@ -361,7 +359,7 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
     def get_assertion(self, rp_id: str, client_data: Optional[bytes] = None, **kwargs):
         return self.get_assertion_from_cred(cred=None, rp_id=rp_id, client_data=client_data, **kwargs)
 
-    def get_high_level_client(self, extensions: Optional[list[Type[Ctap2Extension]]] = None,
+    def get_high_level_client(self, extensions: Optional[list[Ctap2Extension]] = None,
                               user_interaction: UserInteraction = None,
                               origin: str = None) -> Fido2Client:
         if extensions is None:
@@ -370,8 +368,15 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
             user_interaction = UserInteraction()
         if origin is None:
             origin = 'https://' + self.rp_id
-        return Fido2Client(self.device, origin=origin,
-                           extension_types=extensions, user_interaction=user_interaction)
+
+        collector = DefaultClientDataCollector(origin=origin)
+
+        return Fido2Client(
+            self.device,
+            collector,
+            extensions=extensions,
+            user_interaction=user_interaction
+        )
 
     def get_high_level_make_cred_options(self,
                                          resident_key: ResidentKeyRequirement = ResidentKeyRequirement.DISCOURAGED,
@@ -424,14 +429,25 @@ class CTAPTestCase(JCardSimTestCase, abc.ABC):
             )
         )
 
-    def get_descriptor_from_cred_id(self, cred: bytes) -> PublicKeyCredentialDescriptor:
+    def get_descriptor_from_cred_id(self, cred_id: bytes) -> PublicKeyCredentialDescriptor:
         return PublicKeyCredentialDescriptor(
-            type=PublicKeyCredentialType.PUBLIC_KEY,
-            id=cred
+            **self.get_mapping_from_cred_id(cred_id)
         )
 
     def get_descriptor_from_cred(self, cred: AuthenticatorAttestationResponse) -> PublicKeyCredentialDescriptor:
         return self.get_descriptor_from_cred_id(cred.attestation_object.auth_data.credential_data.credential_id)
+
+    def get_allow_list_entry_from_cred(self, cred: AuthenticatorAttestationResponse) -> Mapping[str, Any]:
+        return self.get_mapping_from_cred_id(cred.attestation_object.auth_data.credential_data.credential_id)
+
+    def get_mapping_from_cred_id(self, cred_id: bytes) -> Mapping[str, Any]:
+        return {
+            'type': PublicKeyCredentialType.PUBLIC_KEY,
+            'id': cred_id
+        }
+
+    def get_allow_list_entry_from_ll_cred(self, cred: AttestationResponse) -> Mapping[str, Any]:
+        return self.get_mapping_from_cred_id(cred.auth_data.credential_data.credential_id)
 
     def get_descriptor_from_ll_cred(self, cred: AttestationResponse) -> PublicKeyCredentialDescriptor:
         return self.get_descriptor_from_cred_id(cred.auth_data.credential_data.credential_id)
@@ -657,6 +673,6 @@ class CredManagementBaseTestCase(CTAPTestCase, abc.ABC):
             )
         # noinspection PyTypeChecker
         be: _Ctap2ClientBackend = client._backend
-        token = be._get_token(ClientPin(self.ctap2), permissions=permissions,
-                              rp_id=None, event=None, on_keepalive=None, allow_internal_uv=False)
+        token = be._get_token(info=client.info, client_pin=ClientPin(self.ctap2), permissions=permissions,
+                              rp_id=None, event=None, on_keepalive=None, allow_internal_uv=False, allow_uv=False)
         return CredentialManagement(self.ctap2, pin_uv_protocol=PinProtocolV2(), pin_uv_token=token)

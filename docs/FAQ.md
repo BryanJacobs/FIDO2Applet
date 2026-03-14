@@ -63,8 +63,7 @@ Secondly, the CTAP API requires user presence detection, but there's really no
 way to do that on Javacard 3.0.4. We can't even use the "presence timeout"
 that is described in the spec for NFC devices: there's no timer! So you're
 always treated as being present, which is to some extent offset by the fact
-that anything real requires you type your PIN (if one is set)... Additionally,
-this app will not clear CTAP2.1 PIN token permissions on use.
+that anything real requires you type your PIN (if one is set)...
 
 So set a PIN, and unplug your card when you're not using it.
 
@@ -111,7 +110,7 @@ It will store:
 - up to 32 characters of the RP ID, again AES256 encrypted
 - a max 64-byte-long user ID, again AES256 encrypted
 - a user name, yet again AES256 encrypted
-- the 64-byte public key associated with the credential, unencrypted
+- the 64-byte public key associated with the credential, UNencrypted (it's public...)
 - Several 16-byte random IVs used for encrypting each field
 - the length of the RP ID, unencrypted
 - the length of the user ID, unencrypted

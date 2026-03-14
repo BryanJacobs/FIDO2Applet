@@ -30,7 +30,7 @@ class CredProtectTestCase(CTAPTestCase):
             {
                 "credentialProtectionPolicy": policy
             }
-        ))
+        )).response
         self.assertEqual(level, res.attestation_object.auth_data.extensions.get('credProtect'))
 
         self.softResetCard()  # Ensure everything is cleared from memory
@@ -63,7 +63,7 @@ class CredProtectTestCase(CTAPTestCase):
     ])
     def test_cred_protect_without_pin(self, _, level, policy,
                                       resident, discoverable_afterwards, usable_afterwards):
-        self.cred_protect_using_client(self.get_high_level_client(extensions=[CredProtectExtension]), level, policy,
+        self.cred_protect_using_client(self.get_high_level_client(extensions=[CredProtectExtension()]), level, policy,
                                        UserVerificationRequirement.DISCOURAGED,
                                        resident, discoverable_afterwards, usable_afterwards)
 
@@ -87,7 +87,7 @@ class CredProtectTestCase(CTAPTestCase):
         ClientPin(self.ctap2).set_pin(pin)
         ux = FixedPinUserInteraction(pin)
 
-        self.cred_protect_using_client(self.get_high_level_client(extensions=[CredProtectExtension],
+        self.cred_protect_using_client(self.get_high_level_client(extensions=[CredProtectExtension()],
                                                                   user_interaction=ux),
                                        level, policy, UserVerificationRequirement.REQUIRED,
                                        resident, discoverable_afterwards, usable_afterwards)
@@ -108,7 +108,7 @@ class CredProtectTestCase(CTAPTestCase):
         ClientPin(self.ctap2).set_pin(pin)
         ux = FixedPinUserInteraction(pin)
 
-        self.cred_protect_using_client(self.get_high_level_client(extensions=[CredProtectExtension],
+        self.cred_protect_using_client(self.get_high_level_client(extensions=[CredProtectExtension()],
                                                                   user_interaction=ux),
                                        level, policy, UserVerificationRequirement.DISCOURAGED,
                                        resident, discoverable_afterwards, usable_afterwards)
@@ -131,20 +131,20 @@ class CredProtectTestCase(CTAPTestCase):
         ClientPin(self.ctap2).set_pin(pin)
         ux = FixedPinUserInteraction(pin)
 
-        self.cred_protect_using_client(self.get_high_level_client(extensions=[CredProtectExtension],
+        self.cred_protect_using_client(self.get_high_level_client(extensions=[CredProtectExtension()],
                                                                   user_interaction=ux),
                                        level, policy, UserVerificationRequirement.DISCOURAGED,
                                        resident, discoverable_afterwards, usable_afterwards)
 
     def test_strong_protected_creds_ignored_on_exclude_list_without_pin(self):
         policy = CredProtectExtension.POLICY.REQUIRED
-        client = self.get_high_level_client(extensions=[CredProtectExtension])
+        client = self.get_high_level_client(extensions=[CredProtectExtension()])
         res = client.make_credential(options=self.get_high_level_make_cred_options(
             ResidentKeyRequirement.DISCOURAGED,
             {
                 "credentialProtectionPolicy": policy
             }
-        ))
+        )).response
         self.basic_makecred_params['exclude_list'] = [{
             "type": "public-key",
             "id": res.attestation_object.auth_data.credential_data.credential_id
@@ -154,13 +154,13 @@ class CredProtectTestCase(CTAPTestCase):
 
     def test_level_3_protected_creds_ignored_on_exclude_list_without_pin(self):
         policy = CredProtectExtension.POLICY.REQUIRED
-        client = self.get_high_level_client(extensions=[CredProtectExtension])
+        client = self.get_high_level_client(extensions=[CredProtectExtension()])
         res = client.make_credential(options=self.get_high_level_make_cred_options(
             ResidentKeyRequirement.REQUIRED,
             {
                 "credentialProtectionPolicy": policy
             }
-        ))
+        )).response
         self.basic_makecred_params['exclude_list'] = [{
             "type": "public-key",
             "id": res.attestation_object.auth_data.credential_data.credential_id
@@ -170,13 +170,13 @@ class CredProtectTestCase(CTAPTestCase):
 
     def test_level_2_protected_creds_effective_on_exclude_list_without_pin(self):
         policy = CredProtectExtension.POLICY.OPTIONAL_WITH_LIST
-        client = self.get_high_level_client(extensions=[CredProtectExtension])
+        client = self.get_high_level_client(extensions=[CredProtectExtension()])
         res = client.make_credential(options=self.get_high_level_make_cred_options(
             ResidentKeyRequirement.REQUIRED,
             {
                 "credentialProtectionPolicy": policy
             }
-        ))
+        )).response
         self.basic_makecred_params['exclude_list'] = [{
             "type": "public-key",
             "id": res.attestation_object.auth_data.credential_data.credential_id
@@ -188,18 +188,18 @@ class CredProtectTestCase(CTAPTestCase):
         self.assertEqual(CtapError.ERR.CREDENTIAL_EXCLUDED, e.exception.code)
 
     def test_low_sec_credprotect(self):
-        client = self.get_high_level_client(extensions=[CredProtectExtension])
+        client = self.get_high_level_client(extensions=[CredProtectExtension()])
         res = client.make_credential(options=self.get_high_level_make_cred_options(
-            ResidentKeyRequirement.REQUIRED,
-            {
+            resident_key=ResidentKeyRequirement.REQUIRED,
+            extensions={
                 "credentialProtectionPolicy": CredProtectExtension.POLICY.OPTIONAL
             }
-        ))
+        )).response
         ClientPin(self.ctap2).set_pin(pin="123939")
         self.softResetCard()
         self.ctap2.get_assertion(rp_id=self.rp_id, client_data_hash=secrets.token_bytes(32),
                                  allow_list=[
-                                     self.get_descriptor_from_cred(res)
+                                     self.get_allow_list_entry_from_cred(res)
                                  ],
                                  options={
                                      'uv': False,
@@ -219,7 +219,7 @@ class CredProtectDeletionTestCase(CredManagementBaseTestCase):
         ("Level 1R", CredProtectExtension.POLICY.OPTIONAL),
     ])
     def test_deleted_creds_are_gone(self, _, policy):
-        client = self.get_high_level_client(extensions=[CredProtectExtension],
+        client = self.get_high_level_client(extensions=[CredProtectExtension()],
                                             user_interaction=FixedPinUserInteraction(self.pin))
         resident_key = ResidentKeyRequirement.REQUIRED
 
@@ -228,7 +228,7 @@ class CredProtectDeletionTestCase(CredManagementBaseTestCase):
             {
                 "credentialProtectionPolicy": policy
             }
-        ))
+        )).response
 
         cm = self.get_credential_management()
         cm.delete_cred(self.get_descriptor_from_cred(cred))
@@ -250,7 +250,7 @@ class CredProtectRKVisTestCase(CredManagementBaseTestCase):
         ("Omitted", 1, None),
     ])
     def test_cred_protect_level_rk_visibility(self, _, level, policy):
-        client = self.get_high_level_client(extensions=[CredProtectExtension],
+        client = self.get_high_level_client(extensions=[CredProtectExtension()],
                                             user_interaction=FixedPinUserInteraction(self.pin))
         resident_key = ResidentKeyRequirement.REQUIRED
 
@@ -259,7 +259,7 @@ class CredProtectRKVisTestCase(CredManagementBaseTestCase):
             {
                 "credentialProtectionPolicy": policy
             }
-        ))
+        )).response
         extensions = res.attestation_object.auth_data.extensions
         if policy is None:
             self.assertIsNone(extensions)

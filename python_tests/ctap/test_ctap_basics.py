@@ -135,7 +135,7 @@ class CTAPBasicsTestCase(CTAPTestCase):
 
         cred = authed_client.make_credential(options=self.get_high_level_make_cred_options(
             resident_key=ResidentKeyRequirement.REQUIRED
-        ))
+        )).response
 
         unauthed_assertion = unauthed_client.get_assertion(
             self.get_high_level_assertion_opts_from_cred(cred)
@@ -215,11 +215,11 @@ class CTAPBasicsTestCase(CTAPTestCase):
         cred_res_2 = self.ctap2.make_credential(**self.basic_makecred_params)
         exclude_c1 = copy.copy(self.basic_makecred_params)
         exclude_c1['exclude_list'] = [
-            self.get_descriptor_from_ll_cred(cred_res_1)
+            self.get_allow_list_entry_from_ll_cred(cred_res_1)
         ]
         exclude_c2 = copy.copy(self.basic_makecred_params)
         exclude_c2['exclude_list'] = [
-            self.get_descriptor_from_ll_cred(cred_res_2)
+            self.get_allow_list_entry_from_ll_cred(cred_res_2)
         ]
 
         with self.assertRaises(CtapError) as e1:
@@ -312,12 +312,12 @@ class CTAPBasicsTestCase(CTAPTestCase):
                          assert_res.user['id'])
 
         self.basic_makecred_params['exclude_list'] = [
-            self.get_descriptor_from_ll_cred(resident_cred)
+            self.get_allow_list_entry_from_ll_cred(resident_cred)
         ]
         with self.assertRaises(CtapError) as e:
             self.ctap2.make_credential(**self.basic_makecred_params)
         self.basic_makecred_params['exclude_list'] = [
-            self.get_descriptor_from_ll_cred(non_resident_cred)
+            self.get_allow_list_entry_from_ll_cred(non_resident_cred)
         ]
         with self.assertRaises(CtapError) as e:
             self.ctap2.make_credential(**self.basic_makecred_params)
@@ -418,7 +418,9 @@ class CTAPBasicsTestCase(CTAPTestCase):
                 try:
                     self.ctap2.get_assertion(
                         client_data_hash=assert_client_data,
-                        allow_list=[self.get_descriptor_from_cred_id(munged_cred_id)],
+                        allow_list=[
+                            self.get_mapping_from_cred_id(munged_cred_id)
+                        ],
                         rp_id=self.rp_id
                     )
                 except CtapError as e:
@@ -430,7 +432,7 @@ class CTAPBasicsTestCase(CTAPTestCase):
 
         self.ctap2.get_assertion(
             client_data_hash=self.get_random_client_data(),
-            allow_list=[self.get_descriptor_from_cred_id(cred_id)],
+            allow_list=[self.get_mapping_from_cred_id(cred_id)],
             rp_id=self.rp_id
         )
 
@@ -458,10 +460,7 @@ class CTAPBasicsTestCase(CTAPTestCase):
                 rp_id='___different',
                 client_data_hash=assert_client_data,
                 allow_list=[
-                    {
-                        "type": "public-key",
-                        "id": cred_res.auth_data.credential_data.credential_id
-                    }
+                    self.get_mapping_from_cred_id(cred_res.auth_data.credential_data.credential_id)
                 ]
             )
         self.assertEqual(CtapError.ERR.NO_CREDENTIALS, e.exception.code)

@@ -263,7 +263,7 @@ class LargeBlobsTestCase(BasicAttestationTestCase):
         self.assertEqual(CtapError.ERR.LARGE_BLOB_STORAGE_FULL, e.exception.code)
 
     def test_largeblob_rejected_on_non_discoverable(self):
-        client = self.get_high_level_client(extensions=[LargeBlobExtension])
+        client = self.get_high_level_client(extensions=[LargeBlobExtension()])
         with self.assertRaises(ClientError) as e:
             client.make_credential(self.get_high_level_make_cred_options(
                 extensions={
@@ -276,12 +276,12 @@ class LargeBlobsTestCase(BasicAttestationTestCase):
         self.assertEqual(CtapError.ERR.INVALID_OPTION, e.exception.cause.code)
 
     def test_largeblob_ignored_when_not_requested(self):
-        client = self.get_high_level_client(extensions=[LargeBlobExtension])
+        client = self.get_high_level_client(extensions=[LargeBlobExtension()])
 
         cred = client.make_credential(self.get_high_level_make_cred_options(
             resident_key=ResidentKeyRequirement.REQUIRED
         ))
 
-        self.assertEqual({}, cred.extension_results)
+        self.assertEqual({}, cred.client_extension_results._members)
 
 

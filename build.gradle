@@ -14,7 +14,8 @@ plugins {
 var jcHomeSet = System.getenv("JC_HOME") != null
 if (!jcHomeSet) {
     project.logger.warn("JC_HOME environment variable not set - doing a testing/fake build with jCardSim!")
-    project.logger.warn("YOU WILL NOT BE ABLE TO BUILD A JAVACARD APPLET THIS WAY")
+    project.logger.warn("YOU WILL NOT BE ABLE TO BUILD A JAVACARD APPLET THIS WAY.")
+    project.logger.warn("You may point JC_HOME at one of the sdks in the git submodule (e.g. sdks/jc303_kit?)")
 }
 
 group = "us.q3q"

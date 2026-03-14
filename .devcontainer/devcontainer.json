@@ -1,0 +1,21 @@
+{
+  "name": "FIDO2AppletContainer",
+  "build": {
+	  "dockerfile": "./Dockerfile",
+          "context": ".."
+  },
+  "containerUser": "ubuntu",
+  "remoteUser": "ubuntu",
+  "runArgs": [
+    "--userns=keep-id"
+  ],
+  "customizations": {
+    "jetbrains": {
+      "plugins": [
+         "Pythonid",
+         "PythonCore",
+         "com.intellij.modules.python"
+      ]
+    }
+  }
+}

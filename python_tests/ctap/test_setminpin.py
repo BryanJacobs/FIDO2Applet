@@ -81,18 +81,18 @@ class SetMinPinTestCase(CTAPTestCase):
 
     def test_setminpin_rpids(self):
         self.get_cfg().set_min_pin_length(rp_ids=[self.rp_id], min_pin_length=6)
-        client = self.get_high_level_client([MinPinLengthExtension])
+        client = self.get_high_level_client([MinPinLengthExtension()])
         new_rpid = secrets.token_hex(10)
-        new_rpid_client = self.get_high_level_client([MinPinLengthExtension], origin='https://' + new_rpid)
+        new_rpid_client = self.get_high_level_client([MinPinLengthExtension()], origin='https://' + new_rpid)
 
         self.softResetCard()
 
         matching_cred = client.make_credential(self.get_high_level_make_cred_options(extensions={
             "minPinLength": True
-        }))
+        })).response
         nonmatching_cred = new_rpid_client.make_credential(self.get_high_level_make_cred_options(extensions={
             "minPinLength": True
-        }, rp_id=new_rpid))
+        }, rp_id=new_rpid)).response
 
         self.assertEqual(6, matching_cred.attestation_object.auth_data.extensions.get('minPinLength'))
         self.assertIsNone(nonmatching_cred.attestation_object.auth_data.extensions)
@@ -193,11 +193,11 @@ class SetMinPinTestCase(CTAPTestCase):
         self.assertEqual(CtapError.ERR.PIN_NOT_SET, e.exception.code)
 
     def test_accepts_extension_on_makecred(self):
-        client = self.get_high_level_client([MinPinLengthExtension])
+        client = self.get_high_level_client([MinPinLengthExtension()])
         cred = client.make_credential(self.get_high_level_make_cred_options(extensions={
             "minPinLength": True
         }))
-        self.assertIsNone(cred.extension_results.get("minPinLength"))
+        self.assertIsNone(cred.client_extension_results.get("minPinLength"))
 
     def test_rejects_false_extension_on_makecred(self):
         self.basic_makecred_params['extensions'] = {
