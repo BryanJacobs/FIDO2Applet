@@ -14,7 +14,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * The version of this applet in use
      */
-    private static final byte FIRMWARE_VERSION = 0x08;
+    private static final byte FIRMWARE_VERSION = 0x09;
 
     /**
      * The AID to which this applet should respond (ignoring any other AIDs sent to it)
@@ -1834,7 +1834,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 outBuffer, (short)(outOffset + IV_LEN));
 
         hmacSha256(apdu, credentialVerificationKey, (short) 0,
-                outBuffer, outOffset, (short)(CREDENTIAL_PAYLOAD_LEN + IV_LEN - 14),
+                outBuffer, outOffset, (short)(CREDENTIAL_PAYLOAD_LEN + IV_LEN),
                 scratch, scratchOff);
         Util.arrayCopyNonAtomic(scratch, scratchOff,
                 outBuffer, payloadOffset, (short) 16);
@@ -2912,7 +2912,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         }
 
         hmacSha256(apdu, credentialVerificationKey, (short) 0,
-                credentialBuffer, credentialOffset, (short)(CREDENTIAL_PAYLOAD_LEN + IV_LEN - 14),
+                credentialBuffer, credentialOffset, (short)(CREDENTIAL_PAYLOAD_LEN + IV_LEN),
                 outputBuffer, outputOffset);
 
         if (Util.arrayCompare(credentialBuffer, (short)(credentialOffset + CREDENTIAL_ID_LEN - 16),
