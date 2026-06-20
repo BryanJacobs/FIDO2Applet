@@ -4621,6 +4621,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                 }
                 sha256.doFinal(buffer, readOffset, rpIdLen,
                         minPinRPIDs, (short)(i * RP_HASH_LEN));
+                readOffset += rpIdLen;
             }
             for (; i < MAX_RP_IDS_MIN_PIN_LENGTH; i++) {
                 Util.arrayFillNonAtomic(minPinRPIDs, (short)(i * RP_HASH_LEN), RP_HASH_LEN, (byte) 0x00);

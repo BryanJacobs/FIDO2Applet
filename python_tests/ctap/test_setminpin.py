@@ -105,6 +105,11 @@ class SetMinPinTestCase(CTAPTestCase):
 
         self.assertEqual(CtapError.ERR.KEY_STORE_FULL, e.exception.code)
 
+    def test_set_two_rpids(self):
+        ids = ['z.com', 'b.com']
+
+        self.get_cfg().set_min_pin_length(rp_ids=ids)
+
     def test_four_ascii_chars(self):
         self.cp.set_pin("aaaa")
 
