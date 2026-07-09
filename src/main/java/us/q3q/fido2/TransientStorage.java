@@ -55,11 +55,11 @@ public final class TransientStorage {
     /**
      * Giant boolean bitfield that holds all the BOOL_IDX variables below
      */
-    private static final byte IDX_BOOLEAN_OMNIBUS = 14; // 1 byte
+    private static final byte IDX_BOOLEAN_OMNIBUS = 14; // 2 bytes
     /**
      * How many bytes long the temp storage should be
      */
-    private static final byte NUM_RESET_BYTES = 15;
+    private static final byte NUM_RESET_BYTES = 16;
 
     // boolean bit indices held in BOOLEAN_OMNIBUS byte above
     /**
@@ -94,6 +94,10 @@ public final class TransientStorage {
      * Set to true when the authenticator app is fully disabled until next reselect
      */
     private static final byte BOOL_IDX_AUTHENTICATOR_DISABLED = 7;
+    /**
+     * Set to true when a SELECT APDU for this applet was received and the applet has not been deselected since
+     */
+    private static final byte BOOL_IDX_APPLET_SELECTED = 8;
 
     public TransientStorage() {
         // Pin-retries-since-reset counter, which must be cleared on RESET, not on deselect, is stored in this array
@@ -106,17 +110,33 @@ public final class TransientStorage {
     }
 
     private boolean getBoolByIdx(byte idx) {
-        return (byte)((tempBytes[IDX_BOOLEAN_OMNIBUS] & (1 << idx))) != 0;
+        short offset = IDX_BOOLEAN_OMNIBUS;
+        if (idx >= 8) {
+            idx -= 8;
+            offset++;
+        }
+        return (byte)(tempBytes[offset] & (1 << idx)) != 0;
     }
 
     private void setBoolByIdx(byte idx, boolean val) {
-        if (val) {
-            tempBytes[IDX_BOOLEAN_OMNIBUS] =
-                    (byte)(tempBytes[IDX_BOOLEAN_OMNIBUS] | (1 << idx));
-        } else {
-            tempBytes[IDX_BOOLEAN_OMNIBUS] =
-                    (byte)(tempBytes[IDX_BOOLEAN_OMNIBUS] & ~(1 << idx));
+        short offset = IDX_BOOLEAN_OMNIBUS;
+        if (idx >= 8) {
+            idx -= 8;
+            offset++;
         }
+        if (val) {
+            tempBytes[offset] = (byte)(tempBytes[offset] | (1 << idx));
+        } else {
+            tempBytes[offset] = (byte)(tempBytes[offset] & ~(1 << idx));
+        }
+    }
+
+    public boolean isAppletSelected() {
+        return getBoolByIdx(BOOL_IDX_APPLET_SELECTED);
+    }
+
+    public void setAppletSelected() {
+        setBoolByIdx(BOOL_IDX_APPLET_SELECTED, true);
     }
 
     public boolean authenticatorDisabled() {

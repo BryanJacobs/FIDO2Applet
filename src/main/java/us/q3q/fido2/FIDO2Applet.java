@@ -405,10 +405,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     };
 
-    private static final short IDX_SELECTED = 0;
-
-    private boolean[] transientBooleans;
-
     /**
      * Deliver a particular byte array to the platform
      *
@@ -3480,7 +3476,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             return;
         }
 
-        if (!transientBooleans[IDX_SELECTED]) {
+        if (!transientStorage.isAppletSelected()) {
             ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
         }
 
@@ -4399,7 +4395,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             sendByteArray(apdu, CannedCBOR.U2F_V2_RESPONSE, (short) CannedCBOR.U2F_V2_RESPONSE.length);
         }
 
-        transientBooleans[IDX_SELECTED] = true;
+        transientStorage.setAppletSelected();
     }
 
     /**
@@ -7028,7 +7024,6 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         sha256 = MessageDigest.getInstance(MessageDigest.ALG_SHA_256, false);
 
         transientStorage = new TransientStorage();
-        transientBooleans = JCSystem.makeTransientBooleanArray((short)1, JCSystem.CLEAR_ON_DESELECT);
 
         final short availableMem = JCSystem.getAvailableMemory(JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT);
 
