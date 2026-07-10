@@ -3470,15 +3470,19 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         final short cla_ins = Util.getShort(apduBytes, ISO7816.OFFSET_CLA);
         final short p1_p2 = Util.getShort(apduBytes, ISO7816.OFFSET_P1);
 
+        if (cla_ins == (short) 0x00A4 && p1_p2 == (short) 0x0400) {
+            // Applet-select command, either extended-length SELECT or test shenanigans
+            handleAppletSelect(apdu);
+            return;
+        }
+
+        if (!transientStorage.isAppletSelected()) {
+            ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+        }
+
         if (cla_ins == (short) 0x8012 && p1_p2 == (short) 0x0100) {
             // Explicit disable command (NFCCTAP_CONTROL end CTAP_MSG). Turn off, and stay off.
             transientStorage.disableAuthenticator();
-        }
-
-        if (cla_ins == (short) 0x00A4 && p1_p2 == (short) 0x0400) {
-            // Applet-select command, probably part of test shenanigans
-            handleAppletSelect(apdu);
-            return;
         }
 
         if (transientStorage.authenticatorDisabled()) {
@@ -4390,6 +4394,8 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         } else {
             sendByteArray(apdu, CannedCBOR.U2F_V2_RESPONSE, (short) CannedCBOR.U2F_V2_RESPONSE.length);
         }
+
+        transientStorage.setAppletSelected();
     }
 
     /**

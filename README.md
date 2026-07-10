@@ -160,10 +160,10 @@ If you're a really detail-oriented person, you might enjoy reading
 
 | Application         | Status                         |
 |---------------------|--------------------------------|
-| Chrome on Android   | CTAP1 Only (Play Services [1]) |
+| Chrome on Android   | Working [1]                    |
 | Chrome on Linux     | Working, USBHID only [2]       |
 | Chrome on Windows   | Working                        |
-| Fennec on Android   | CTAP1 Only (Play Services [1]) |
+| Fennec on Android   | Working (Play Services [1])    |
 | WebView on Android  | Working                        |
 | Firefox on Linux    | Working, USBHID only [2]       |
 | Firefox on Windows  | Working                        |
@@ -176,14 +176,21 @@ If you're a really detail-oriented person, you might enjoy reading
 | FIDOk               | Working                        |
 
 There are two compatibility issues in the table above:
-1. Google Play Services on Android contains a complete webauthn implementation, but it appears to be
-   hardwired to use only "passkeys". If a site explicitly requests a *non-discoverable* credential,
-   you will be prompted to use an NFC security key, but this is only CTAP1 and not CTAP2. There's
-   nothing fundamentally preventing this from working on Android but the current state of Chrome
-   and Fennec are that CTAP2 doesn't, because both use the broken Play Services library. MicroG has
-   a fully-working implementation, though! See https://github.com/microg/GmsCore/pull/2194 for PIN
-   support.
-1. Some browsers support FIDO2 in theory but only allow USB security keys - this implementation
+1. Since the Google Play Services update v26.03 of January 2026, NFC FIDO2 authenticators with
+   resident credentials and PIN verification are supported for Android 9 and later.
+   The Google Play Services do require the applet to be installed with the `CardReset` privilege
+   as described in [the installation manual](docs/installation.md).
+
+   The system UI still does not allow for changing PIN or deleting credentials, for that you will
+   need an application such as [Authnkey](https://github.com/mimi89999/Authnkey)
+   ([F-Droid](https://f-droid.org/packages/pl.lebihan.authnkey/)
+   / [Google Play](https://f-droid.org/packages/pl.lebihan.authnkey/)).
+
+   Previously, the Google Play Services only supported CTAP1 over the NFC transport which was
+   restricted to the creation of *non-discoverable* credentials for second-factor authentication.
+   MicroG already had a fully-working implementation, though! See https://github.com/microg/GmsCore/pull/2194
+   for PIN support.
+2. Some browsers support FIDO2 in theory but only allow USB security keys - this implementation
    is for PC/SC, and doesn't implement USB HID, so it will only work with FIDO2
    implementations that can handle e.g. NFC tokens instead of being restricted to USB.
    In order to use a smartcard in these situations you'll need https://github.com/StarGate01/CTAP-bridge ,
