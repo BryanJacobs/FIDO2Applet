@@ -60,17 +60,22 @@ The user private key is stored inside the key handle. The key handle consists of
 Nonce := 15 random bytes
 IV := 16 random bytes
 Payload := SHA256(AppID) || Uauth.priv || CredProtectIndicationByte || Nonce
-EncryptedPayload := IV || AES256-CBC(Payload)
-KeyHandle := EncryptedPayload || Left16(SHA256(EncryptedPayload))
+EncryptedPayload := IV || AES256-CBC(K_wrap, IV, Payload)
+KeyHandle := EncryptedPayload || Left16(HMAC-SHA256(K_mac, EncryptedPayload))
 ```
 
 Where:
 
 - AppID is the CTAP1 Application ID or the CTAP2 Relying Party ID
 - Uauth.priv is the generated User Private Key, encoded as a raw point on the NIST P-256 curve
+- K_wrap is the Credential Wrapping Key (AES-256)
+- K_mac is the Credential Wrapping HMAC Key (a dedicated, randomly generated 256-bit key, distinct from K_wrap, regenerated on CTAP reset)
 - Left16 is a function taking the first 16 bytes of its input, discarding the remainder
 - CredProtectIndicationByte is a single byte containing the credential protection level applied to the credential. If
   the credential is generated as discoverable, the high bit of this byte is set to support later credential deletion
+
+The construction is Encrypt-then-HMAC: the HMAC is computed over the entire EncryptedPayload (including the IV) and is
+verified prior to any decryption or use of decrypted data.
 
 The Key Handle is used as the opaque Credential ID, for both discoverable and non-discoverable credentials.
 
