@@ -5518,6 +5518,10 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             counter.clear();
 
             transientStorage.fullyReset();
+            // A CTAP2 reset does not deselect the applet; fullyReset() clears the whole
+            // transient bitfield including the applet-selected bit, so restore it here to
+            // avoid rejecting all later commands with INS_NOT_SUPPORTED until the next SELECT.
+            transientStorage.setAppletSelected();
 
             forceInitKeyAgreementKey();
 
