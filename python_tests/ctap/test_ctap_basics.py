@@ -402,18 +402,48 @@ class CTAPBasicsTestCase(CTAPTestCase):
                              assert_res.credential['id'])
 
     def test_creds_are_tamper_resistant(self):
+        # Every byte of the credential ID must be authenticated: modifying any
+        # byte, in any way, must make the credential unusable - no exceptions.
+        # A single accepted forgery fails this test outright.
+        #
+        # This is necessarily a statistical test. A black-box client cannot
+        # distinguish "rejected because the HMAC didn't verify" from "rejected
+        # because decryption produced garbage that failed a policy check". If
+        # some trailing ciphertext bytes were left out of the credential HMAC
+        # (as in the historical bug where the HMAC covered the credential
+        # payload minus 14 bytes), mutations there still get rejected ~127/128
+        # of the time: CBC decryption garbles the credProtect byte, which is
+        # then accepted only if it happens to decode to level 0 or 1 with the
+        # RK flag clear (get_assertion without pinAuth permits at most level
+        # 1). So each mutation of an unauthenticated byte has a ~1/128 chance
+        # of being accepted. With MUTATIONS_PER_BYTE attempts on each of 14
+        # unauthenticated bytes, the miss probability is
+        # (127/128)^(14*MUTATIONS_PER_BYTE) - about 3% for 32.
+        #
+        # Do NOT add pinAuth/UV to these assertions and do NOT make the
+        # credential discoverable: both raise the accidental-acceptance
+        # probability and weaken the test.
+        MUTATIONS_PER_BYTE = 32
+
         cred_res = self.ctap2.make_credential(**self.basic_makecred_params)
 
         cred_id = cred_res.auth_data.credential_data.credential_id
+        assert_client_data = self.get_random_client_data()
 
         for i in range(len(cred_id)):
-            assert_client_data = self.get_random_client_data()
-            cred_as_bl = list(cred_id)
+            for x in range(MUTATIONS_PER_BYTE):
+                # The first 8 mutations flip each single bit in turn -
+                # including the high bit, which the old mod-128 mutation
+                # never touched. The rest are random nonzero XOR masks for
+                # extra statistical coverage. Every mutation is guaranteed
+                # to actually change the byte.
+                if x < 8:
+                    xor_mask = 1 << x
+                else:
+                    xor_mask = 1 + secrets.randbelow(255)
 
-            error_raised = False
-
-            for x in range(5):
-                munged_cred_id = bytearray(cred_as_bl[:i] + [((cred_as_bl[i] + 1 + x) % 128)] + cred_as_bl[i+1:])
+                munged_cred_id = bytearray(cred_id)
+                munged_cred_id[i] ^= xor_mask
 
                 try:
                     self.ctap2.get_assertion(
@@ -423,13 +453,17 @@ class CTAPBasicsTestCase(CTAPTestCase):
                         ],
                         rp_id=self.rp_id
                     )
+                    self.fail(
+                        f"Tampered credential was accepted! Byte index {i} "
+                        f"XORed with 0x{xor_mask:02x} - credential bytes are "
+                        f"not fully authenticated (HMAC coverage gap?)"
+                    )
                 except CtapError as e:
+                    # Rejection must come from the credential-matching path,
+                    # not from some incidental parsing failure
                     self.assertEqual(CtapError.ERR.NO_CREDENTIALS, e.code)
-                    error_raised = True
-                    break
 
-            self.assertTrue(error_raised)
-
+        # Sanity check: the untampered credential must still work
         self.ctap2.get_assertion(
             client_data_hash=self.get_random_client_data(),
             allow_list=[self.get_mapping_from_cred_id(cred_id)],
