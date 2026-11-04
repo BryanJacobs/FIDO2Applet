@@ -9,7 +9,7 @@ from fido2.ctap2.extensions import LargeBlobExtension
 from fido2.webauthn import ResidentKeyRequirement
 from parameterized import parameterized
 
-from .ctap_test import BasicAttestationTestCase
+from .ctap_test import BasicAttestationTestCase, CTAPTestCase
 
 
 class LargeBlobsTestCase(BasicAttestationTestCase):
@@ -285,3 +285,33 @@ class LargeBlobsTestCase(BasicAttestationTestCase):
         self.assertEqual({}, cred.client_extension_results._members)
 
 
+class LargeBlobStoreSizeTestCase(CTAPTestCase):
+    """Writes of several fragments, on an authenticator installed with a 4kB large blob store."""
+
+    def setUp(self, install_params=None) -> None:
+        super().setUp(bytes([0xA1, 0x07, 0x19, 0x10, 0x00]))
+        self.pin = secrets.token_hex(8)
+        self.client_pin = ClientPin(self.ctap2)
+        self.client_pin.set_pin(self.pin)
+
+    def write_blob(self, key: bytes, data: bytes) -> None:
+        token = self.client_pin.get_pin_token(self.pin, ClientPin.PERMISSION.LARGE_BLOB_WRITE)
+        LargeBlobs(self.ctap2, self.client_pin.protocol, token).put_blob(key, data)
+
+    @parameterized.expand([
+        ("second_fragment_fits_one_apdu", 1000),
+        ("second_fragment_chained", 1150),
+    ])
+    def test_write_then_read_back(self, _, size: int):
+        key = secrets.token_bytes(32)
+        data = secrets.token_bytes(size)
+
+        self.write_blob(key, data)
+
+        self.assertEqual(data, LargeBlobs(self.ctap2).get_blob(key))
+
+    def test_too_large_refused(self):
+        with self.assertRaises(CtapError) as e:
+            self.write_blob(secrets.token_bytes(32), secrets.token_bytes(4100))
+
+        self.assertEqual(CtapError.ERR.LARGE_BLOB_STORAGE_FULL, e.exception.code)

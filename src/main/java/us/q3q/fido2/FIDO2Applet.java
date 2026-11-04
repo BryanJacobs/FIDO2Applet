@@ -3609,15 +3609,16 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         short lcEffective = (short)(lc + 1);
         byte cmdByte = apduBytes[apdu.getOffsetCdata()];
 
-        if (cmdByte != FIDOConstants.CMD_LARGE_BLOBS) {
-            // Any command other than large blobs should reset the large-blob statekeeping
-            transientStorage.clearOutgoingContinuation();
-        }
-
         short chainingReadOffset = transientStorage.getChainIncomingReadOffset();
         if (chainingReadOffset > 0) {
             cmdByte = bufferMem[0];
             lcEffective += chainingReadOffset;
+        }
+
+        // This must come after the chaining check: the first byte of a later chained APDU is arbitrary data
+        if (cmdByte != FIDOConstants.CMD_LARGE_BLOBS) {
+            // Any command other than large blobs should reset the large-blob statekeeping
+            transientStorage.clearOutgoingContinuation();
         }
 
         if (cmdByte != FIDOConstants.CMD_CREDENTIAL_MANAGEMENT
