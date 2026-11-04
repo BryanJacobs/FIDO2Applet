@@ -5579,7 +5579,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         short offset = 0;
 
         short numOptions = 0x00B0;
-        boolean includeMaxMsgSize = bufferMem.length != 1024;
+        // Reported even at the CTAP default of 1024: libfido2 takes an absent value as zero, and then
+        // refuses every large blob operation
+        boolean includeMaxMsgSize = true;
         boolean includeCertifications = CERTIFICATION_LEVEL > 0;
         if (includeMaxMsgSize) {
             numOptions++;

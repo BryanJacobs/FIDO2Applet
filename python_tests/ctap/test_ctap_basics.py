@@ -2,6 +2,7 @@ import copy
 import secrets
 import unittest
 
+from fido2 import cbor
 from fido2.cose import ES256
 from fido2.ctap import CtapError
 from fido2.ctap2 import ClientPin
@@ -59,6 +60,12 @@ class CTAPBasicsTestCase(CTAPTestCase):
     def test_info_aaguid_none(self):
         info = self.ctap2.get_info()
         self.assertEqual(Aaguid.NONE, info.aaguid)
+
+    def test_info_reports_max_msg_size(self):
+        # Read the raw response, since python-fido2 fills in a default for an absent value
+        res = self.ctap2.device.call(0x10, bytes([0x04]))
+        self.assertEqual(0, res[0])
+        self.assertEqual(1024, cbor.decode(res[1:])[0x05])
 
     @unittest.skip("Providing this breaks the FIDO compliance test suite")
     def test_info_uv_modality_hint(self):
