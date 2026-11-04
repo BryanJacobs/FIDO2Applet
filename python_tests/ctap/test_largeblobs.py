@@ -301,6 +301,9 @@ class LargeBlobStoreSizeTestCase(CTAPTestCase):
     @parameterized.expand([
         ("second_fragment_fits_one_apdu", 1000),
         ("second_fragment_chained", 1150),
+        ("total_over_2047", 2000),
+        ("four_fragments", 3000),
+        ("nearly_full", 4030),
     ])
     def test_write_then_read_back(self, _, size: int):
         key = secrets.token_bytes(32)

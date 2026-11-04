@@ -187,7 +187,8 @@ public final class TransientStorage {
         }
         short mixedVal = Util.getShort(tempBytes, IDX_TEMP_BUF_IDX_STORAGE);
         byte lowerByte = tempBytes[IDX_TEMP_BUF_IDX_LEN];
-        byte upperByte = (byte)(mixedVal >> 12);
+        // The shift is arithmetic: without the mask, totals of 2048 and up would come back negative
+        byte upperByte = (byte)((mixedVal >> 12) & 0x0F);
         return (short)((upperByte << 8) | (lowerByte & 0xFF));
     }
 
