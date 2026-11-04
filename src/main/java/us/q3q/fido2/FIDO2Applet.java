@@ -2945,7 +2945,9 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         boolean matches = false;
 
-        if (potentiallyTryHighSecKey) {
+        // The high security key is not loaded until the PIN has been used since selection. Decrypting
+        // with it anyway throws an exception on real cards, when this should just be "no match"
+        if (potentiallyTryHighSecKey && highSecurityWrappingKey.isInitialized()) {
             final byte gottenCredProtLevelMixed = extractCredentialMixed(credentialBuffer, credentialOffset,
                     outputBuffer, outputOffset,
                     highSecurityWrappingKey);
