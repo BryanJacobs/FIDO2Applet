@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-26.04
     strategy:
       matrix:
-        sdk: [jc304_kit, jc305u4_kit]
+        sdk: [jc304_kit, jc305u4_kit, jc310b43_kit, jc320v24.0_kit]
     steps:
       - uses: actions/checkout@v7
         with:
