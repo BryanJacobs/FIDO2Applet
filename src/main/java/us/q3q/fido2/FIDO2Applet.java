@@ -14,7 +14,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * The version of this applet in use
      */
-    private static final byte FIRMWARE_VERSION = 0x09;
+    private static final byte FIRMWARE_VERSION = 0x0A;
 
     /**
      * The AID to which this applet should respond (ignoring any other AIDs sent to it)
@@ -135,7 +135,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * Maximum amount of the large blob store that can be affected at once
      */
-    private static final short MAX_FRAGMENT_LEN = 960;
+    private static short MAX_FRAGMENT_LEN;
     /**
      * Byte length of one EC point
      */
@@ -2928,7 +2928,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         // Use these vars to avoid unnecessary decryption attempts
         boolean potentiallyTryLowSecKey = !FORCE_ALWAYS_UV;
-        boolean potentiallyTryHighSecKey = (FORCE_ALWAYS_UV && !LOW_SECURITY_MAXIMUM_COMPLIANCE) || (maximumCredProtectLevel >= 3);
+        boolean potentiallyTryHighSecKey = highSecurityWrappingKey.isInitialized() && (FORCE_ALWAYS_UV && !LOW_SECURITY_MAXIMUM_COMPLIANCE) || (maximumCredProtectLevel >= 3);
 
         if (rkNum >= 0) {
             // Check credProtect level first, for resident keys
@@ -2940,7 +2940,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             if (!LOW_SECURITY_MAXIMUM_COMPLIANCE && (!USE_LOW_SECURITY_FOR_SOME_RKS || credProtectLevel > 2)) {
                 // No point trying the low-sec key for credProtect=3 RKs, or if they're all "high security"
                 potentiallyTryLowSecKey = false;
-                potentiallyTryHighSecKey = true;
+                potentiallyTryHighSecKey = highSecurityWrappingKey.isInitialized();
             }
             if (USE_LOW_SECURITY_FOR_SOME_RKS && credProtectLevel < 3) {
                 // No point trying the high security key for "low security" RKs either
@@ -3612,15 +3612,15 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
         short lcEffective = (short)(lc + 1);
         byte cmdByte = apduBytes[apdu.getOffsetCdata()];
 
-        if (cmdByte != FIDOConstants.CMD_LARGE_BLOBS) {
-            // Any command other than large blobs should reset the large-blob statekeeping
-            transientStorage.clearOutgoingContinuation();
-        }
-
         short chainingReadOffset = transientStorage.getChainIncomingReadOffset();
         if (chainingReadOffset > 0) {
             cmdByte = bufferMem[0];
             lcEffective += chainingReadOffset;
+        }
+
+        if (cmdByte != FIDOConstants.CMD_LARGE_BLOBS) {
+            // Any command other than large blobs should reset the large-blob statekeeping
+            transientStorage.clearOutgoingContinuation();
         }
 
         if (cmdByte != FIDOConstants.CMD_CREDENTIAL_MANAGEMENT
@@ -7313,6 +7313,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
             targetMemAmount += BUFFER_MEM_SIZE;
         }
         bufferMem = getTempOrFlashByteBuffer(BUFFER_MEM_SIZE, requestBufferInRam);
+        MAX_FRAGMENT_LEN = (short)(bufferMem.length - 64);
 
         initKeyAgreementKeyIfNecessary();
 

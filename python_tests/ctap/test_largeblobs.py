@@ -285,3 +285,25 @@ class LargeBlobsTestCase(BasicAttestationTestCase):
         self.assertEqual({}, cred.client_extension_results._members)
 
 
+class LargeBlobsNonDefaultMaxSizeTestCase(BasicAttestationTestCase):
+    """Writes of several fragments, on an authenticator installed with a 4kB large blob store."""
+    def setUp(self, install_params= None) -> None:
+        if install_params is None:
+            install_params = bytes([0xA1, 0x07, 0x19, 0x10, 0x00])
+        super().setUp(install_params)
+
+    @parameterized.expand([
+        ("under_one_apdu", 1000),
+        ("one_and_a_half", 1200),
+        ("two", 2000),
+        ("max", 4032),
+    ])
+    def test_set_and_get_large_blobs(self, _, num_bytes):
+        key = secrets.token_bytes(32)
+        blob_array = secrets.token_bytes(num_bytes)
+        LargeBlobs(self.ctap2).put_blob(key, blob_array)
+
+        self.softResetCard()
+
+        res = LargeBlobs(self.ctap2).get_blob(key)
+        self.assertEqual(blob_array, res)

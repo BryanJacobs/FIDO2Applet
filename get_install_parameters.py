@@ -8,12 +8,12 @@ if __name__ == '__main__':
                                      description="Return parameters for installing FIDO2Applet with custom settings")
     parser.add_argument('--enable-attestation', action='store_true', default=None,
                         help="Allows loading an attestation certificate after installing the applet")
-    parser.add_argument('--high-security', action='store_true', default=None,
+    parser.add_argument('--high-security', action='store_false', default=None,
                         help="Does not comply with the FIDO standards, but protects credentials against bugs or "
                              "faulty authenticator hardware. Implies high-security RKs.")
     parser.add_argument('--force-always-uv', action='store_true', default=None,
                         help="Requires the PIN for all operations, always")
-    parser.add_argument('--high-security-rks', action='store_true', default=None,
+    parser.add_argument('--high-security-rks', action='store_false', default=None,
                         help="Protects discoverable credentials against bugs and faulty authenticator hardware, "
                              "at the cost of standards compliance")
     parser.add_argument('--protect-against-reset', action='store_true', default=None,
