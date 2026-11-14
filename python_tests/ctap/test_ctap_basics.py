@@ -406,14 +406,26 @@ class CTAPBasicsTestCase(CTAPTestCase):
 
         cred_id = cred_res.auth_data.credential_data.credential_id
 
+        # First check the real credential DOES work
+        self.ctap2.get_assertion(
+            client_data_hash=self.get_random_client_data(),
+            allow_list=[
+                self.get_mapping_from_cred_id(cred_id)
+            ],
+            rp_id=self.rp_id
+        )
+
         for i in range(len(cred_id)):
             assert_client_data = self.get_random_client_data()
             cred_as_bl = list(cred_id)
 
             error_raised = False
 
-            for x in range(5):
-                munged_cred_id = bytearray(cred_as_bl[:i] + [((cred_as_bl[i] + 1 + x) % 128)] + cred_as_bl[i+1:])
+            for x in range(255):
+                if x == cred_as_bl[i]:
+                    continue
+
+                munged_cred_id = bytearray(cred_as_bl[:i] + [x] + cred_as_bl[i+1:])
 
                 try:
                     self.ctap2.get_assertion(
@@ -429,12 +441,6 @@ class CTAPBasicsTestCase(CTAPTestCase):
                     break
 
             self.assertTrue(error_raised)
-
-        self.ctap2.get_assertion(
-            client_data_hash=self.get_random_client_data(),
-            allow_list=[self.get_mapping_from_cred_id(cred_id)],
-            rp_id=self.rp_id
-        )
 
 
     def test_no_keys_found(self):
