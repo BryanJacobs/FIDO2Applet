@@ -280,7 +280,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
     /**
      * Authenticator-specific master key used for situations where a PIN cannot be presented.
      * This key is never used for credProtect level 3 keys unless LOW_SECURITY_MAXIMUM_COMPLIANCE is set.
-     * If FORCE_ALWAYS_UV is set, it's used for all keys.
+     * If FORCE_ALWAYS_UV is set, it's used for no keys.
      */
     private final AESKey lowSecurityWrappingKey;
     /**
@@ -1790,12 +1790,17 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
                                        byte[] rpIdHashBuffer, short rpIdHashOffset,
                                        byte[] outBuffer, short outOffset,
                                        short rkNum, boolean lowSecurity, byte credProtectLevel) {
-        if (rkNum >= 0 && !USE_LOW_SECURITY_FOR_SOME_RKS) {
+        if (FORCE_ALWAYS_UV && !LOW_SECURITY_MAXIMUM_COMPLIANCE && !USE_LOW_SECURITY_FOR_SOME_RKS) {
+            // never use the low-security key in always-always-UV incompliant mode
             lowSecurity = false;
-        }
-        // use low security even for RKs if LOW_SECURITY_MAXIMUM_COMPLIANCE
-        if (LOW_SECURITY_MAXIMUM_COMPLIANCE) {
-            lowSecurity = true;
+        } else {
+            if (rkNum >= 0 && !USE_LOW_SECURITY_FOR_SOME_RKS) {
+                lowSecurity = false;
+            }
+            // use low security even for RKs if LOW_SECURITY_MAXIMUM_COMPLIANCE
+            if (LOW_SECURITY_MAXIMUM_COMPLIANCE) {
+                lowSecurity = true;
+            }
         }
         // regardless of anything else, opportunistically use the high-sec key for credProtect-level-3 creds
         final byte pinProtocolInUse = transientStorage.getPinProtocolInUse();
@@ -2923,7 +2928,7 @@ public final class FIDO2Applet extends Applet implements ExtendedLength {
 
         // Use these vars to avoid unnecessary decryption attempts
         boolean potentiallyTryLowSecKey = !FORCE_ALWAYS_UV;
-        boolean potentiallyTryHighSecKey = maximumCredProtectLevel >= 3;
+        boolean potentiallyTryHighSecKey = (FORCE_ALWAYS_UV && !LOW_SECURITY_MAXIMUM_COMPLIANCE) || (maximumCredProtectLevel >= 3);
 
         if (rkNum >= 0) {
             // Check credProtect level first, for resident keys
