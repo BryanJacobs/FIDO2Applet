@@ -26,12 +26,12 @@ You might be interested in [reading about the security model](docs/security_mode
 
 ## Environment setup and building the application
 
+1. Install OpenJDK version 11 (not later) - Javacard "classic" SDKs are stuck in the past
 1. Configure the `JC_HOME` environment variable to point to a JavacardKit directory (optionally from the `sdks` submodule of this repository).
    ```bash
    export JC_HOME=<path_to_your_jckit_directory>
    ```
-
-2. Build the JavaCard application, producing a `.cap` file for installation in `build/javacard`.
+1. Build the JavaCard application, producing a `.cap` file for installation in `build/javacard`.
     ```bash
    ./gradlew buildJavaCard
     ```
