@@ -419,9 +419,9 @@ class CTAPBasicsTestCase(CTAPTestCase):
             assert_client_data = self.get_random_client_data()
             cred_as_bl = list(cred_id)
 
-            error_raised = False
-
             for x in range(255):
+                error_raised = False
+
                 if x == cred_as_bl[i]:
                     continue
 
@@ -438,9 +438,8 @@ class CTAPBasicsTestCase(CTAPTestCase):
                 except CtapError as e:
                     self.assertEqual(CtapError.ERR.NO_CREDENTIALS, e.code)
                     error_raised = True
-                    break
 
-            self.assertTrue(error_raised)
+                self.assertTrue(error_raised)
 
 
     def test_no_keys_found(self):
